@@ -17,6 +17,7 @@ class UvTool(Tool):
     description = "Astral Python package and project manager"
     category = "core"
     install_type = "script"
+    help_cmd = "uv --help"
 
     def is_installed(self) -> bool:
         return shutil.which("uv") is not None

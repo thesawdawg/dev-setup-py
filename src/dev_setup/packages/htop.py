@@ -13,6 +13,7 @@ class HtopTool(Tool):
     description = "Interactive process and resource monitor"
     category = "tools"
     install_type = "apt"
+    help_cmd = "man htop"
 
     def is_installed(self) -> bool:
         return shutil.which("htop") is not None

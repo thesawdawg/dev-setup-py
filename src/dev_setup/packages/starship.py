@@ -17,6 +17,7 @@ class StarshipTool(Tool):
     description = "Fast, cross-shell customizable prompt"
     category = "tools"
     install_type = "script"
+    help_cmd = "starship --help"
 
     def is_installed(self) -> bool:
         return shutil.which("starship") is not None

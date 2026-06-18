@@ -98,6 +98,10 @@ def add_cmd() -> None:
         if remove_script:
             kwargs["remove_script"] = remove_script
 
+    kwargs["help_cmd"] = ui.text_input(
+        "Help command (optional, e.g. tool --help):", required=False
+    )
+
     ui.console.print()
     ui.console.print("[bold]Summary[/]")
     for k, v in kwargs.items():

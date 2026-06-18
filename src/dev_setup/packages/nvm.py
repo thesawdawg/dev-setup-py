@@ -23,6 +23,7 @@ class NvmTool(Tool):
     description = "Node Version Manager + latest Node LTS"
     category = "core"
     install_type = "script"
+    help_cmd = "nvm help"
 
     def is_installed(self) -> bool:
         return (NVM_DIR / "nvm.sh").exists()

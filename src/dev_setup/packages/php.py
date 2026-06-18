@@ -13,6 +13,7 @@ class PhpTool(Tool):
     description = "PHP 8.4 + common extensions via ondrej/php PPA"
     category = "tools"
     install_type = "apt"
+    help_cmd = "php --help"
 
     def is_installed(self) -> bool:
         return shutil.which("php") is not None

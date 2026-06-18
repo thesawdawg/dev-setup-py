@@ -16,6 +16,7 @@ class DockerTool(Tool):
     description = "Container runtime + docker compose plugin"
     category = "core"
     install_type = "script"
+    help_cmd = "docker --help"
 
     def is_installed(self) -> bool:
         return shutil.which("docker") is not None

@@ -33,6 +33,7 @@ class GenericTool(Tool):
         script_url: str = "",
         install_script: str = "",
         remove_script: str = "",
+        help_cmd: str = "",
     ) -> None:
         self.key = key
         self.name = name
@@ -49,6 +50,7 @@ class GenericTool(Tool):
         self.script_url = script_url
         self.install_script = install_script
         self.remove_script = remove_script
+        self.help_cmd = help_cmd
 
     @classmethod
     def from_dict(cls, data: dict, key: str) -> "GenericTool":
@@ -68,6 +70,7 @@ class GenericTool(Tool):
             script_url=data.get("script_url", ""),
             install_script=data.get("install_script", ""),
             remove_script=data.get("remove_script", ""),
+            help_cmd=data.get("help_cmd", ""),
         )
 
     def to_dict(self) -> dict:
@@ -88,6 +91,7 @@ class GenericTool(Tool):
             ("script_url", self.script_url),
             ("install_script", self.install_script),
             ("remove_script", self.remove_script),
+            ("help_cmd", self.help_cmd),
         ]:
             if val:
                 d[field] = val

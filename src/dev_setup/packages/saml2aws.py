@@ -22,6 +22,7 @@ class Saml2AwsTool(Tool):
     description = "SAML → AWS STS credentials CLI (Versent)"
     category = "tools"
     install_type = "script"
+    help_cmd = "saml2aws --help"
 
     def is_installed(self) -> bool:
         return shutil.which("saml2aws") is not None

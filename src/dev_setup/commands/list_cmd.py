@@ -39,17 +39,19 @@ def list_cmd(show_filter: str, category: str) -> None:
         ui.console.print(f"  [bold magenta]{cat.upper()}[/]")
         ui.divider()
 
-        tbl = Table(box=None, padding=(0, 1), show_header=False)
-        tbl.add_column(width=2)
-        tbl.add_column(style="bold", min_width=14)
-        tbl.add_column(min_width=38)
-        tbl.add_column(style="dim", min_width=8)
-        tbl.add_column(style="dim")
+        tbl = Table(box=None, padding=(0, 1), show_header=True, header_style="dim")
+        tbl.add_column("", width=2)
+        tbl.add_column("Package", style="bold", min_width=12)
+        tbl.add_column("Description", min_width=36)
+        tbl.add_column("Type", style="dim", min_width=8)
+        tbl.add_column("Version", style="dim")
 
         for tool, is_inst in entries:
             icon = "[green bold]✔[/]" if is_inst else "[red bold]✘[/]"
             version = tool.get_version() if is_inst else ""
             tbl.add_row(icon, tool.key, tool.description, tool.install_type, version)
+            if tool.help_cmd:
+                tbl.add_row("", "", f"[dim cyan]  ? {tool.help_cmd}[/]", "", "")
 
         ui.console.print(tbl)
         ui.console.print()

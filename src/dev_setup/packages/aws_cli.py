@@ -20,6 +20,7 @@ class AwsCliTool(Tool):
     description = "Amazon Web Services command line interface (v2)"
     category = "tools"
     install_type = "script"
+    help_cmd = "aws help"
 
     def is_installed(self) -> bool:
         return shutil.which("aws") is not None

@@ -13,6 +13,7 @@ class Tool(ABC):
     category: str = "custom"
     install_type: str = "unknown"
     builtin: bool = True
+    help_cmd: str = ""
 
     @abstractmethod
     def is_installed(self) -> bool: ...
