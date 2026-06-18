@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+_ensure_uv() {
+    command -v uv &>/dev/null && return 0
+
+    echo "  ❯ uv not found — installing..."
+    if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
+        echo "  ✖ uv installation failed." >&2
+        echo "    Install manually: https://docs.astral.sh/uv/getting-started/installation/" >&2
+        exit 1
+    fi
+
+    if ! command -v uv &>/dev/null; then
+        echo "  ✖ uv not found after installation. Add ~/.local/bin to PATH and retry." >&2
+        exit 1
+    fi
+    echo "  ✔ uv installed"
+}
+
+_ensure_uv
+
+DEVSETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec uv run --project "$DEVSETUP_DIR" python -m dev_setup "$@"
