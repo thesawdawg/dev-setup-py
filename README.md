@@ -4,29 +4,52 @@ A Python-based CLI for managing your Linux development environment. Install, rem
 
 ---
 
-## How it works
-
-The entry point is a thin bash wrapper (`./dev-setup`) that bootstraps Python automatically:
-
-1. Checks for `uv` on `PATH`; installs it via the official installer if missing
-2. Runs `uv run --project <dir> python -m dev_setup` — uv provisions Python 3.11+ if needed
-3. All further logic (commands, UI, installs) is pure Python
-
-You never need to manually install Python or manage a virtualenv. The first invocation after a fresh clone may take a few seconds to resolve dependencies; every run after that is instant.
-
----
-
 ## Installation
+
+### From PyPI (recommended)
+
+The simplest install — no git clone required, Python 3.11+ is the only prerequisite:
+
+```bash
+# pipx gives the tool its own isolated environment (preferred)
+pipx install dev-setup
+
+# or plain pip
+pip install dev-setup
+```
+
+After install, `dev-setup` is available as a command. Run `dev-setup --help` to verify.
+
+### From source (development)
 
 ```bash
 git clone <repo-url> ~/dev-setup-py
 cd ~/dev-setup-py
-bash install.sh
+bash install.sh   # installs from PyPI via pipx or pip
 ```
 
-`install.sh` creates a symlink at `~/.local/bin/dev-setup` and ensures `~/.local/bin` is on `PATH` in `~/.bashrc`. Open a new terminal (or run `source ~/.bashrc`) and you're done.
+Or to run directly from the cloned repo without installing:
 
-> **Note:** Installing this tool symlinks `~/.local/bin/dev-setup`, which will replace an existing bash `dev-setup` at that path if you have one.
+```bash
+./dev-setup list   # creates a .venv on first run, then stays fast
+```
+
+The `./dev-setup` bash script requires Python 3.11+ and creates a local `.venv` automatically. On Debian/Ubuntu, if `python3-venv` is not installed, it falls back to `uv venv` if uv is available.
+
+For editable development installs:
+
+```bash
+pip install -e .
+dev-setup list
+```
+
+---
+
+## How it works
+
+When installed from PyPI (via `pip` or `pipx`), the `dev-setup` command is a standard Python entry point — Python is the only runtime dependency. The `[project.scripts]` entry in `pyproject.toml` maps `dev-setup` directly to `dev_setup.__main__:main`.
+
+The bash `./dev-setup` script in the repo is a convenience runner for the git-clone workflow. It creates a `.venv` using `python3 -m venv` (falling back to `uv venv` on systems where `python3-venv` is a separate package) and installs the project in editable mode on first run.
 
 ---
 

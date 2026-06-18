@@ -1,26 +1,66 @@
 #!/usr/bin/env bash
+# Local runner for development / git-clone installs.
+# For production: pip install dev-setup  or  pipx install dev-setup
 set -euo pipefail
 
+DEVSETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="$DEVSETUP_DIR/.venv"
+
+# Common locations where pip/pipx/uv install binaries
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
-_ensure_uv() {
-    command -v uv &>/dev/null && return 0
-
-    echo "  ❯ uv not found — installing..."
-    if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
-        echo "  ✖ uv installation failed." >&2
-        echo "    Install manually: https://docs.astral.sh/uv/getting-started/installation/" >&2
-        exit 1
-    fi
-
-    if ! command -v uv &>/dev/null; then
-        echo "  ✖ uv not found after installation. Add ~/.local/bin to PATH and retry." >&2
-        exit 1
-    fi
-    echo "  ✔ uv installed"
+_find_python() {
+    local py
+    for py in python3.13 python3.12 python3.11 python3; do
+        if command -v "$py" &>/dev/null; then
+            if "$py" -c "import sys; exit(0 if sys.version_info >= (3,11) else 1)" 2>/dev/null; then
+                echo "$py"
+                return 0
+            fi
+        fi
+    done
+    echo "  ✖ Python 3.11+ is required." >&2
+    echo "    Install from https://www.python.org/downloads/ or via your package manager." >&2
+    exit 1
 }
 
-_ensure_uv
+_setup_venv() {
+    local python="$1"
+    echo "  ❯ Creating virtual environment..."
 
-DEVSETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec uv run --project "$DEVSETUP_DIR" python -m dev_setup "$@"
+    if "$python" -m venv "$VENV" &>/dev/null; then
+        "$VENV/bin/pip" install --quiet -e "$DEVSETUP_DIR"
+        echo "  ✔ Ready"
+        return 0
+    fi
+
+    # python3 -m venv may leave a partial directory behind on failure — clean it up
+    rm -rf "$VENV"
+
+    # Debian/Ubuntu ships python3 without python3-venv by default.
+    # uv can create venvs with a bundled pip, bypassing ensurepip entirely.
+    if command -v uv &>/dev/null; then
+        echo "  ❯ python3-venv unavailable — falling back to uv venv..."
+        uv venv "$VENV" --quiet
+        VIRTUAL_ENV="$VENV" uv pip install -e "$DEVSETUP_DIR" --quiet
+        echo "  ✔ Ready"
+        return 0
+    fi
+
+    echo "  ✖ Could not create virtual environment." >&2
+    echo "" >&2
+    echo "  On Debian/Ubuntu, install the missing package:" >&2
+    echo "    sudo apt install python3-venv" >&2
+    echo "" >&2
+    echo "  Or install the tool directly (no venv needed):" >&2
+    echo "    pip install dev-setup   or   pipx install dev-setup" >&2
+    exit 1
+}
+
+PYTHON=$(_find_python)
+
+if [ ! -f "$VENV/bin/python" ] || ! "$VENV/bin/python" -c "import dev_setup" 2>/dev/null; then
+    _setup_venv "$PYTHON"
+fi
+
+exec "$VENV/bin/python" -m dev_setup "$@"

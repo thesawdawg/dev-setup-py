@@ -41,6 +41,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dev_setup"]
-
-[tool.uv]
-package = true
