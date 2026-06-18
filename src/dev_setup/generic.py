@@ -31,6 +31,8 @@ class GenericTool(Tool):
         git_remove_cmd: str = "",
         apt_packages: str = "",
         script_url: str = "",
+        install_script: str = "",
+        remove_script: str = "",
     ) -> None:
         self.key = key
         self.name = name
@@ -45,6 +47,8 @@ class GenericTool(Tool):
         self.git_remove_cmd = git_remove_cmd
         self.apt_packages = apt_packages
         self.script_url = script_url
+        self.install_script = install_script
+        self.remove_script = remove_script
 
     @classmethod
     def from_dict(cls, data: dict, key: str) -> "GenericTool":
@@ -62,6 +66,8 @@ class GenericTool(Tool):
             git_remove_cmd=data.get("git_remove_cmd", ""),
             apt_packages=data.get("apt_packages", ""),
             script_url=data.get("script_url", ""),
+            install_script=data.get("install_script", ""),
+            remove_script=data.get("remove_script", ""),
         )
 
     def to_dict(self) -> dict:
@@ -80,6 +86,8 @@ class GenericTool(Tool):
             ("git_remove_cmd", self.git_remove_cmd),
             ("apt_packages", self.apt_packages),
             ("script_url", self.script_url),
+            ("install_script", self.install_script),
+            ("remove_script", self.remove_script),
         ]:
             if val:
                 d[field] = val
@@ -175,6 +183,11 @@ class GenericTool(Tool):
                     ["bash", "-c", f"curl -fsSL '{self.script_url}' | sh"],
                     check=True, capture_output=True,
                 )
+        elif t == "bash":
+            if not self.install_script:
+                raise RuntimeError("install_script not set")
+            with ui.spinner(f"Installing {self.name}..."):
+                _run_bash_script(self.install_script)
         else:
             raise RuntimeError(f"Unsupported install type: {t!r}")
 
@@ -225,6 +238,14 @@ class GenericTool(Tool):
                 "Script-type packages cannot be auto-removed. "
                 "Remove manually then run: dev-setup delete " + self.key
             )
+        elif t == "bash":
+            if not self.remove_script:
+                raise RuntimeError(
+                    f"No remove script defined for '{self.key}'. "
+                    "Remove manually then run: dev-setup delete " + self.key
+                )
+            with ui.spinner(f"Removing {self.name}..."):
+                _run_bash_script(self.remove_script)
         else:
             raise RuntimeError(f"Unsupported remove type: {t!r}")
 
@@ -248,6 +269,24 @@ def _apt_installed(pkg: str) -> bool:
 def _git_clone_dest(url: str) -> Path:
     repo_name = url.rstrip("/").split("/")[-1].removesuffix(".git")
     return Path.home() / ".local" / "share" / "dev-setup" / repo_name
+
+
+def _run_bash_script(script: str) -> None:
+    """Write script to a temp file and execute it with bash, capturing output."""
+    import os
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
+        f.write(script)
+        tmp = f.name
+    try:
+        result = subprocess.run(["bash", tmp], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                result.stderr.strip() or f"Script exited with code {result.returncode}"
+            )
+    finally:
+        os.unlink(tmp)
 
 
 def _type_cmd(tool: GenericTool) -> str:
