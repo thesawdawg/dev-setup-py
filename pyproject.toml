@@ -1,13 +1,39 @@
 [project]
 name = "dev-setup"
 version = "1.0.0"
-description = "Development environment setup CLI"
+description = "Development environment setup CLI for Linux"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Sawyer", email = "sawyerksu@gmail.com" }
+]
+keywords = ["cli", "devtools", "setup", "linux", "developer"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Installation/Setup",
+    "Topic :: Utilities",
+]
 dependencies = [
     "click>=8.1",
     "rich>=13.0",
     "questionary>=2.0",
 ]
+
+[project.scripts]
+dev-setup = "dev_setup.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/thesawdawg/dev-setup-py"
 
 [build-system]
 requires = ["hatchling"]
