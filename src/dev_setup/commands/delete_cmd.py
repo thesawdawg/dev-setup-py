@@ -35,10 +35,5 @@ def delete_cmd(key: str) -> None:
         return
 
     pkg_file.unlink()
-
-    if key in registry._registry:
-        del registry._registry[key]
-    if key in registry._order:
-        registry._order.remove(key)
-
+    registry.deregister(key)
     ui.success(f"Package '{key}' deleted from registry.")

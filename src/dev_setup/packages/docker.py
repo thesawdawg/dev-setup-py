@@ -1,29 +1,21 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
 
-from dev_setup.base import Tool
+from dev_setup.base import WhichTool
 
 
-class DockerTool(Tool):
+class DockerTool(WhichTool):
     key = "docker"
     name = "Docker"
     description = "Container runtime + docker compose plugin"
     category = "core"
     install_type = "script"
     help_cmd = "docker --help"
-
-    def is_installed(self) -> bool:
-        return shutil.which("docker") is not None
-
-    def get_version(self) -> str:
-        r = subprocess.run(["docker", "--version"], capture_output=True, text=True)
-        return r.stdout.strip() if r.returncode == 0 else ""
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

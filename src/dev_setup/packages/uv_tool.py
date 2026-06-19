@@ -5,26 +5,19 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from dev_setup.base import Tool, patch_bashrc
+from dev_setup.base import WhichTool, patch_bashrc
 
 UV_PATH_BLOCK = "uv (and other ~/.local/bin tools)"
 UV_PATH_LINE = 'export PATH="$HOME/.local/bin:$PATH"'
 
 
-class UvTool(Tool):
+class UvTool(WhichTool):
     key = "uv"
     name = "uv"
     description = "Astral Python package and project manager"
     category = "core"
     install_type = "script"
     help_cmd = "uv --help"
-
-    def is_installed(self) -> bool:
-        return shutil.which("uv") is not None
-
-    def get_version(self) -> str:
-        r = subprocess.run(["uv", "--version"], capture_output=True, text=True)
-        return r.stdout.strip() if r.returncode == 0 else ""
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

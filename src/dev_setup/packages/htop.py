@@ -1,26 +1,18 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
 from typing import Optional
 
-from dev_setup.base import Tool
+from dev_setup.base import WhichTool
 
 
-class HtopTool(Tool):
+class HtopTool(WhichTool):
     key = "htop"
     name = "htop"
     description = "Interactive process and resource monitor"
     category = "tools"
     install_type = "apt"
     help_cmd = "man htop"
-
-    def is_installed(self) -> bool:
-        return shutil.which("htop") is not None
-
-    def get_version(self) -> str:
-        r = subprocess.run(["htop", "--version"], capture_output=True, text=True)
-        return r.stdout.strip().splitlines()[0] if r.returncode == 0 else ""
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

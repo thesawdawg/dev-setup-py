@@ -1,33 +1,25 @@
 from __future__ import annotations
 
 import platform
-import shutil
 import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Optional
 
-from dev_setup.base import Tool
+from dev_setup.base import WhichTool
 
 _AWS_CLI_DIR = Path("/usr/local/aws-cli")
 _AWS_BIN = Path("/usr/local/bin/aws")
 
 
-class AwsCliTool(Tool):
+class AwsCliTool(WhichTool):
     key = "aws"
     name = "AWS CLI"
     description = "Amazon Web Services command line interface (v2)"
     category = "tools"
     install_type = "script"
     help_cmd = "aws help"
-
-    def is_installed(self) -> bool:
-        return shutil.which("aws") is not None
-
-    def get_version(self) -> str:
-        r = subprocess.run(["aws", "--version"], capture_output=True, text=True)
-        return r.stdout.strip() or r.stderr.strip()
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

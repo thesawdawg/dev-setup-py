@@ -4,23 +4,16 @@ import shutil
 import subprocess
 from typing import Optional
 
-from dev_setup.base import Tool
+from dev_setup.base import WhichTool
 
 
-class PhpTool(Tool):
+class PhpTool(WhichTool):
     key = "php"
     name = "PHP 8.4"
     description = "PHP 8.4 + common extensions via ondrej/php PPA"
     category = "tools"
     install_type = "apt"
     help_cmd = "php --help"
-
-    def is_installed(self) -> bool:
-        return shutil.which("php") is not None
-
-    def get_version(self) -> str:
-        r = subprocess.run(["php", "--version"], capture_output=True, text=True)
-        return r.stdout.strip().splitlines()[0] if r.returncode == 0 else ""
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

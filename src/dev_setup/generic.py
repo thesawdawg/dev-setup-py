@@ -9,7 +9,20 @@ from typing import Optional
 from dev_setup.base import Tool
 
 CUSTOM_DIR = Path.home() / ".config" / "dev-setup" / "packages"
-_CUSTOM_DIR = CUSTOM_DIR
+
+_verbose: bool = False
+
+
+def _run(cmd: list, *, cwd: Optional[Path] = None) -> None:
+    """Run a command. Streams output when verbose, captures when not."""
+    if _verbose:
+        subprocess.run(cmd, check=True, cwd=cwd)
+    else:
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=cwd)
+        except subprocess.CalledProcessError as e:
+            msg = e.stderr.strip() if e.stderr else f"exit code {e.returncode}"
+            raise RuntimeError(msg) from e
 
 
 class GenericTool(Tool):
@@ -174,24 +187,18 @@ class GenericTool(Tool):
         elif t == "apt":
             if not self.apt_packages:
                 raise RuntimeError("apt_packages not set")
-            with ui.spinner(f"Installing {self.name} via apt..."):
-                subprocess.run(
-                    ["sudo", "apt-get", "install", "-y"] + self.apt_packages.split(),
-                    check=True, capture_output=True,
-                )
+            ui.info(f"Installing {self.name} via apt...")
+            _run(["sudo", "apt-get", "install", "-y"] + self.apt_packages.split())
         elif t == "script":
             if not self.script_url:
                 raise RuntimeError("script_url not set")
-            with ui.spinner(f"Running install script for {self.name}..."):
-                subprocess.run(
-                    ["bash", "-c", f"curl -fsSL '{self.script_url}' | sh"],
-                    check=True, capture_output=True,
-                )
+            ui.info(f"Running install script for {self.name}...")
+            _run(["bash", "-c", f"curl -fsSL '{self.script_url}' | sh"])
         elif t == "bash":
             if not self.install_script:
                 raise RuntimeError("install_script not set")
-            with ui.spinner(f"Installing {self.name}..."):
-                _run_bash_script(self.install_script)
+            ui.info(f"Installing {self.name}...")
+            _run_bash_script(self.install_script)
         else:
             raise RuntimeError(f"Unsupported install type: {t!r}")
 
@@ -228,15 +235,11 @@ class GenericTool(Tool):
                         ["bash", "-c", self.git_remove_cmd],
                         cwd=dest, capture_output=True,
                     )
-            import shutil as _shutil
             if dest.exists():
-                _shutil.rmtree(dest)
+                shutil.rmtree(dest)
         elif t == "apt":
-            with ui.spinner(f"Removing {self.name}..."):
-                subprocess.run(
-                    ["sudo", "apt-get", "remove", "-y"] + self.apt_packages.split(),
-                    check=True, capture_output=True,
-                )
+            ui.info(f"Removing {self.name}...")
+            _run(["sudo", "apt-get", "remove", "-y"] + self.apt_packages.split())
         elif t == "script":
             raise RuntimeError(
                 "Script-type packages cannot be auto-removed. "
@@ -248,8 +251,8 @@ class GenericTool(Tool):
                     f"No remove script defined for '{self.key}'. "
                     "Remove manually then run: dev-setup delete " + self.key
                 )
-            with ui.spinner(f"Removing {self.name}..."):
-                _run_bash_script(self.remove_script)
+            ui.info(f"Removing {self.name}...")
+            _run_bash_script(self.remove_script)
         else:
             raise RuntimeError(f"Unsupported remove type: {t!r}")
 
@@ -276,7 +279,6 @@ def _git_clone_dest(url: str) -> Path:
 
 
 def _run_bash_script(script: str) -> None:
-    """Write script to a temp file and execute it with bash, capturing output."""
     import os
     import tempfile
 
@@ -284,11 +286,7 @@ def _run_bash_script(script: str) -> None:
         f.write(script)
         tmp = f.name
     try:
-        result = subprocess.run(["bash", tmp], capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(
-                result.stderr.strip() or f"Script exited with code {result.returncode}"
-            )
+        _run(["bash", tmp])
     finally:
         os.unlink(tmp)
 

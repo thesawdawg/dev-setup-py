@@ -117,10 +117,8 @@ def add_cmd() -> None:
     tool = GenericTool(**kwargs)
     tool.save()
 
-    from dev_setup import registry as _reg
-    _reg._registry[key] = tool
-    if key not in _reg._order:
-        _reg._order.append(key)
+    from dev_setup import registry
+    registry.register(tool)
 
     ui.success(f"Package '{key}' added. Install with: dev-setup install {key}")
 

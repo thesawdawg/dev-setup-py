@@ -1,30 +1,22 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
 
-from dev_setup.base import Tool, patch_bashrc, remove_bashrc_block
+from dev_setup.base import WhichTool, patch_bashrc, remove_bashrc_block
 
 STARSHIP_BLOCK = "Starship prompt"
 STARSHIP_INIT_LINE = 'eval "$(starship init bash)"'
 
 
-class StarshipTool(Tool):
+class StarshipTool(WhichTool):
     key = "starship"
     name = "Starship"
     description = "Fast, cross-shell customizable prompt"
     category = "tools"
     install_type = "script"
     help_cmd = "starship --help"
-
-    def is_installed(self) -> bool:
-        return shutil.which("starship") is not None
-
-    def get_version(self) -> str:
-        r = subprocess.run(["starship", "--version"], capture_output=True, text=True)
-        return r.stdout.strip().splitlines()[0] if r.returncode == 0 else ""
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

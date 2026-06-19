@@ -59,8 +59,8 @@ def init() -> None:
         return
     _initialized = True
     _load_builtins()
-    from dev_setup.generic import _CUSTOM_DIR
-    _load_custom(_CUSTOM_DIR)
+    from dev_setup.generic import CUSTOM_DIR
+    _load_custom(CUSTOM_DIR)
 
 
 def get(key: str) -> Optional[Tool]:
@@ -76,3 +76,17 @@ def all_tools() -> List[Tool]:
 def exists(key: str) -> bool:
     init()
     return key in _registry
+
+
+def register(tool: Tool) -> None:
+    """Register (or replace) a tool in the live registry."""
+    init()
+    _register(tool)
+
+
+def deregister(key: str) -> None:
+    """Remove a tool from the live registry by key."""
+    init()
+    _registry.pop(key, None)
+    if key in _order:
+        _order.remove(key)

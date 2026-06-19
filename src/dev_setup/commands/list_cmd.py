@@ -31,7 +31,8 @@ def list_cmd(show_filter: str, category: str) -> None:
         ui.warn("No packages match the given filters.")
         return
 
-    for cat in ("core", "tools", "custom"):
+    _ORDER = {"core": 0, "tools": 1, "custom": 999}
+    for cat in sorted(by_cat, key=lambda c: (_ORDER.get(c, 500), c)):
         entries = by_cat.get(cat, [])
         if not entries:
             continue

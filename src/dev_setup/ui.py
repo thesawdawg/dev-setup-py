@@ -57,11 +57,12 @@ def divider() -> None:
 
 
 def print_banner() -> None:
+    from dev_setup import __version__
     t = Text()
     t.append(" dev", style="bold bright_magenta")
     t.append("-", style="dim")
     t.append("setup", style="bold white")
-    t.append("  v1.0.0", style="dim")
+    t.append(f"  v{__version__}", style="dim")
     console.print()
     console.print(Panel(t, border_style="bright_magenta", padding=(0, 2), expand=False))
     console.print()

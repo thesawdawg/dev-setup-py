@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import platform
-import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -10,27 +9,19 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from dev_setup.base import Tool
+from dev_setup.base import WhichTool
 
 _INSTALL_PATH = Path("/usr/local/bin/saml2aws")
 _RELEASES_API = "https://api.github.com/repos/Versent/saml2aws/releases/latest"
 
 
-class Saml2AwsTool(Tool):
+class Saml2AwsTool(WhichTool):
     key = "saml2aws"
     name = "saml2aws"
     description = "SAML → AWS STS credentials CLI (Versent)"
     category = "tools"
     install_type = "script"
     help_cmd = "saml2aws --help"
-
-    def is_installed(self) -> bool:
-        return shutil.which("saml2aws") is not None
-
-    def get_version(self) -> str:
-        r = subprocess.run(["saml2aws", "--version"], capture_output=True, text=True)
-        out = r.stdout.strip() or r.stderr.strip()
-        return out.splitlines()[0] if out else ""
 
     def install(self) -> Optional[str]:
         from dev_setup import ui
