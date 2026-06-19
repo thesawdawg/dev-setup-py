@@ -48,11 +48,14 @@ def list_cmd(show_filter: str, category: str) -> None:
         tbl.add_column("Version", style="dim")
 
         for tool, is_inst in entries:
+            missing = registry.missing_requires(tool) if not is_inst else []
             icon = "[green bold]✔[/]" if is_inst else "[red bold]✘[/]"
             version = tool.get_version() if is_inst else ""
             tbl.add_row(icon, tool.key, tool.description, tool.install_type, version)
             if tool.help_cmd:
                 tbl.add_row("", "", f"[dim cyan]  ? {tool.help_cmd}[/]", "", "")
+            if missing:
+                tbl.add_row("", "", f"[yellow]  ⚠ requires: {', '.join(missing)}[/]", "", "")
 
         ui.console.print(tbl)
         ui.console.print()

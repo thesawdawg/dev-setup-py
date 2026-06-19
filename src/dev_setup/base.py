@@ -16,6 +16,7 @@ class Tool(ABC):
     builtin: bool = True
     help_cmd: str = ""
     docs_url: str = ""
+    requires: list = []  # keys of tools that must be installed before this one
 
     @abstractmethod
     def is_installed(self) -> bool: ...

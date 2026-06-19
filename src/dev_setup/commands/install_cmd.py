@@ -38,6 +38,11 @@ def _install_one(tool: Tool) -> bool:
     if tool.is_installed():
         ui.success(f"{tool.name} is already installed: {tool.get_version()}")
         return True
+    missing = registry.missing_requires(tool)
+    if missing:
+        ui.error(f"Cannot install {tool.name} — missing required tools: {', '.join(missing)}")
+        ui.dim(f"Install first:  dev-setup install {' '.join(missing)}")
+        return False
     try:
         version = tool.install()
         msg = f"{tool.name} installed"
@@ -54,17 +59,20 @@ def _install_interactive() -> None:
     ui.print_banner()
     tools = registry.all_tools()
 
-    choices = [
-        questionary.Choice(
-            title=(
-                f"{'[installed] ' if t.is_installed() else ''}"
-                f"{t.key:<14} {t.description}"
-            ),
+    choices = []
+    for t in tools:
+        is_inst = t.is_installed()
+        missing = registry.missing_requires(t) if not is_inst else []
+        label = (
+            f"{'[installed] ' if is_inst else ''}"
+            f"{t.key:<14} {t.description}"
+        )
+        choices.append(questionary.Choice(
+            title=label,
             value=t.key,
             checked=False,
-        )
-        for t in tools
-    ]
+            disabled=f"requires {', '.join(missing)}" if missing else False,
+        ))
 
     selected = questionary.checkbox(
         "Select packages to install  (Space to toggle, Enter to confirm):",

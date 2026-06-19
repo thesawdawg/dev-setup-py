@@ -90,3 +90,12 @@ def deregister(key: str) -> None:
     _registry.pop(key, None)
     if key in _order:
         _order.remove(key)
+
+
+def missing_requires(tool: Tool) -> list:
+    """Return keys in tool.requires that are not currently installed."""
+    init()
+    return [
+        key for key in tool.requires
+        if key not in _registry or not _registry[key].is_installed()
+    ]

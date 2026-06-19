@@ -16,6 +16,7 @@ class PiAgentTool(Tool):
     install_type = "npm"
     help_cmd = "pi --help"
     docs_url = "https://www.npmjs.com/package/pi-coding-agent"
+    requires = ["nvm"]
 
     def is_installed(self) -> bool:
         try:

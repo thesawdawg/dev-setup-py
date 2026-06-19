@@ -48,6 +48,7 @@ class GenericTool(Tool):
         remove_script: str = "",
         help_cmd: str = "",
         docs_url: str = "",
+        requires: Optional[list] = None,
     ) -> None:
         self.key = key
         self.name = name
@@ -66,6 +67,13 @@ class GenericTool(Tool):
         self.remove_script = remove_script
         self.help_cmd = help_cmd
         self.docs_url = docs_url
+        # npm packages need nvm/node; explicit requires in JSON takes precedence
+        if requires is not None:
+            self.requires = requires
+        elif install_type == "npm":
+            self.requires = ["nvm"]
+        else:
+            self.requires = []
 
     @classmethod
     def from_dict(cls, data: dict, key: str) -> "GenericTool":
@@ -87,6 +95,7 @@ class GenericTool(Tool):
             remove_script=data.get("remove_script", ""),
             help_cmd=data.get("help_cmd", ""),
             docs_url=data.get("docs_url", ""),
+            requires=data.get("requires") or None,
         )
 
     def to_dict(self) -> dict:
@@ -112,6 +121,9 @@ class GenericTool(Tool):
         ]:
             if val:
                 d[field] = val
+        # Only persist explicit requires — auto-inferred ones are re-derived on load
+        if self.requires and not (self.install_type == "npm" and self.requires == ["nvm"]):
+            d["requires"] = self.requires
         return d
 
     def save(self) -> None:
