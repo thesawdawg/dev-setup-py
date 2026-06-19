@@ -4,6 +4,32 @@ A Python-based CLI for managing your Linux development environment. Install, rem
 
 ---
 
+## Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| **OS** | Ubuntu 20.04+ or Debian 11+ (amd64) |
+| **Python** | 3.11 or later |
+| **curl** | Used by script-based installers (Docker, NVM, uv, etc.) |
+| **sudo** | Required for tools that write to system paths (`/usr/local/bin`, apt packages) |
+| **ca-certificates** | For HTTPS downloads — present on most systems by default |
+
+These are available on any standard Ubuntu/Debian install. On a fresh minimal image, run:
+
+```bash
+sudo apt-get install -y python3 python3-pip curl ca-certificates sudo
+```
+
+**Optional** — only needed when using specific install types:
+
+| Requirement | When |
+|-------------|------|
+| `git` | `git`-type custom packages (`dev-setup add` → git) |
+| `node` / `npm` | `npm`-type custom packages |
+| `uv` | Running from source via `./dev-setup` (auto-installed if missing) |
+
+---
+
 ## Installation
 
 ### From PyPI (recommended)
@@ -332,17 +358,6 @@ class MyTool(Tool):
 - **Custom packages are plain JSON.** No executable files in the registry; scripts are stored as strings and written to a temp file at install time, giving bash full parsing fidelity.
 - **`install()` raises on failure.** Tools raise `RuntimeError` or `subprocess.CalledProcessError`; command handlers catch and report them. No `InstallResult` enum to check.
 - **UI is import-isolated.** Package classes do `from dev_setup import ui` inside method bodies, keeping `is_installed()` and `get_version()` side-effect free and testable without terminal output.
-
----
-
-## Requirements
-
-- Debian/Ubuntu Linux (apt-based; htop and php fall back to yum/dnf/pacman for detection)
-- `curl` (for bootstrapping uv and install scripts)
-- `git` (for `git`-type custom packages)
-- `sudo` access (Docker, PHP, saml2aws, htop installs write to system paths)
-
-Python 3.11+ is provisioned automatically by uv if not already present.
 
 ---
 
