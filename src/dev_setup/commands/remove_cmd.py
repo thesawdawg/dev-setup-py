@@ -10,9 +10,13 @@ from dev_setup.base import Tool
 
 
 @click.command("remove")
+@click.option("--verbose", "-v", is_flag=True, help="Stream removal output to the terminal.")
 @click.argument("packages", nargs=-1)
-def remove_cmd(packages: Tuple[str, ...]) -> None:
+def remove_cmd(packages: Tuple[str, ...], verbose: bool) -> None:
     """Uninstall installed packages."""
+    from dev_setup import generic
+    generic._verbose = verbose
+
     if not packages:
         ui.error("Specify at least one package key. See: dev-setup list --installed")
         sys.exit(1)
