@@ -1,0 +1,42 @@
+## v1.2.0 (2026-06-19)
+
+### Feat
+
+- add docker-compose.yml to dev/ sandbox
+- add dev/ sandbox with Dockerfile for local install testing
+- add docs command to open tool documentation in the browser
+- add Go, Java, and Ruby builtin tools under languages category
+- add gh, mkcert, ollama, and pi-coding-agent builtin tools
+- add --verbose/-v flag to stream install/remove output
+
+### Docs
+
+- add Prerequisites section to README
+
+### Chore
+
+- add commitizen dev dep and unify version source
+
+## v1.1.0 (2026-06-18)
+
+### Feat
+
+- add aws-cli and saml2aws built-in packages
+- add bash type for multi-step custom installs
+- add help_cmd field to all tools, display in list output
+- enhance project metadata in pyproject.toml
+
+### Refactor
+
+- improve maintainability and extensibility for new tool additions
+- switch from uv-run to pip/pipx install pattern
+
+### Docs
+
+- add comprehensive README
+
+## v1.0.0 (2026-06-17)
+
+### Feat
+
+- initial Python implementation of dev-setup CLI
