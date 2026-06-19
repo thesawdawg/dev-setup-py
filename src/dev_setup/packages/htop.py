@@ -13,6 +13,7 @@ class HtopTool(WhichTool):
     category = "tools"
     install_type = "apt"
     help_cmd = "man htop"
+    docs_url = "https://htop.dev/"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

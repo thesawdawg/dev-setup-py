@@ -13,6 +13,7 @@ class GhTool(WhichTool):
     category = "tools"
     install_type = "script"
     help_cmd = "gh --help"
+    docs_url = "https://cli.github.com/manual/"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

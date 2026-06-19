@@ -14,6 +14,7 @@ def print_help() -> None:
         ("remove",  "<package ...>",                          "Uninstall installed packages"),
         ("add",     "",                                        "Add a custom package (guided wizard)"),
         ("delete",  "<key>",                                  "Remove a custom package from the registry"),
+        ("docs",    "<package>",                              "Open documentation in browser"),
         ("version", "",                                        "Show version"),
     ]
     for cmd, args, desc in rows:

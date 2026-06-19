@@ -17,6 +17,7 @@ class StarshipTool(WhichTool):
     category = "tools"
     install_type = "script"
     help_cmd = "starship --help"
+    docs_url = "https://starship.rs/guide/"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

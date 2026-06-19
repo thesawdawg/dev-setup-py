@@ -16,6 +16,7 @@ class DockerTool(WhichTool):
     category = "core"
     install_type = "script"
     help_cmd = "docker --help"
+    docs_url = "https://docs.docker.com"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

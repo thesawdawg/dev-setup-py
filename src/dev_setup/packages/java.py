@@ -13,6 +13,7 @@ class JavaTool(WhichTool):
     category = "languages"
     install_type = "apt"
     help_cmd = "java --help"
+    docs_url = "https://openjdk.org/"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

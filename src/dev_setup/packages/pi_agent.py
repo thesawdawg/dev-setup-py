@@ -15,6 +15,7 @@ class PiAgentTool(Tool):
     category = "tools"
     install_type = "npm"
     help_cmd = "pi --help"
+    docs_url = "https://www.npmjs.com/package/pi-coding-agent"
 
     def is_installed(self) -> bool:
         try:

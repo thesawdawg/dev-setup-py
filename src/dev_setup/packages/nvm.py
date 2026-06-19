@@ -24,6 +24,7 @@ class NvmTool(Tool):
     category = "core"
     install_type = "script"
     help_cmd = "nvm help"
+    docs_url = "https://github.com/nvm-sh/nvm"
 
     def is_installed(self) -> bool:
         return (NVM_DIR / "nvm.sh").exists()

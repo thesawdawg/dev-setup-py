@@ -24,6 +24,7 @@ class GoTool(WhichTool):
     category = "languages"
     install_type = "script"
     help_cmd = "go help"
+    docs_url = "https://go.dev/doc/"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

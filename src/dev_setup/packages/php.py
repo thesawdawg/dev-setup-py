@@ -14,6 +14,7 @@ class PhpTool(WhichTool):
     category = "tools"
     install_type = "apt"
     help_cmd = "php --help"
+    docs_url = "https://www.php.net/docs.php"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

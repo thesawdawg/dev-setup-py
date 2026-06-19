@@ -20,6 +20,7 @@ class AwsCliTool(WhichTool):
     category = "tools"
     install_type = "script"
     help_cmd = "aws help"
+    docs_url = "https://docs.aws.amazon.com/cli/latest/userguide/"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

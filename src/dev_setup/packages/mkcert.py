@@ -20,6 +20,7 @@ class MkcertTool(WhichTool):
     category = "tools"
     install_type = "script"
     help_cmd = "mkcert --help"
+    docs_url = "https://github.com/FiloSottile/mkcert"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

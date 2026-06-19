@@ -101,6 +101,9 @@ def add_cmd() -> None:
     kwargs["help_cmd"] = ui.text_input(
         "Help command (optional, e.g. tool --help):", required=False
     )
+    kwargs["docs_url"] = ui.text_input(
+        "Documentation URL (optional):", required=False
+    )
 
     ui.console.print()
     ui.console.print("[bold]Summary[/]")

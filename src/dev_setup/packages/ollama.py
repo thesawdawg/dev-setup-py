@@ -16,6 +16,7 @@ class OllamaTool(WhichTool):
     category = "tools"
     install_type = "script"
     help_cmd = "ollama --help"
+    docs_url = "https://ollama.com/docs"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

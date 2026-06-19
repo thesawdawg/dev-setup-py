@@ -22,6 +22,7 @@ class Saml2AwsTool(WhichTool):
     category = "tools"
     install_type = "script"
     help_cmd = "saml2aws --help"
+    docs_url = "https://github.com/Versent/saml2aws"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

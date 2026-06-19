@@ -15,6 +15,7 @@ class Tool(ABC):
     install_type: str = "unknown"
     builtin: bool = True
     help_cmd: str = ""
+    docs_url: str = ""
 
     @abstractmethod
     def is_installed(self) -> bool: ...

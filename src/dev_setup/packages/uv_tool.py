@@ -18,6 +18,7 @@ class UvTool(WhichTool):
     category = "core"
     install_type = "script"
     help_cmd = "uv --help"
+    docs_url = "https://docs.astral.sh/uv/"
 
     def install(self) -> Optional[str]:
         from dev_setup import ui

@@ -30,6 +30,7 @@ class RubyTool(Tool):
     category = "languages"
     install_type = "script"
     help_cmd = "ruby --version"
+    docs_url = "https://www.ruby-lang.org/en/documentation/"
 
     def is_installed(self) -> bool:
         return _RBENV_BIN.exists()
