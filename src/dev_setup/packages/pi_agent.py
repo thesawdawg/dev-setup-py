@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from typing import Optional
 
 from dev_setup.base import Tool
 
 _NPM_PACKAGE = "pi-coding-agent"
+# nvm places node/npm in ~/.nvm; sourcing the script brings it onto PATH in non-interactive shells
+_NVM_INIT = '. "$HOME/.nvm/nvm.sh" 2>/dev/null'
 
 
 class PiAgentTool(Tool):
@@ -21,7 +24,7 @@ class PiAgentTool(Tool):
     def is_installed(self) -> bool:
         try:
             r = subprocess.run(
-                ["npm", "list", "-g", "--depth=0", _NPM_PACKAGE],
+                ["bash", "-c", f"{_NVM_INIT} && npm list -g --depth=0 {_NPM_PACKAGE}"],
                 capture_output=True, text=True,
             )
             return _NPM_PACKAGE in r.stdout
@@ -31,10 +34,9 @@ class PiAgentTool(Tool):
     def get_version(self) -> str:
         try:
             r = subprocess.run(
-                ["npm", "list", "-g", "--depth=0", "--json", _NPM_PACKAGE],
+                ["bash", "-c", f"{_NVM_INIT} && npm list -g --depth=0 --json {_NPM_PACKAGE}"],
                 capture_output=True, text=True,
             )
-            import json
             data = json.loads(r.stdout)
             return data.get("dependencies", {}).get(_NPM_PACKAGE, {}).get("version", "")
         except Exception:
@@ -45,7 +47,7 @@ class PiAgentTool(Tool):
 
         with ui.spinner(f"Installing {self.name} via npm..."):
             subprocess.run(
-                ["npm", "install", "-g", _NPM_PACKAGE],
+                ["bash", "-c", f"{_NVM_INIT} && npm install -g {_NPM_PACKAGE}"],
                 check=True, capture_output=True,
             )
 
@@ -58,6 +60,6 @@ class PiAgentTool(Tool):
 
         with ui.spinner(f"Removing {self.name}..."):
             subprocess.run(
-                ["npm", "uninstall", "-g", _NPM_PACKAGE],
+                ["bash", "-c", f"{_NVM_INIT} && npm uninstall -g {_NPM_PACKAGE}"],
                 check=True, capture_output=True,
             )

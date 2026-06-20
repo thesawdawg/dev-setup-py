@@ -1,0 +1,169 @@
+name: Integration — Tool Installation
+
+# Weekly canary: catches upstream breakage (changed download URLs, API changes, etc.)
+# Manual trigger for ad-hoc validation (e.g., after merging a new tool).
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Monday 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  # ─── Stage 1: build the test image once and share it across all matrix jobs ───
+  build:
+    name: Build CI test image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build wheel
+        run: uv build
+
+      # Two-step docker build matching the local dev workflow:
+      #   dev/Dockerfile        → dev-setup-sandbox  (minimal system + wheel installed)
+      #   dev/Dockerfile.ci     → dev-setup-ci       (+ pytest + test files baked in)
+      - name: Build sandbox image
+        run: docker build -f dev/Dockerfile -t dev-setup-sandbox .
+
+      - name: Build CI test image
+        run: docker build -f dev/Dockerfile.ci -t dev-setup-ci .
+
+      - name: Export image archive
+        run: docker save dev-setup-ci | gzip > dev-setup-ci.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: dev-setup-ci.tar.gz
+          retention-days: 1
+
+  # ─── Stage 2: one isolated container per tool, all run in parallel ───────────
+  test:
+    name: Test — ${{ matrix.tool }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # let all tools run even when some fail
+      matrix:
+        tool:
+          - aws
+          - eza
+          - gh
+          - go
+          - htop
+          - java
+          - mkcert
+          - nvm
+          - php
+          - pi          # installs nvm first via its declared `requires`
+          - ruby        # compiles from source — this job takes ~15 minutes
+          - saml2aws
+          - starship
+          - uv
+
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load image
+        run: docker load < dev-setup-ci.tar.gz
+
+      - name: Test ${{ matrix.tool }} installs
+        run: |
+          set +e
+          docker run --rm dev-setup-ci \
+            pytest "tests/integration/test_tools.py::test_install[${{ matrix.tool }}]" \
+              -v --tb=short 2>&1 | tee test-output.txt
+          RESULT=${PIPESTATUS[0]}
+          exit ${RESULT}
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output-${{ matrix.tool }}
+          path: test-output.txt
+
+      # Failure marker: a tiny file named after the tool so the report job can
+      # list exactly which tools failed without parsing pytest output.
+      - name: Write failure marker
+        if: failure()
+        run: echo "${{ matrix.tool }}" > "${{ matrix.tool }}.txt"
+
+      - name: Upload failure marker
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-${{ matrix.tool }}
+          path: ${{ matrix.tool }}.txt
+
+  # ─── Stage 3: open or update one GitHub issue summarising all failures ────────
+  report:
+    name: Report failures
+    needs: test
+    if: always() && needs.test.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download failure markers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: failure-*
+          merge-multiple: true
+          path: failures/
+        continue-on-error: true  # no artifacts = nothing to download; don't abort
+
+      - name: Create or update issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Collect the names of tools that failed from their marker files
+          FAILED_LIST=""
+          for f in failures/*.txt; do
+            [ -f "$f" ] || continue
+            FAILED_LIST="${FAILED_LIST}\n- $(cat "$f")"
+          done
+
+          if [ -z "$FAILED_LIST" ]; then
+            FAILED_LIST="\n- (unknown — inspect the workflow run for details)"
+          fi
+
+          # Ensure the tracking label exists (no-ops if already present)
+          gh label create "install-ci" \
+            --color "#e11d48" \
+            --description "Automated tool-installation CI failure" \
+            2>/dev/null || true
+
+          BODY="## Tool installation failures\n\nThe following builtin tools failed to install in a clean Ubuntu environment:\n${FAILED_LIST}\n\n**Workflow run:** ${RUN_URL}\n\n_Opened automatically by the \`test-installs\` workflow. Close this issue once the failure is resolved and confirmed passing._"
+
+          # Dedup: comment on the existing open issue rather than filing a new one.
+          # This keeps the tracker tidy across weekly runs.
+          EXISTING=$(gh issue list \
+            --label "install-ci" \
+            --state open \
+            --json number \
+            --jq '.[0].number' 2>/dev/null)
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "${EXISTING}" \
+              --body "$(printf '%b' "${BODY}")"
+            echo "Commented on existing issue #${EXISTING}"
+          else
+            gh issue create \
+              --title "Install CI: tool failures ($(date +%Y-%m-%d))" \
+              --body "$(printf '%b' "${BODY}")" \
+              --label "install-ci,bug"
+          fi

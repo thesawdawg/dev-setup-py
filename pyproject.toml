@@ -45,6 +45,7 @@ packages = ["src/dev_setup"]
 [dependency-groups]
 dev = [
     "commitizen>=3.0",
+    "pytest>=8.0",
 ]
 
 [tool.commitizen]

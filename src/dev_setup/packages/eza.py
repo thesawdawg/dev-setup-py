@@ -22,7 +22,7 @@ class EzaTool(WhichTool):
         subprocess.run(
             [
                 "bash", "-c",
-                "wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc"
+                "curl -fsSL https://raw.githubusercontent.com/eza-community/eza/main/deb.asc"
                 " | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg"
                 " && echo 'deb [signed-by=/etc/apt/keyrings/gierens.gpg]"
                 " http://deb.gierens.de stable main'"

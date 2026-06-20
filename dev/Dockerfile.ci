@@ -1,0 +1,17 @@
+# CI test image — extends the dev sandbox with pytest and the integration test suite.
+# Build order: dev/Dockerfile (produces dev-setup-sandbox) → this file (produces dev-setup-ci).
+#
+#   docker build -f dev/Dockerfile -t dev-setup-sandbox .
+#   docker build -f dev/Dockerfile.ci -t dev-setup-ci .
+FROM dev-setup-sandbox
+
+USER developer
+WORKDIR /home/developer
+
+# Install pytest alongside the already-installed dev-setup wheel
+RUN pip install --user --break-system-packages pytest
+
+# Bake tests in so each matrix job is self-contained (no volume mounts needed)
+COPY --chown=developer:developer tests/ tests/
+
+CMD ["pytest", "tests/integration/", "-m", "integration", "-v", "--tb=short"]
