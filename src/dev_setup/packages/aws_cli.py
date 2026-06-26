@@ -39,13 +39,27 @@ class AwsCliTool(WhichTool):
 
             with ui.spinner("Extracting AWS CLI..."):
                 with zipfile.ZipFile(zip_path) as zf:
-                    zf.extractall(tmpdir)
+                    for info in zf.infolist():
+                        zf.extract(info, tmpdir)
+                        # zipfile.extractall() does not reliably restore Unix
+                        # permissions; restore them from the zip's external attrs
+                        # so the installer and its bundled binaries are executable.
+                        perm = info.external_attr >> 16
+                        if perm:
+                            extracted = Path(tmpdir) / info.filename
+                            if extracted.exists() and not extracted.is_dir():
+                                extracted.chmod(perm)
 
             with ui.spinner("Installing AWS CLI (sudo)..."):
-                subprocess.run(
-                    ["sudo", "bash", str(Path(tmpdir) / "aws" / "install")],
-                    check=True, capture_output=True,
-                )
+                try:
+                    subprocess.run(
+                        ["sudo", "bash", str(Path(tmpdir) / "aws" / "install")],
+                        check=True, capture_output=True, text=True,
+                    )
+                except subprocess.CalledProcessError as exc:
+                    raise RuntimeError(
+                        f"AWS CLI installer failed (exit {exc.returncode}):\n{exc.stderr}"
+                    ) from None
 
         if not self.is_installed():
             raise RuntimeError("AWS CLI installation failed — aws binary not found")
