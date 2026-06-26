@@ -1,3 +1,14 @@
+## v1.5.0 (2026-06-26)
+
+### Feat
+
+- post-add remove script validation for bash tools
+
+### Fix
+
+- restore zip permissions explicitly and surface aws installer errors
+- resolve CI install failures for aws, htop, php, ruby
+
 ## v1.4.0 (2026-06-19)
 
 ### Feat
