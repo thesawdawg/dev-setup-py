@@ -72,6 +72,8 @@ class GenericTool(Tool):
             self.requires = requires
         elif install_type == "npm":
             self.requires = ["nvm"]
+        elif install_type in ("pip", "uvx"):
+            self.requires = ["uv"]
         else:
             self.requires = []
 
@@ -122,7 +124,11 @@ class GenericTool(Tool):
             if val:
                 d[field] = val
         # Only persist explicit requires — auto-inferred ones are re-derived on load
-        if self.requires and not (self.install_type == "npm" and self.requires == ["nvm"]):
+        auto = (
+            (self.install_type == "npm" and self.requires == ["nvm"])
+            or (self.install_type in ("pip", "uvx") and self.requires == ["uv"])
+        )
+        if self.requires and not auto:
             d["requires"] = self.requires
         return d
 
@@ -137,7 +143,7 @@ class GenericTool(Tool):
         t = self.install_type
         if t == "npm":
             return self.npm_name and _npm_global_installed(self.npm_name)
-        if t == "pip":
+        if t in ("pip", "uvx"):
             return bool(self.pip_name) and shutil.which(self.pip_name) is not None
         if t == "git":
             return bool(self.git_url) and _git_clone_dest(self.git_url).exists()
@@ -170,21 +176,20 @@ class GenericTool(Tool):
                     ["npm", "install", "-g", self.npm_name],
                     check=True, capture_output=True,
                 )
-        elif t == "pip":
+        elif t in ("pip", "uvx"):
             if not self.pip_name:
                 raise RuntimeError("pip_name not set")
             uv = shutil.which("uv")
-            with ui.spinner(f"Installing {self.name} via pip..."):
-                if uv:
-                    subprocess.run(
-                        [uv, "tool", "install", self.pip_name],
-                        check=True, capture_output=True,
-                    )
-                else:
-                    subprocess.run(
-                        ["pip3", "install", "--user", self.pip_name],
-                        check=True, capture_output=True,
-                    )
+            if not uv:
+                raise RuntimeError(
+                    "uv is required to install uvx packages. "
+                    "Install it first: dev-setup install uv"
+                )
+            with ui.spinner(f"Installing {self.name} via uvx..."):
+                subprocess.run(
+                    [uv, "tool", "install", self.pip_name],
+                    check=True, capture_output=True,
+                )
         elif t == "git":
             if not self.git_url:
                 raise RuntimeError("git_url not set")
@@ -230,19 +235,18 @@ class GenericTool(Tool):
                     ["npm", "uninstall", "-g", self.npm_name],
                     check=True, capture_output=True,
                 )
-        elif t == "pip":
+        elif t in ("pip", "uvx"):
             uv = shutil.which("uv")
+            if not uv:
+                raise RuntimeError(
+                    "uv is required to remove uvx packages. "
+                    "Install it first: dev-setup install uv"
+                )
             with ui.spinner(f"Removing {self.name}..."):
-                if uv:
-                    subprocess.run(
-                        [uv, "tool", "uninstall", self.pip_name],
-                        check=True, capture_output=True,
-                    )
-                else:
-                    subprocess.run(
-                        ["pip3", "uninstall", "-y", self.pip_name],
-                        check=True, capture_output=True,
-                    )
+                subprocess.run(
+                    [uv, "tool", "uninstall", self.pip_name],
+                    check=True, capture_output=True,
+                )
         elif t == "git":
             dest = _git_clone_dest(self.git_url)
             if self.git_remove_cmd:
@@ -311,6 +315,6 @@ def _type_cmd(tool: GenericTool) -> str:
     t = tool.install_type
     if t == "npm":
         return tool.npm_name
-    if t == "pip":
+    if t in ("pip", "uvx"):
         return tool.pip_name
     return ""

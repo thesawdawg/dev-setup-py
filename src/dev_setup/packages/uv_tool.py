@@ -20,6 +20,9 @@ class UvTool(WhichTool):
     help_cmd = "uv --help"
     docs_url = "https://docs.astral.sh/uv/"
 
+    def is_installed(self) -> bool:
+        return shutil.which("uv") is not None and shutil.which("uvx") is not None
+
     def install(self) -> Optional[str]:
         from dev_setup import ui
 
@@ -35,8 +38,8 @@ class UvTool(WhichTool):
         if local_bin not in path:
             os.environ["PATH"] = f"{local_bin}:{path}"
 
-        if not shutil.which("uv"):
-            raise RuntimeError("uv binary not found after install — add ~/.local/bin to PATH")
+        if not shutil.which("uv") or not shutil.which("uvx"):
+            raise RuntimeError("uv/uvx binaries not found after install — add ~/.local/bin to PATH")
 
         patch_bashrc(UV_PATH_BLOCK, UV_PATH_LINE)
         ui.info("~/.local/bin added to PATH in ~/.bashrc")

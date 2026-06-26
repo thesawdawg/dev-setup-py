@@ -35,7 +35,7 @@ def add_cmd() -> None:
 
     install_type = ui.select(
         "Package type:",
-        ["npm", "pip", "apt", "git", "script", "bash"],
+        ["npm", "uvx", "apt", "git", "script", "bash"],
     )
     if not install_type:
         ui.warn("Aborted.")
@@ -60,7 +60,7 @@ def add_cmd() -> None:
         kwargs["npm_name"] = ui.text_input("npm package name:", default=key, required=True)
         kwargs["check_cmd"] = ui.text_input("Command to check if installed:", default=key)
 
-    elif install_type == "pip":
+    elif install_type == "uvx":
         kwargs["pip_name"] = ui.text_input("PyPI package name:", default=key, required=True)
         kwargs["check_cmd"] = ui.text_input("Command to check if installed:", default=key)
 
