@@ -18,6 +18,12 @@ class HtopTool(WhichTool):
     def install(self) -> Optional[str]:
         from dev_setup import ui
 
+        with ui.spinner("Updating package index..."):
+            subprocess.run(
+                ["sudo", "apt-get", "update", "-q"],
+                capture_output=True,
+            )
+
         with ui.spinner("Installing htop..."):
             result = subprocess.run(
                 ["bash", "-c",

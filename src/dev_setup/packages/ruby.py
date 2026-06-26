@@ -49,6 +49,10 @@ class RubyTool(Tool):
 
         ui.info("Installing Ruby build dependencies...")
         subprocess.run(
+            ["sudo", "apt-get", "update", "-q"],
+            check=True, capture_output=True,
+        )
+        subprocess.run(
             ["sudo", "apt-get", "install", "-y"] + _BUILD_DEPS,
             check=True, capture_output=True,
         )

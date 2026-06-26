@@ -19,6 +19,9 @@ class PhpTool(WhichTool):
     def install(self) -> Optional[str]:
         from dev_setup import ui
 
+        with ui.spinner("Updating package index..."):
+            subprocess.run(["sudo", "apt-get", "update", "-q"], check=True, capture_output=True)
+
         if not shutil.which("add-apt-repository"):
             with ui.spinner("Installing software-properties-common..."):
                 subprocess.run(
