@@ -95,6 +95,12 @@ def add_cmd() -> None:
         kwargs["install_script"] = install_script
 
         remove_script = _edit_script("remove", name, required=False)
+        remove_script = _validate_remove_script(
+            remove_script or "",
+            install_script,
+            kwargs.get("check_cmd", ""),
+            name,
+        )
         if remove_script:
             kwargs["remove_script"] = remove_script
 
@@ -140,16 +146,26 @@ def _prompt_key() -> str:
         return key
 
 
-def _edit_script(action: str, package_name: str, required: bool = True) -> Optional[str]:
+def _edit_script(
+    action: str,
+    package_name: str,
+    required: bool = True,
+    prefill: str = "",
+    quiet: bool = False,
+) -> Optional[str]:
     """Open $EDITOR with a bash template. Returns stripped script or None if aborted."""
-    template = (_INSTALL_TEMPLATE if action == "install" else _REMOVE_TEMPLATE).format(
-        name=package_name
-    )
-    label = "install" if action == "install" else "remove (optional)"
-    ui.console.print()
-    ui.info(f"Opening $EDITOR for the [bold]{label}[/] script...")
-    ui.dim("Write your bash commands, save, and close the editor to continue.")
-    ui.console.print()
+    if prefill:
+        template = prefill
+    else:
+        template = (_INSTALL_TEMPLATE if action == "install" else _REMOVE_TEMPLATE).format(
+            name=package_name
+        )
+    if not quiet:
+        label = "install" if action == "install" else "remove (optional)"
+        ui.console.print()
+        ui.info(f"Opening $EDITOR for the [bold]{label}[/] script...")
+        ui.dim("Write your bash commands, save, and close the editor to continue.")
+        ui.console.print()
 
     try:
         content = click.edit(text=template, extension=".sh", require_save=False)
@@ -175,6 +191,137 @@ def _strip_template_comments(content: str) -> str:
         if line.strip() and not line.strip().startswith("#")
     ]
     return "\n".join(lines).strip()
+
+
+def _is_safe_literal_path(path: str) -> bool:
+    """Return True only for fully literal paths — no shell expansion or injection chars."""
+    return not any(c in path for c in ('$', '`', '(', ')', ';', '&', '|', ' ', '"', "'", '\\'))
+
+
+def _extract_installed_paths(install_script: str) -> list[str]:
+    """Find definitive binary install destinations (literal paths only)."""
+    paths: list[str] = []
+
+    # curl ... -o /path/binary
+    for m in re.finditer(r'\bcurl\b[^|\n]*?-o\s+(\S+)', install_script):
+        p = m.group(1).strip()
+        if p.startswith(("/", "~/")) and _is_safe_literal_path(p):
+            if not p.endswith(('.sh', '.tar.gz', '.zip', '.tmp', '.tar', '.bz2', '.gz')):
+                paths.append(p)
+
+    # sudo mv /tmp/x /usr/local/bin/y  — destination only
+    for m in re.finditer(
+        r'\bmv\s+\S+\s+((?:/usr|/opt)[\w./+-]*)', install_script
+    ):
+        p = m.group(1).strip()
+        if _is_safe_literal_path(p) and "." not in p.split("/")[-1]:
+            paths.append(p)
+
+    return list(dict.fromkeys(paths))
+
+
+def _suggest_remove_script(install_script: str, check_cmd: str, name: str) -> str:
+    """Generate a best-effort remove script from patterns in the install script."""
+    svc_lines: list[str] = []
+    actions: list[str] = []
+
+    # systemd service teardown (must precede file removal)
+    for m in re.finditer(r'\bsystemctl\s+(?:enable|start)\s+(\S+)', install_script):
+        svc = m.group(1).rstrip(";")
+        if not any(svc in a for a in svc_lines):
+            svc_lines.append(f"sudo systemctl stop {svc} 2>/dev/null || true")
+            svc_lines.append(f"sudo systemctl disable {svc} 2>/dev/null || true")
+
+    # apt packages
+    apt_packages: list[str] = []
+    for m in re.finditer(r'\bapt(?:-get)?\s+install\s+(?:-y\s+)?(.+)', install_script):
+        for pkg in m.group(1).split():
+            if not pkg.startswith("-") and pkg not in apt_packages:
+                apt_packages.append(pkg)
+    if apt_packages:
+        actions.append(f"sudo apt-get remove -y {' '.join(apt_packages)}")
+
+    # Binary paths from curl / mv (skip /tmp — temp downloads are gone after mv)
+    for path in _extract_installed_paths(install_script):
+        if path.startswith("/tmp/"):
+            continue
+        prefix = "sudo " if path.startswith(("/usr/", "/opt/", "/etc/")) else ""
+        actions.append(f"{prefix}rm -rf {path}")
+
+    # Fallback: derive removal from check_cmd if nothing else found
+    if not actions and not svc_lines and check_cmd:
+        actions.append(f'CMD=$(command -v {check_cmd} 2>/dev/null || true)')
+        actions.append(f'[ -n "$CMD" ] && sudo rm -f "$CMD"')
+
+    if not svc_lines and not actions:
+        return ""
+
+    lines = ["#!/usr/bin/env bash", "set -euo pipefail", ""] + svc_lines + actions
+    return "\n".join(lines)
+
+
+def _remove_needs_review(remove_script: str, install_script: str) -> bool:
+    """Return True when the remove script warrants a review prompt."""
+    if not remove_script.strip():
+        return True
+
+    installed_paths = _extract_installed_paths(install_script)
+    if not installed_paths:
+        return False  # can't tell — don't be noisy
+
+    def _references_target(path: str) -> bool:
+        parts = [p for p in path.rstrip("/").split("/") if p]
+        candidates = [path]
+        if parts:
+            candidates.append(parts[-1])  # basename
+        for i in range(2, len(parts)):  # ancestor dirs
+            candidates.append("/" + "/".join(parts[:i]))
+        return any(c in remove_script for c in candidates)
+
+    # Flag only when NONE of the detected targets is referenced
+    return not any(_references_target(p) for p in installed_paths)
+
+
+def _validate_remove_script(
+    remove_script: str,
+    install_script: str,
+    check_cmd: str,
+    name: str,
+) -> str:
+    """If the remove script looks empty or mismatched, offer a recommended alternative."""
+    if not _remove_needs_review(remove_script, install_script):
+        return remove_script
+
+    recommended = _suggest_remove_script(install_script, check_cmd, name)
+
+    ui.console.print()
+    if not remove_script.strip():
+        ui.warn("Remove script is empty — uninstalling will fail without one.")
+    else:
+        ui.warn("Remove script may not undo the installation (possible path mismatch).")
+
+    if recommended:
+        ui.console.print()
+        ui.info("Suggested remove script:")
+        ui.console.print()
+        ui.code_block(recommended)
+        ui.console.print()
+
+    choices: list[str] = []
+    if recommended:
+        choices.append("Use recommended")
+    choices.append("Keep mine (empty)" if not remove_script.strip() else "Keep mine")
+    choices.append("Edit manually")
+
+    choice = ui.select("How would you like to proceed?", choices)
+
+    if choice == "Use recommended":
+        return _strip_template_comments(recommended)
+    if choice == "Edit manually":
+        prefill = recommended or remove_script or _REMOVE_TEMPLATE.format(name=name)
+        edited = _edit_script("remove", name, required=False, prefill=prefill, quiet=True)
+        return edited if edited is not None else remove_script
+    return remove_script  # "Keep mine" / "Keep mine (empty)"
 
 
 def _truncate_script(script: str) -> str:
