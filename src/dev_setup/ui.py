@@ -96,3 +96,15 @@ def select(prompt: str, choices: list[str]) -> str:
 def checkbox(prompt: str, choices: list) -> list:
     result = questionary.checkbox(prompt, choices=choices, style=_STYLE).ask()
     return result or []
+
+
+def code_block(code: str, language: str = "bash") -> None:
+    """Print a syntax-highlighted code panel."""
+    from rich.syntax import Syntax
+    console.print(
+        Panel(
+            Syntax(code, language, theme="monokai", line_numbers=False),
+            border_style="dim",
+            padding=(0, 1),
+        )
+    )
