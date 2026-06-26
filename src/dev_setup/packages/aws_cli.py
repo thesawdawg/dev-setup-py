@@ -43,7 +43,7 @@ class AwsCliTool(WhichTool):
 
             with ui.spinner("Installing AWS CLI (sudo)..."):
                 subprocess.run(
-                    ["sudo", str(Path(tmpdir) / "aws" / "install")],
+                    ["sudo", "bash", str(Path(tmpdir) / "aws" / "install")],
                     check=True, capture_output=True,
                 )
 
