@@ -1,3 +1,9 @@
+## v1.6.0 (2026-06-26)
+
+### Feat
+
+- update add_cmd to support uvx package type and enhance GenericTool for uv dependencies
+
 ## v1.5.0 (2026-06-26)
 
 ### Feat
