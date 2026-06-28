@@ -248,6 +248,16 @@ tools:
         || sudo dnf remove -y htop 2>/dev/null \
         || sudo pacman -R --noconfirm htop 2>/dev/null
 
+  ipython:
+    name: IPython
+    description: Enhanced interactive Python shell with rich tab completion and magic commands
+    category: tools
+    type: uvx
+    pip_name: ipython
+    check_cmd: ipython
+    help_cmd: ipython --help
+    docs_url: https://ipython.readthedocs.io/
+
   java:
     name: Java 21 (OpenJDK)
     description: OpenJDK 21 LTS - JDK and JRE
