@@ -1,0 +1,462 @@
+version: 1
+tools:
+  aws:
+    name: AWS CLI
+    description: Amazon Web Services command line interface (v2)
+    category: tools
+    type: bash
+    check_cmd: aws
+    help_cmd: aws help
+    docs_url: https://docs.aws.amazon.com/cli/latest/userguide/
+    install_script: |
+      set -euo pipefail
+      arch="$(uname -m)"
+      if [ "$arch" = "aarch64" ]; then
+        aws_arch="aarch64"
+      else
+        aws_arch="x86_64"
+      fi
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "$tmpdir/awscliv2.zip"
+      python3 - "$tmpdir/awscliv2.zip" "$tmpdir" <<'PY'
+      import os
+      import stat
+      import sys
+      import zipfile
+
+      archive, dest = sys.argv[1:3]
+      with zipfile.ZipFile(archive) as zf:
+          for info in zf.infolist():
+              zf.extract(info, dest)
+              perm = info.external_attr >> 16
+              path = os.path.join(dest, info.filename)
+              if perm and os.path.exists(path) and not os.path.isdir(path):
+                  os.chmod(path, perm)
+      PY
+      sudo bash "$tmpdir/aws/install"
+    remove_script: |
+      set -euo pipefail
+      sudo rm -rf /usr/local/aws-cli
+      sudo rm -f /usr/local/bin/aws /usr/local/bin/aws_completer
+
+  docker:
+    name: Docker
+    description: Container runtime + docker compose plugin
+    category: core
+    type: bash
+    check_cmd: docker
+    help_cmd: docker --help
+    docs_url: https://docs.docker.com
+    install_script: |
+      set -euo pipefail
+      tmp="$(mktemp --suffix=.sh)"
+      trap 'rm -f "$tmp"' EXIT
+      curl -fsSL https://get.docker.com -o "$tmp"
+      sudo sh "$tmp"
+      user="${USER:-}"
+      if [ -n "$user" ] && groups "$user" | grep -qv '\bdocker\b'; then
+        sudo usermod -aG docker "$user"
+        echo "Log out and back in for docker group membership to take effect."
+      fi
+      sudo systemctl enable docker 2>/dev/null || true
+      sudo systemctl start docker 2>/dev/null || true
+      if ! docker compose version >/dev/null 2>&1; then
+        sudo apt-get install -y docker-compose-plugin 2>/dev/null \
+          || sudo yum install -y docker-compose-plugin 2>/dev/null \
+          || sudo dnf install -y docker-compose-plugin 2>/dev/null \
+          || true
+      fi
+    remove_script: |
+      set -euo pipefail
+      sudo systemctl stop docker 2>/dev/null || true
+      sudo systemctl disable docker 2>/dev/null || true
+      sudo apt-get remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras 2>/dev/null \
+        || sudo yum remove -y docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>/dev/null \
+        || true
+
+  eza:
+    name: eza
+    description: Modern ls replacement with git status, icons, and tree view
+    category: tools
+    type: bash
+    check_cmd: eza
+    help_cmd: eza --help
+    docs_url: https://eza.rocks/
+    install_script: |
+      set -euo pipefail
+      curl -fsSL https://raw.githubusercontent.com/eza-community/eza/main/deb.asc \
+        | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
+      echo 'deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main' \
+        | sudo tee /etc/apt/sources.list.d/gierens.list >/dev/null
+      sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
+      sudo apt-get update -q
+      sudo apt-get install -y eza
+    remove_script: |
+      set -euo pipefail
+      sudo apt-get remove -y eza
+      sudo rm -f /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
+
+  gh:
+    name: GitHub CLI
+    description: GitHub's official CLI - PRs, issues, Actions, and more
+    category: tools
+    type: bash
+    check_cmd: gh
+    help_cmd: gh --help
+    docs_url: https://cli.github.com/manual/
+    install_script: |
+      set -euo pipefail
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+      sudo apt-get update -q
+      sudo apt-get install -y gh
+    remove_script: |
+      set -euo pipefail
+      sudo apt-get remove -y gh
+
+  go:
+    name: Go
+    description: Go programming language toolchain
+    category: languages
+    type: bash
+    check_cmd: command -v go >/dev/null 2>&1 || test -x /usr/local/go/bin/go
+    help_cmd: go help
+    docs_url: https://go.dev/doc/
+    install_script: |
+      set -euo pipefail
+      version="$(curl -fsSL https://go.dev/dl/?mode=json | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((r["version"].removeprefix("go") for r in data if r.get("stable")), "1.23.4"))' 2>/dev/null || echo 1.23.4)"
+      machine="$(uname -m)"
+      if [ "$machine" = "aarch64" ]; then
+        arch="arm64"
+      else
+        arch="amd64"
+      fi
+      filename="go${version}.linux-${arch}.tar.gz"
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl -fsSL -o "$tmpdir/$filename" "https://go.dev/dl/$filename"
+      sudo rm -rf /usr/local/go
+      sudo tar -C /usr/local -xzf "$tmpdir/$filename"
+      marker="# Go"
+      line='export PATH=$PATH:/usr/local/go/bin'
+      touch "$HOME/.bashrc"
+      if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
+        printf '\n%s\n%s\n' "$marker" "$line" >> "$HOME/.bashrc"
+      fi
+    remove_script: |
+      set -euo pipefail
+      sudo rm -rf /usr/local/go
+      if [ -f "$HOME/.bashrc" ]; then
+        python3 - "$HOME/.bashrc" <<'PY'
+      import sys
+      path = sys.argv[1]
+      lines = open(path).read().splitlines()
+      out = []
+      skip = 0
+      for line in lines:
+          if skip:
+              skip -= 1
+              continue
+          if line == "# Go":
+              skip = 1
+              continue
+          out.append(line)
+      open(path, "w").write("\n".join(out) + ("\n" if out else ""))
+      PY
+      fi
+
+  htop:
+    name: htop
+    description: Interactive process and resource monitor
+    category: tools
+    type: bash
+    check_cmd: htop
+    help_cmd: man htop
+    docs_url: https://htop.dev/
+    install_script: |
+      set -euo pipefail
+      sudo apt-get update -q 2>/dev/null || true
+      sudo apt-get install -y htop 2>/dev/null \
+        || sudo yum install -y htop 2>/dev/null \
+        || sudo dnf install -y htop 2>/dev/null \
+        || sudo pacman -S --noconfirm htop 2>/dev/null
+    remove_script: |
+      set -euo pipefail
+      sudo apt-get remove -y htop 2>/dev/null \
+        || sudo yum remove -y htop 2>/dev/null \
+        || sudo dnf remove -y htop 2>/dev/null \
+        || sudo pacman -R --noconfirm htop 2>/dev/null
+
+  java:
+    name: Java 21 (OpenJDK)
+    description: OpenJDK 21 LTS - JDK and JRE
+    category: languages
+    type: apt
+    check_cmd: java
+    apt_packages: openjdk-21-jdk
+    help_cmd: java --help
+    docs_url: https://openjdk.org/
+    remove_script: |
+      set -euo pipefail
+      sudo apt-get remove -y openjdk-21-jdk openjdk-21-jre
+      sudo apt-get autoremove -y
+
+  mkcert:
+    name: mkcert
+    description: Zero-config local HTTPS certificates
+    category: tools
+    type: bash
+    check_cmd: mkcert
+    help_cmd: mkcert --help
+    docs_url: https://github.com/FiloSottile/mkcert
+    install_script: |
+      set -euo pipefail
+      version="$(curl -fsSL https://api.github.com/repos/FiloSottile/mkcert/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 1.4.4)"
+      machine="$(uname -m)"
+      if [ "$machine" = "aarch64" ]; then
+        arch="arm64"
+      else
+        arch="amd64"
+      fi
+      sudo curl -fsSL -o /usr/local/bin/mkcert "https://github.com/FiloSottile/mkcert/releases/download/v${version}/mkcert-v${version}-linux-${arch}"
+      sudo chmod +x /usr/local/bin/mkcert
+    remove_script: |
+      set -euo pipefail
+      sudo rm -f /usr/local/bin/mkcert
+
+  nvm:
+    name: NVM + Node LTS
+    description: Node Version Manager + latest Node LTS
+    category: core
+    type: bash
+    check_cmd: test -s "$HOME/.nvm/nvm.sh"
+    help_cmd: nvm help
+    docs_url: https://github.com/nvm-sh/nvm
+    install_script: |
+      set -euo pipefail
+      tag="$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || echo v0.40.3)"
+      curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${tag}/install.sh" | bash
+      marker="# nvm"
+      block='export NVM_DIR="$HOME/.nvm"
+      [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+      [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"'
+      touch "$HOME/.bashrc"
+      if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
+        printf '\n%s\n%s\n' "$marker" "$block" >> "$HOME/.bashrc"
+      fi
+      . "$HOME/.nvm/nvm.sh"
+      nvm install --lts
+    remove_script: |
+      set -euo pipefail
+      rm -rf "$HOME/.nvm"
+      if [ -f "$HOME/.bashrc" ]; then
+        python3 - "$HOME/.bashrc" <<'PY'
+      import sys
+      path = sys.argv[1]
+      lines = open(path).read().splitlines()
+      out = []
+      skip = 0
+      for line in lines:
+          if skip:
+              skip -= 1
+              continue
+          if line == "# nvm":
+              skip = 3
+              continue
+          out.append(line)
+      open(path, "w").write("\n".join(out) + ("\n" if out else ""))
+      PY
+      fi
+
+  ollama:
+    name: Ollama
+    description: Run large language models locally
+    category: tools
+    type: bash
+    check_cmd: ollama
+    help_cmd: ollama --help
+    docs_url: https://ollama.com/docs
+    install_script: |
+      set -euo pipefail
+      curl -fsSL https://ollama.com/install.sh | sh
+    remove_script: |
+      set -euo pipefail
+      sudo systemctl stop ollama 2>/dev/null || true
+      sudo systemctl disable ollama 2>/dev/null || true
+      sudo rm -f /usr/local/bin/ollama /etc/systemd/system/ollama.service
+      sudo systemctl daemon-reload 2>/dev/null || true
+      echo "Downloaded models in ~/.ollama were left intact."
+
+  php:
+    name: PHP 8.4
+    description: PHP 8.4 + common extensions via ondrej/php PPA
+    category: tools
+    type: bash
+    check_cmd: php
+    help_cmd: php --help
+    docs_url: https://www.php.net/docs.php
+    install_script: |
+      set -euo pipefail
+      sudo apt-get update -q
+      if ! command -v add-apt-repository >/dev/null 2>&1; then
+        sudo apt-get install -y software-properties-common
+      fi
+      sudo add-apt-repository -y ppa:ondrej/php
+      sudo apt-get update -q
+      sudo apt-get install -y php8.4 php8.4-cli php8.4-common php8.4-curl php8.4-mbstring php8.4-xml php8.4-zip
+    remove_script: |
+      set -euo pipefail
+      sudo apt-get remove -y 'php8.4*'
+      sudo apt-get autoremove -y
+
+  pi:
+    name: Pi Coding Agent
+    description: AI coding agent - pi-coding-agent npm package
+    category: tools
+    type: npm
+    check_cmd: pi
+    npm_name: pi-coding-agent
+    help_cmd: pi --help
+    docs_url: https://www.npmjs.com/package/pi-coding-agent
+    requires:
+      - nvm
+
+  ruby:
+    name: Ruby (rbenv)
+    description: Ruby via rbenv version manager + ruby-build
+    category: languages
+    type: bash
+    check_cmd: test -x "$HOME/.rbenv/bin/rbenv"
+    help_cmd: ruby --version
+    docs_url: https://www.ruby-lang.org/en/documentation/
+    install_script: |
+      set -euo pipefail
+      sudo apt-get update -q
+      sudo apt-get install -y git curl autoconf bison build-essential libssl-dev libyaml-dev libreadline-dev zlib1g-dev libncurses5-dev libffi-dev libgdbm-dev
+      git clone --depth=1 https://github.com/rbenv/rbenv.git "$HOME/.rbenv"
+      git clone --depth=1 https://github.com/rbenv/ruby-build.git "$HOME/.rbenv/plugins/ruby-build"
+      marker="# rbenv"
+      block='export PATH="$HOME/.rbenv/bin:$PATH"
+      eval "$(rbenv init - bash)"'
+      touch "$HOME/.bashrc"
+      if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
+        printf '\n%s\n%s\n' "$marker" "$block" >> "$HOME/.bashrc"
+      fi
+      latest="$("$HOME/.rbenv/bin/rbenv" install -l | awk '/^[[:space:]]*[0-9]/ && $1 !~ /-/ { v=$1 } END { print v ? v : "3.3.6" }')"
+      "$HOME/.rbenv/bin/rbenv" install "$latest"
+      "$HOME/.rbenv/bin/rbenv" global "$latest"
+    remove_script: |
+      set -euo pipefail
+      rm -rf "$HOME/.rbenv"
+      if [ -f "$HOME/.bashrc" ]; then
+        python3 - "$HOME/.bashrc" <<'PY'
+      import sys
+      path = sys.argv[1]
+      lines = open(path).read().splitlines()
+      out = []
+      skip = 0
+      for line in lines:
+          if skip:
+              skip -= 1
+              continue
+          if line == "# rbenv":
+              skip = 2
+              continue
+          out.append(line)
+      open(path, "w").write("\n".join(out) + ("\n" if out else ""))
+      PY
+      fi
+
+  saml2aws:
+    name: saml2aws
+    description: SAML -> AWS STS credentials CLI (Versent)
+    category: tools
+    type: bash
+    check_cmd: saml2aws
+    help_cmd: saml2aws --help
+    docs_url: https://github.com/Versent/saml2aws
+    install_script: |
+      set -euo pipefail
+      version="$(curl -fsSL https://api.github.com/repos/Versent/saml2aws/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 2.36.6)"
+      machine="$(uname -m)"
+      if [ "$machine" = "aarch64" ]; then
+        arch="arm64"
+      else
+        arch="amd64"
+      fi
+      filename="saml2aws_${version}_linux_${arch}.tar.gz"
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl -fsSL -o "$tmpdir/$filename" "https://github.com/Versent/saml2aws/releases/download/v${version}/${filename}"
+      tar -C "$tmpdir" -xzf "$tmpdir/$filename"
+      test -f "$tmpdir/saml2aws"
+      sudo mv "$tmpdir/saml2aws" /usr/local/bin/saml2aws
+      sudo chmod +x /usr/local/bin/saml2aws
+    remove_script: |
+      set -euo pipefail
+      sudo rm -f /usr/local/bin/saml2aws
+
+  starship:
+    name: Starship
+    description: Fast, cross-shell customizable prompt
+    category: tools
+    type: bash
+    check_cmd: starship
+    help_cmd: starship --help
+    docs_url: https://starship.rs/guide/
+    install_script: |
+      set -euo pipefail
+      curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+      marker="# Starship prompt"
+      line='eval "$(starship init bash)"'
+      touch "$HOME/.bashrc"
+      if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
+        printf '\n%s\n%s\n' "$marker" "$line" >> "$HOME/.bashrc"
+      fi
+    remove_script: |
+      set -euo pipefail
+      rm -f "$HOME/.cargo/bin/starship" "$HOME/.local/bin/starship"
+      sudo rm -f /usr/local/bin/starship 2>/dev/null || true
+      if [ -f "$HOME/.bashrc" ]; then
+        python3 - "$HOME/.bashrc" <<'PY'
+      import sys
+      path = sys.argv[1]
+      lines = open(path).read().splitlines()
+      out = []
+      skip = 0
+      for line in lines:
+          if skip:
+              skip -= 1
+              continue
+          if line == "# Starship prompt":
+              skip = 1
+              continue
+          out.append(line)
+      open(path, "w").write("\n".join(out) + ("\n" if out else ""))
+      PY
+      fi
+
+  uv:
+    name: uv
+    description: Astral Python package and project manager
+    category: core
+    type: bash
+    check_cmd: command -v uv >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1 || { test -x "$HOME/.local/bin/uv" && test -x "$HOME/.local/bin/uvx"; }
+    help_cmd: uv --help
+    docs_url: https://docs.astral.sh/uv/
+    install_script: |
+      set -euo pipefail
+      curl -LsSf https://astral.sh/uv/install.sh | sh
+      marker="# uv (and other ~/.local/bin tools)"
+      line='export PATH="$HOME/.local/bin:$PATH"'
+      touch "$HOME/.bashrc"
+      if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
+        printf '\n%s\n%s\n' "$marker" "$line" >> "$HOME/.bashrc"
+      fi
+    remove_script: |
+      set -euo pipefail
+      rm -f "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx" "$HOME/.cargo/bin/uv" "$HOME/.cargo/bin/uvx"

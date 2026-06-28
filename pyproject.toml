@@ -25,6 +25,7 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.1",
+    "pyyaml>=6.0",
     "rich>=13.0",
     "questionary>=2.0",
 ]
@@ -53,3 +54,9 @@ name = "cz_conventional_commits"
 version_provider = "pep621"
 tag_format = "v$version"
 update_changelog_on_bump = true
+
+[tool.pytest.ini_options]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: real-system tests that install software (require sudo and network access)",
+]

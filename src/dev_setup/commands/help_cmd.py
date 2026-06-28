@@ -1,5 +1,5 @@
 from dev_setup import ui
-from dev_setup.generic import CUSTOM_DIR
+from dev_setup.catalog import USER_CATALOG_PATH
 
 
 def print_help() -> None:
@@ -14,6 +14,7 @@ def print_help() -> None:
         ("remove",  "<package ...>",                          "Uninstall installed packages"),
         ("add",     "",                                        "Add a custom package (guided wizard)"),
         ("delete",  "<key>",                                  "Remove a custom package from the registry"),
+        ("catalog", "<path|export|import|migrate>",           "Manage YAML tool catalogs"),
         ("docs",    "<package>",                              "Open documentation in browser"),
         ("version", "",                                        "Show version"),
     ]
@@ -33,6 +34,7 @@ def print_help() -> None:
         "dev-setup remove htop",
         "dev-setup add",
         "dev-setup delete my-tool",
+        "dev-setup catalog export",
     ]
     for ex in examples:
         ui.console.print(f"  [dim]$[/] [green]{ex}[/]")
@@ -41,7 +43,8 @@ def print_help() -> None:
     ui.console.print("[bold]CATEGORIES[/]")
     ui.console.print("  [cyan]core[/]    Always-installed tools (Docker, NVM, uv)")
     ui.console.print("  [cyan]tools[/]   Optional utilities (PHP, Starship, htop)")
+    ui.console.print("  [cyan]languages[/] Programming language runtimes")
     ui.console.print("  [cyan]custom[/]  User-added packages\n")
 
     ui.console.print("[bold]CONFIG[/]")
-    ui.console.print(f"  Custom packages: [dim]{CUSTOM_DIR}[/]\n")
+    ui.console.print(f"  User catalog: [dim]{USER_CATALOG_PATH}[/]\n")

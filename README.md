@@ -129,7 +129,7 @@ Guided wizard to register a new custom package. Supports six install types:
 | Type | What it does |
 |------|-------------|
 | `npm` | `npm install -g <package>` |
-| `pip` | `uv tool install <package>` (falls back to `pip3 install --user`) |
+| `uvx` | `uv tool install <package>` |
 | `apt` | `sudo apt-get install -y <packages>` |
 | `git` | `git clone --depth=1 <url>` with optional post-clone and pre-remove commands |
 | `script` | `curl -fsSL <url> \| sh` — single-URL convenience script |
@@ -139,39 +139,68 @@ Guided wizard to register a new custom package. Supports six install types:
 dev-setup add
 ```
 
-The wizard collects type-specific fields, then prompts for a help command (e.g. `tool --help`). Packages are saved as JSON files in `~/.config/dev-setup/packages/`.
+The wizard collects type-specific fields, then prompts for a help command (e.g. `tool --help`). Packages are saved into `~/.config/dev-setup/tools.yaml`.
 
 #### `bash` type
 
 For tools like AWS CLI or saml2aws that require multiple download/extract/install steps, choose the `bash` type. The wizard opens `$EDITOR` twice — once for the install script and once for the optional remove script — with a `#!/usr/bin/env bash / set -euo pipefail` template pre-filled.
 
-Example JSON for a `bash`-type custom package:
+Example YAML for a `bash`-type custom package:
 
-```json
-{
-  "name": "batcat",
-  "description": "Modern cat with syntax highlighting",
-  "category": "custom",
-  "type": "bash",
-  "check_cmd": "bat",
-  "help_cmd": "bat --help",
-  "install_script": "set -euo pipefail\nVER=$(curl -s https://api.github.com/repos/sharkdp/bat/releases/latest | grep tag_name | cut -d'\"' -f4 | sed 's/v//')\ncurl -fsSL \"https://github.com/sharkdp/bat/releases/download/v${VER}/bat_${VER}_amd64.deb\" -o /tmp/bat.deb\nsudo dpkg -i /tmp/bat.deb && rm /tmp/bat.deb",
-  "remove_script": "sudo dpkg -r bat"
-}
+```yaml
+version: 1
+tools:
+  batcat:
+    name: batcat
+    description: Modern cat with syntax highlighting
+    category: custom
+    type: bash
+    check_cmd: bat
+    help_cmd: bat --help
+    install_script: |
+      set -euo pipefail
+      VER=$(curl -s https://api.github.com/repos/sharkdp/bat/releases/latest | grep tag_name | cut -d'"' -f4 | sed 's/v//')
+      curl -fsSL "https://github.com/sharkdp/bat/releases/download/v${VER}/bat_${VER}_amd64.deb" -o /tmp/bat.deb
+      sudo dpkg -i /tmp/bat.deb
+      rm /tmp/bat.deb
+    remove_script: |
+      sudo dpkg -r bat
 ```
 
 ---
 
 ### `delete`
 
-Remove a custom package from the registry. Built-in packages cannot be deleted.
+Remove a user catalog entry from the registry. Built-in-only packages cannot be deleted, but a user override of a built-in package can be deleted to restore the bundled definition.
 
 ```bash
 dev-setup delete my-tool
 dev-setup rm my-tool              # alias
 ```
 
-Asks for confirmation, then deletes the JSON file from `~/.config/dev-setup/packages/`.
+Asks for confirmation, then removes the entry from `~/.config/dev-setup/tools.yaml`.
+
+---
+
+### `catalog`
+
+Manage the user YAML catalog.
+
+```bash
+dev-setup catalog path                 # print ~/.config/dev-setup/tools.yaml
+dev-setup catalog export               # write ./dev-setup-tools.yaml
+dev-setup catalog export tools.yaml    # write effective catalog to a path
+dev-setup catalog import tools.yaml    # validate and merge into user catalog
+dev-setup catalog migrate              # migrate legacy JSON custom packages
+```
+
+The effective catalog is loaded in this order:
+
+1. Bundled tools from `src/dev_setup/tools.yaml`
+2. Legacy JSON migration from `~/.config/dev-setup/packages/*.json`
+3. User overrides and additions from `~/.config/dev-setup/tools.yaml`
+
+When a user key matches a bundled key, the user definition overrides the bundled definition in place. New user keys are appended after bundled tools.
 
 ---
 
@@ -194,27 +223,63 @@ Optional utilities you may want on some machines.
 | Key | Name | Description | Help |
 |-----|------|-------------|------|
 | `aws` | AWS CLI | Amazon Web Services CLI v2 | `aws help` |
+| `eza` | eza | Modern ls replacement with git status, icons, and tree view | `eza --help` |
+| `gh` | GitHub CLI | GitHub's official CLI | `gh --help` |
 | `htop` | htop | Interactive process and resource monitor | `man htop` |
+| `mkcert` | mkcert | Zero-config local HTTPS certificates | `mkcert --help` |
+| `ollama` | Ollama | Run large language models locally | `ollama --help` |
 | `php` | PHP 8.4 | PHP 8.4 + common extensions via ondrej/php PPA | `php --help` |
+| `pi` | Pi Coding Agent | AI coding agent npm package | `pi --help` |
 | `saml2aws` | saml2aws | SAML → AWS STS credentials CLI (Versent) | `saml2aws --help` |
 | `starship` | Starship | Fast, cross-shell customizable prompt | `starship --help` |
+
+### Languages
+
+| Key | Name | Description | Help |
+|-----|------|-------------|------|
+| `go` | Go | Go programming language toolchain | `go help` |
+| `java` | Java 21 (OpenJDK) | OpenJDK 21 LTS - JDK and JRE | `java --help` |
+| `ruby` | Ruby (rbenv) | Ruby via rbenv version manager + ruby-build | `ruby --version` |
 
 ---
 
 ## Custom packages
 
-Custom packages live in `~/.config/dev-setup/packages/` as JSON files. Each file is named `<key>.json`. You can create them via `dev-setup add` or write them by hand.
+Custom packages live in `~/.config/dev-setup/tools.yaml`. You can create them via `dev-setup add`, import them with `dev-setup catalog import`, or edit the YAML by hand.
 
-### JSON fields
+### YAML schema
+
+```yaml
+version: 1
+tools:
+  my-tool:
+    name: My Tool
+    description: Does something useful
+    category: custom
+    type: bash
+    check_cmd: my-tool
+    help_cmd: my-tool --help
+    docs_url: https://example.com/docs
+    requires: []
+    install_script: |
+      set -euo pipefail
+      curl -fsSL https://example.com/install.sh | sh
+    remove_script: |
+      rm -f "$HOME/.local/bin/my-tool"
+```
+
+### YAML fields
 
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | yes | Display name shown in `list` |
 | `description` | no | Short description shown in `list` |
-| `category` | no | `custom` (default), `core`, or `tools` |
-| `type` | yes | `npm`, `pip`, `apt`, `git`, `script`, or `bash` |
-| `check_cmd` | no | Binary name checked with `which` to detect install status |
+| `category` | no | `custom` (default), `core`, `tools`, or `languages` |
+| `type` | yes | `npm`, `pip`, `uvx`, `apt`, `git`, `script`, or `bash` |
+| `check_cmd` | no | Binary name or shell check used to detect install status |
 | `help_cmd` | no | Command shown in `list` under the package entry |
+| `docs_url` | no | URL opened by `dev-setup docs <key>` |
+| `requires` | no | List of package keys that must already be installed |
 | `npm_name` | npm | npm package name |
 | `pip_name` | pip | PyPI package name |
 | `apt_packages` | apt | Space-separated list of apt packages |
@@ -225,55 +290,67 @@ Custom packages live in `~/.config/dev-setup/packages/` as JSON files. Each file
 | `install_script` | bash | Full bash script to run on install |
 | `remove_script` | bash | Full bash script to run on remove |
 
+Unknown fields fail validation. `requires` defaults to `["nvm"]` for `npm` tools and `["uv"]` for `pip`/`uvx` tools unless explicitly set.
+
 ### Examples
 
 **npm package:**
-```json
-{
-  "name": "Prettier",
-  "description": "Opinionated code formatter",
-  "type": "npm",
-  "npm_name": "prettier",
-  "check_cmd": "prettier",
-  "help_cmd": "prettier --help"
-}
+```yaml
+version: 1
+tools:
+  prettier:
+    name: Prettier
+    description: Opinionated code formatter
+    type: npm
+    npm_name: prettier
+    check_cmd: prettier
+    help_cmd: prettier --help
 ```
 
-**pip package:**
-```json
-{
-  "name": "httpie",
-  "description": "Human-friendly HTTP client",
-  "type": "pip",
-  "pip_name": "httpie",
-  "check_cmd": "http",
-  "help_cmd": "http --help"
-}
+**uvx/PyPI package:**
+```yaml
+version: 1
+tools:
+  httpie:
+    name: httpie
+    description: Human-friendly HTTP client
+    type: uvx
+    pip_name: httpie
+    check_cmd: http
+    help_cmd: http --help
 ```
 
 **apt package:**
-```json
-{
-  "name": "ripgrep",
-  "description": "Fast recursive search tool",
-  "type": "apt",
-  "apt_packages": "ripgrep",
-  "check_cmd": "rg",
-  "help_cmd": "rg --help"
-}
+```yaml
+version: 1
+tools:
+  ripgrep:
+    name: ripgrep
+    description: Fast recursive search tool
+    type: apt
+    apt_packages: ripgrep
+    check_cmd: rg
+    help_cmd: rg --help
 ```
 
 **Multi-step bash install:**
-```json
-{
-  "name": "saml2aws (custom)",
-  "description": "SAML-to-AWS credential helper",
-  "type": "bash",
-  "check_cmd": "saml2aws",
-  "help_cmd": "saml2aws --help",
-  "install_script": "set -euo pipefail\nVER=$(curl -s https://api.github.com/repos/Versent/saml2aws/releases/latest | grep tag_name | cut -d'v' -f2 | cut -d'\"' -f1)\ncurl -fsSL \"https://github.com/Versent/saml2aws/releases/download/v${VER}/saml2aws_${VER}_linux_amd64.tar.gz\" | tar -xz -C /tmp\nsudo mv /tmp/saml2aws /usr/local/bin/saml2aws\nsudo chmod +x /usr/local/bin/saml2aws",
-  "remove_script": "sudo rm -f /usr/local/bin/saml2aws"
-}
+```yaml
+version: 1
+tools:
+  saml2aws-custom:
+    name: saml2aws (custom)
+    description: SAML-to-AWS credential helper
+    type: bash
+    check_cmd: saml2aws
+    help_cmd: saml2aws --help
+    install_script: |
+      set -euo pipefail
+      VER=$(curl -s https://api.github.com/repos/Versent/saml2aws/releases/latest | grep tag_name | cut -d'v' -f2 | cut -d'"' -f1)
+      curl -fsSL "https://github.com/Versent/saml2aws/releases/download/v${VER}/saml2aws_${VER}_linux_amd64.tar.gz" | tar -xz -C /tmp
+      sudo mv /tmp/saml2aws /usr/local/bin/saml2aws
+      sudo chmod +x /usr/local/bin/saml2aws
+    remove_script: |
+      sudo rm -f /usr/local/bin/saml2aws
 ```
 
 ---
@@ -290,74 +367,48 @@ dev-setup-py/
         ├── __main__.py    # python -m dev_setup entry point
         ├── cli.py         # Click group, command registration
         ├── base.py        # Tool ABC, patch_bashrc / remove_bashrc_block utilities
-        ├── registry.py    # Auto-discovers Tool subclasses via pkgutil, loads custom JSON
-        ├── generic.py     # GenericTool — handles all 6 custom install types
+        ├── catalog.py     # YAML catalog loading, validation, migration, import/export
+        ├── registry.py    # Loads bundled + user YAML into the live tool registry
+        ├── generic.py     # GenericTool - handles all catalog install types
+        ├── tools.yaml     # Bundled built-in tool catalog
         ├── ui.py          # Rich console helpers, questionary wrappers, styled prompts
         ├── commands/
         │   ├── list_cmd.py
         │   ├── install_cmd.py
         │   ├── remove_cmd.py
         │   ├── add_cmd.py
-        │   └── delete_cmd.py
-        └── packages/      # Built-in Tool subclasses — one file per tool
-            ├── docker.py
-            ├── nvm.py
-            ├── uv_tool.py
-            ├── aws_cli.py
-            ├── saml2aws.py
-            ├── php.py
-            ├── starship.py
-            └── htop.py
+        │   ├── delete_cmd.py
+        │   └── catalog_cmd.py
 ```
 
 ### Adding a new built-in tool
 
-Create one file in `src/dev_setup/packages/`. The registry auto-discovers any class that subclasses `Tool` and has a non-empty `key` — no registration arrays to update.
+Add an entry to `src/dev_setup/tools.yaml`. Built-ins use the same schema as user tools, with `category` set to `core`, `tools`, or `languages`.
 
-```python
-# src/dev_setup/packages/my_tool.py
-import shutil, subprocess
-from typing import Optional
-from dev_setup.base import Tool
-
-class MyTool(Tool):
-    key         = "mytool"
-    name        = "My Tool"
-    description = "Does something useful"
-    category    = "tools"          # "core", "tools", or "custom"
-    install_type = "script"
-    help_cmd    = "mytool --help"
-
-    def is_installed(self) -> bool:
-        return shutil.which("mytool") is not None
-
-    def get_version(self) -> str:
-        r = subprocess.run(["mytool", "--version"], capture_output=True, text=True)
-        return r.stdout.strip() if r.returncode == 0 else ""
-
-    def install(self) -> Optional[str]:
-        from dev_setup import ui
-        with ui.spinner("Installing My Tool..."):
-            subprocess.run(["bash", "-c", "curl -fsSL https://example.com/install.sh | sh"],
-                           check=True, capture_output=True)
-        if not self.is_installed():
-            raise RuntimeError("mytool binary not found after install")
-        return self.get_version()
-
-    def remove(self) -> None:
-        from dev_setup import ui
-        with ui.spinner("Removing My Tool..."):
-            subprocess.run(["sudo", "rm", "-f", "/usr/local/bin/mytool"],
-                           check=True, capture_output=True)
+```yaml
+mytool:
+  name: My Tool
+  description: Does something useful
+  category: tools
+  type: bash
+  check_cmd: mytool
+  help_cmd: mytool --help
+  docs_url: https://example.com/docs
+  install_script: |
+    set -euo pipefail
+    curl -fsSL https://example.com/install.sh | sh
+  remove_script: |
+    sudo rm -f /usr/local/bin/mytool
 ```
 
 ### Key design decisions
 
 - **uv owns Python provisioning.** The bash wrapper only guarantees uv is present; Python version and virtualenv management is delegated entirely to `uv run`.
-- **Registry is auto-discovery.** `pkgutil.iter_modules` scans `packages/` for `Tool` subclasses — adding a built-in is a single file drop-in.
-- **Custom packages are plain JSON.** No executable files in the registry; scripts are stored as strings and written to a temp file at install time, giving bash full parsing fidelity.
+- **Catalogs are the source of truth.** Bundled YAML loads first, legacy JSON is migrated, then user YAML overrides matching keys and appends new tools.
+- **Tool execution is generic.** The Python engine handles npm, uvx/pip, apt, git, script URLs, and bash scripts from catalog metadata.
+- **Custom packages are plain YAML.** Scripts are stored as strings and written to a temp file at install time, giving bash full parsing fidelity.
 - **`install()` raises on failure.** Tools raise `RuntimeError` or `subprocess.CalledProcessError`; command handlers catch and report them. No `InstallResult` enum to check.
-- **UI is import-isolated.** Package classes do `from dev_setup import ui` inside method bodies, keeping `is_installed()` and `get_version()` side-effect free and testable without terminal output.
+- **Invalid catalogs fail visibly.** Malformed YAML, unsupported versions, bad keys, unknown fields, and invalid `requires` values raise clear load errors.
 
 ---
 
@@ -366,5 +417,6 @@ class MyTool(Tool):
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `click` | ≥ 8.1 | CLI command dispatch, `--help` generation, editor integration |
+| `PyYAML` | ≥ 6.0 | Tool catalog parsing and writing |
 | `rich` | ≥ 13.0 | Terminal UI — panels, tables, spinners, styled text |
 | `questionary` | ≥ 2.0 | Interactive prompts — multi-select, confirm, text input |

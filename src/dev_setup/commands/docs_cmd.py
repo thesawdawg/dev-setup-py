@@ -21,7 +21,7 @@ def docs_cmd(package: str) -> None:
 
     if not tool.docs_url:
         ui.warn(f"No documentation URL is configured for '{package}'.")
-        ui.dim("For custom packages, re-add with a docs URL via: dev-setup add")
+        ui.dim("For custom packages, add docs_url in your YAML catalog.")
         sys.exit(1)
 
     ui.console.print(f"\n  [bold]{tool.name}[/] docs")

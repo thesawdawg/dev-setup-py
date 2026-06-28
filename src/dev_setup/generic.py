@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import shutil
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -67,7 +67,7 @@ class GenericTool(Tool):
         self.remove_script = remove_script
         self.help_cmd = help_cmd
         self.docs_url = docs_url
-        # npm packages need nvm/node; explicit requires in JSON takes precedence
+        # npm packages need nvm/node; explicit catalog requires takes precedence
         if requires is not None:
             self.requires = requires
         elif install_type == "npm":
@@ -133,13 +133,12 @@ class GenericTool(Tool):
         return d
 
     def save(self) -> None:
-        CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
-        path = CUSTOM_DIR / f"{self.key}.json"
-        path.write_text(json.dumps(self.to_dict(), indent=2))
+        from dev_setup import catalog
+        catalog.save_user_tool(self.key, self.to_dict())
 
     def is_installed(self) -> bool:
         if self.check_cmd:
-            return shutil.which(self.check_cmd) is not None
+            return _check_cmd_installed(self.check_cmd)
         t = self.install_type
         if t == "npm":
             return self.npm_name and _npm_global_installed(self.npm_name)
@@ -153,7 +152,7 @@ class GenericTool(Tool):
 
     def get_version(self) -> str:
         cmd = self.check_cmd or _type_cmd(self)
-        if not cmd or not shutil.which(cmd):
+        if not cmd or not _is_simple_command(cmd) or not shutil.which(cmd):
             return ""
         for flag in ["--version", "-v", "version"]:
             try:
@@ -173,7 +172,7 @@ class GenericTool(Tool):
                 raise RuntimeError("npm_name not set")
             with ui.spinner(f"Installing {self.name} via npm..."):
                 subprocess.run(
-                    ["npm", "install", "-g", self.npm_name],
+                    ["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(self.npm_name)}"],
                     check=True, capture_output=True,
                 )
         elif t in ("pip", "uvx"):
@@ -232,7 +231,7 @@ class GenericTool(Tool):
         if t == "npm":
             with ui.spinner(f"Removing {self.name}..."):
                 subprocess.run(
-                    ["npm", "uninstall", "-g", self.npm_name],
+                    ["bash", "-lc", f"{_npm_init()} && npm uninstall -g {shlex.quote(self.npm_name)}"],
                     check=True, capture_output=True,
                 )
         elif t in ("pip", "uvx"):
@@ -279,10 +278,18 @@ class GenericTool(Tool):
 
 def _npm_global_installed(pkg: str) -> bool:
     try:
-        r = subprocess.run(["npm", "list", "-g", "--depth=0", pkg], capture_output=True, text=True)
+        r = subprocess.run(
+            ["bash", "-lc", f"{_npm_init()} && npm list -g --depth=0 {shlex.quote(pkg)}"],
+            capture_output=True,
+            text=True,
+        )
         return pkg in r.stdout
     except Exception:
         return False
+
+
+def _npm_init() -> str:
+    return '. "$HOME/.nvm/nvm.sh" 2>/dev/null || true'
 
 
 def _apt_installed(pkg: str) -> bool:
@@ -318,3 +325,24 @@ def _type_cmd(tool: GenericTool) -> str:
     if t in ("pip", "uvx"):
         return tool.pip_name
     return ""
+
+
+def _is_simple_command(cmd: str) -> bool:
+    return bool(cmd) and all(c not in cmd for c in " \t\n;&|$`'\"()<>")
+
+
+def _check_cmd_installed(cmd: str) -> bool:
+    if _is_simple_command(cmd):
+        if shutil.which(cmd) is not None:
+            return True
+        try:
+            return subprocess.run(
+                ["bash", "-lc", f"{_npm_init()} && command -v {cmd} >/dev/null 2>&1"],
+                capture_output=True,
+            ).returncode == 0
+        except Exception:
+            return False
+    try:
+        return subprocess.run(["bash", "-lc", cmd], capture_output=True).returncode == 0
+    except Exception:
+        return False

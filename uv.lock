@@ -167,10 +167,11 @@ wheels = [
 
 [[package]]
 name = "dev-setup"
-version = "1.5.0"
+version = "1.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
+    { name = "pyyaml" },
     { name = "questionary" },
     { name = "rich" },
 ]
@@ -184,6 +185,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "questionary", specifier = ">=2.0" },
     { name = "rich", specifier = ">=13.0" },
 ]
