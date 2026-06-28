@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -18,7 +17,6 @@ def isolated_catalog(tmp_path, monkeypatch):
     config = tmp_path / "config"
     monkeypatch.setattr(catalog, "CONFIG_DIR", config)
     monkeypatch.setattr(catalog, "USER_CATALOG_PATH", config / "tools.yaml")
-    monkeypatch.setattr(catalog, "LEGACY_CUSTOM_DIR", config / "packages")
     registry._registry.clear()
     registry._order.clear()
     registry._initialized = False
@@ -93,26 +91,6 @@ def test_invalid_catalog_reports_unknown_field(isolated_catalog):
         catalog.read_user_catalog()
 
 
-def test_legacy_json_auto_migrates_to_user_yaml(isolated_catalog):
-    legacy = catalog.LEGACY_CUSTOM_DIR
-    legacy.mkdir(parents=True)
-    (legacy / "mine.json").write_text(
-        json.dumps(
-            {
-                "name": "Mine",
-                "description": "legacy",
-                "type": "bash",
-                "check_cmd": "mine",
-                "install_script": "true",
-            }
-        )
-    )
-
-    assert registry.get("mine") is not None
-    user = catalog.read_user_catalog()
-    assert user["mine"]["name"] == "Mine"
-
-
 def test_generic_tool_save_writes_user_yaml(isolated_catalog):
     tool = GenericTool(
         key="saved",
@@ -127,7 +105,6 @@ def test_generic_tool_save_writes_user_yaml(isolated_catalog):
 
     data = yaml.safe_load(catalog.USER_CATALOG_PATH.read_text())
     assert data["tools"]["saved"]["name"] == "Saved"
-    assert not (catalog.LEGACY_CUSTOM_DIR / "saved.json").exists()
 
 
 def test_catalog_export_and_import_commands(isolated_catalog, tmp_path):

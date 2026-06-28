@@ -30,4 +30,7 @@ def delete_cmd(key: str) -> None:
 
     catalog.delete_user_tool(key)
     registry.reload()
-    ui.success(f"Package '{key}' deleted from user catalog.")
+    if registry.exists(key):
+        ui.success(f"User override for '{key}' removed — built-in version is now active.")
+    else:
+        ui.success(f"Package '{key}' deleted from user catalog.")

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import re
 from importlib import resources
 from pathlib import Path
@@ -11,7 +10,6 @@ import yaml
 
 CONFIG_DIR = Path.home() / ".config" / "dev-setup"
 USER_CATALOG_PATH = CONFIG_DIR / "tools.yaml"
-LEGACY_CUSTOM_DIR = CONFIG_DIR / "packages"
 BUNDLED_CATALOG = "tools.yaml"
 
 VERSION = 1
@@ -22,6 +20,7 @@ SUPPORTED_FIELDS = {
     "category",
     "type",
     "check_cmd",
+    "version_cmd",
     "help_cmd",
     "docs_url",
     "requires",
@@ -129,14 +128,12 @@ def load_bundled_catalog() -> dict[str, dict[str, Any]]:
     return validate_catalog(raw, source=bundled_catalog_path())
 
 
-def load_effective_catalog(*, migrate_legacy: bool = True) -> tuple[
+def load_effective_catalog() -> tuple[
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
     dict[str, dict[str, Any]],
 ]:
     bundled = load_bundled_catalog()
-    if migrate_legacy:
-        migrate_legacy_json(bundled)
     user = read_user_catalog()
     effective = merge_catalogs(bundled, user)
     return effective, bundled, user
@@ -150,38 +147,6 @@ def merge_catalogs(
     for key, data in user.items():
         merged[key] = copy.deepcopy(data)
     return merged
-
-
-def migrate_legacy_json(
-    bundled: dict[str, dict[str, Any]] | None = None,
-) -> list[str]:
-    if not LEGACY_CUSTOM_DIR.is_dir():
-        return []
-
-    user = read_user_catalog()
-    existing = set(user)
-    if bundled:
-        existing |= set(bundled)
-
-    migrated: list[str] = []
-    for path in sorted(LEGACY_CUSTOM_DIR.glob("*.json")):
-        key = path.stem
-        if key in existing:
-            continue
-        try:
-            data = json.loads(path.read_text())
-        except json.JSONDecodeError as exc:
-            raise CatalogError(f"Invalid legacy package JSON in {path}: {exc}") from exc
-        if not isinstance(data, dict):
-            raise CatalogError(f"Legacy package {path} must contain a JSON object")
-        validate_catalog(catalog_document({key: data}), source=path)
-        user[key] = data
-        migrated.append(key)
-        existing.add(key)
-
-    if migrated:
-        write_user_catalog(user)
-    return migrated
 
 
 def save_user_tool(key: str, data: dict[str, Any]) -> None:
@@ -214,7 +179,7 @@ def import_catalog(path: Path) -> list[str]:
 
 
 def export_catalog(path: Path) -> None:
-    effective, _, _ = load_effective_catalog()
+    effective, _bundled, _user = load_effective_catalog()
     path.write_text(_dump(catalog_document(effective)))
 
 

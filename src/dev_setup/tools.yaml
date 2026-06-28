@@ -471,4 +471,4 @@ tools:
     help_cmd: --help
     docs_url: https://github.com/Andyyyy64/whichllm
     requires:
-      - uvx
+      - uv

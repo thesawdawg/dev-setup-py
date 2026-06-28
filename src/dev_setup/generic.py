@@ -8,8 +8,6 @@ from typing import Optional
 
 from dev_setup.base import Tool
 
-CUSTOM_DIR = Path.home() / ".config" / "dev-setup" / "packages"
-
 _verbose: bool = False
 
 
@@ -37,6 +35,7 @@ class GenericTool(Tool):
         category: str = "custom",
         install_type: str = "unknown",
         check_cmd: str = "",
+        version_cmd: str = "",
         npm_name: str = "",
         pip_name: str = "",
         git_url: str = "",
@@ -56,6 +55,7 @@ class GenericTool(Tool):
         self.category = category
         self.install_type = install_type
         self.check_cmd = check_cmd
+        self.version_cmd = version_cmd
         self.npm_name = npm_name
         self.pip_name = pip_name
         self.git_url = git_url
@@ -86,6 +86,7 @@ class GenericTool(Tool):
             category=data.get("category", "custom"),
             install_type=data.get("type", "unknown"),
             check_cmd=data.get("check_cmd", ""),
+            version_cmd=data.get("version_cmd", ""),
             npm_name=data.get("npm_name", ""),
             pip_name=data.get("pip_name", ""),
             git_url=data.get("git_url", ""),
@@ -97,7 +98,7 @@ class GenericTool(Tool):
             remove_script=data.get("remove_script", ""),
             help_cmd=data.get("help_cmd", ""),
             docs_url=data.get("docs_url", ""),
-            requires=data.get("requires") or None,
+            requires=data.get("requires"),
         )
 
     def to_dict(self) -> dict:
@@ -109,6 +110,7 @@ class GenericTool(Tool):
         }
         for field, val in [
             ("check_cmd", self.check_cmd),
+            ("version_cmd", self.version_cmd),
             ("npm_name", self.npm_name),
             ("pip_name", self.pip_name),
             ("git_url", self.git_url),
@@ -128,7 +130,7 @@ class GenericTool(Tool):
             (self.install_type == "npm" and self.requires == ["nvm"])
             or (self.install_type in ("pip", "uvx") and self.requires == ["uv"])
         )
-        if self.requires and not auto:
+        if self.requires is not None and not auto:
             d["requires"] = self.requires
         return d
 
@@ -138,7 +140,7 @@ class GenericTool(Tool):
 
     def is_installed(self) -> bool:
         if self.check_cmd:
-            return _check_cmd_installed(self.check_cmd)
+            return _check_cmd_installed(self.check_cmd, install_type=self.install_type)
         t = self.install_type
         if t == "npm":
             return self.npm_name and _npm_global_installed(self.npm_name)
@@ -151,17 +153,26 @@ class GenericTool(Tool):
         return False
 
     def get_version(self) -> str:
-        cmd = self.check_cmd or _type_cmd(self)
-        if not cmd or not _is_simple_command(cmd) or not shutil.which(cmd):
-            return ""
-        for flag in ["--version", "-v", "version"]:
-            try:
-                r = subprocess.run([cmd, flag], capture_output=True, text=True, timeout=5)
-                if r.returncode == 0 and r.stdout.strip():
-                    return r.stdout.strip().splitlines()[0]
-            except Exception:
-                pass
-        return "installed"
+        # Prefer explicit version_cmd; fall through to check_cmd / type-derived cmd
+        cmd = self.version_cmd or (
+            self.check_cmd if _is_simple_command(self.check_cmd or "") else ""
+        ) or _type_cmd(self)
+
+        if cmd and shutil.which(cmd):
+            for flag in ["--version", "-v", "version"]:
+                try:
+                    r = subprocess.run([cmd, flag], capture_output=True, text=True, timeout=5)
+                    if r.returncode == 0 and r.stdout.strip():
+                        return r.stdout.strip().splitlines()[0]
+                except Exception:
+                    pass
+            return "installed"
+
+        # Complex check_cmd (shell expression) — probe via login shell using tool key
+        if self.check_cmd and not _is_simple_command(self.check_cmd):
+            return _bash_version(self.key)
+
+        return ""
 
     def install(self) -> Optional[str]:
         from dev_setup import ui
@@ -208,6 +219,7 @@ class GenericTool(Tool):
             if not self.apt_packages:
                 raise RuntimeError("apt_packages not set")
             ui.info(f"Installing {self.name} via apt...")
+            subprocess.run(["sudo", "apt-get", "update", "-q"], capture_output=True)
             _run(["sudo", "apt-get", "install", "-y"] + self.apt_packages.split())
         elif t == "script":
             if not self.script_url:
@@ -258,7 +270,10 @@ class GenericTool(Tool):
                 shutil.rmtree(dest)
         elif t == "apt":
             ui.info(f"Removing {self.name}...")
-            _run(["sudo", "apt-get", "remove", "-y"] + self.apt_packages.split())
+            if self.remove_script:
+                _run_bash_script(self.remove_script)
+            else:
+                _run(["sudo", "apt-get", "remove", "-y"] + self.apt_packages.split())
         elif t == "script":
             raise RuntimeError(
                 "Script-type packages cannot be auto-removed. "
@@ -331,13 +346,29 @@ def _is_simple_command(cmd: str) -> bool:
     return bool(cmd) and all(c not in cmd for c in " \t\n;&|$`'\"()<>")
 
 
-def _check_cmd_installed(cmd: str) -> bool:
+def _bash_version(key: str) -> str:
+    for flag in ["--version", "-v", "version"]:
+        try:
+            r = subprocess.run(
+                ["bash", "-lc", f". \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {shlex.quote(key)} {flag} 2>/dev/null"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip().splitlines()[0]
+        except Exception:
+            pass
+    return ""
+
+
+def _check_cmd_installed(cmd: str, *, install_type: str = "") -> bool:
     if _is_simple_command(cmd):
         if shutil.which(cmd) is not None:
             return True
+        # Only source nvm for npm-type tools — avoids unnecessary shell overhead
+        prefix = f"{_npm_init()} && " if install_type == "npm" else ""
         try:
             return subprocess.run(
-                ["bash", "-lc", f"{_npm_init()} && command -v {cmd} >/dev/null 2>&1"],
+                ["bash", "-lc", f"{prefix}command -v {cmd} >/dev/null 2>&1"],
                 capture_output=True,
             ).returncode == 0
         except Exception:

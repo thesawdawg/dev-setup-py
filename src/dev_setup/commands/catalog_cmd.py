@@ -35,11 +35,3 @@ def import_cmd(path: Path) -> None:
     ui.success(f"Imported {len(keys)} package(s) into {catalog.USER_CATALOG_PATH}")
 
 
-@catalog_cmd.command("migrate")
-def migrate_cmd() -> None:
-    """Migrate legacy JSON custom packages to the user YAML catalog."""
-    migrated = catalog.migrate_legacy_json(catalog.load_bundled_catalog())
-    if migrated:
-        ui.success(f"Migrated {len(migrated)} package(s): {', '.join(migrated)}")
-    else:
-        ui.info("No legacy JSON packages needed migration.")

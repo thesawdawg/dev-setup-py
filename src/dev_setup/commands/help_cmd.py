@@ -14,7 +14,7 @@ def print_help() -> None:
         ("remove",  "<package ...>",                          "Uninstall installed packages"),
         ("add",     "",                                        "Add a custom package (guided wizard)"),
         ("delete",  "<key>",                                  "Remove a custom package from the registry"),
-        ("catalog", "<path|export|import|migrate>",           "Manage YAML tool catalogs"),
+        ("catalog", "<path|export|import>",                   "Manage YAML tool catalogs"),
         ("docs",    "<package>",                              "Open documentation in browser"),
         ("version", "",                                        "Show version"),
     ]
