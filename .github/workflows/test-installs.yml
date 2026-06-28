@@ -65,6 +65,7 @@ jobs:
           - saml2aws
           - starship
           - uv
+          - whichllm    # uvx tool, requires uv
 
     steps:
       - name: Download image artifact

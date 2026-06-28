@@ -33,6 +33,6 @@ RUN pip install --user --break-system-packages /tmp/dev_setup-*.whl \
 ENV PATH="/home/developer/.local/bin:$PATH"
 
 # Pre-create config dir so the tool has somewhere to write on first run
-RUN mkdir -p /home/developer/.config/dev-setup/packages
+RUN mkdir -p /home/developer/.config/dev-setup
 
 CMD ["/bin/bash", "--login"]
