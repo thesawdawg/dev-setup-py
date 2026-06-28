@@ -315,13 +315,20 @@ tools:
 
   pi:
     name: Pi Coding Agent
-    description: AI coding agent - pi-coding-agent npm package
+    description: AI coding agent - pi.dev
     category: ai-tools
-    type: npm
-    check_cmd: pi
-    npm_name: pi-coding-agent
+    type: bash
+    check_cmd: . "$HOME/.nvm/nvm.sh" 2>/dev/null && command -v pi >/dev/null 2>&1
     help_cmd: pi --help
-    docs_url: https://www.npmjs.com/package/pi-coding-agent
+    docs_url: https://pi.dev/docs/latest
+    install_script: |
+      set -euo pipefail
+      . "$HOME/.nvm/nvm.sh"
+      npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+    remove_script: |
+      set -euo pipefail
+      . "$HOME/.nvm/nvm.sh"
+      npm uninstall -g @earendil-works/pi-coding-agent
     requires:
       - nvm
 
