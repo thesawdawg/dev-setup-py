@@ -40,6 +40,34 @@ tools:
       sudo rm -rf /usr/local/aws-cli
       sudo rm -f /usr/local/bin/aws /usr/local/bin/aws_completer
 
+  bat:
+    name: bat
+    description: cat replacement with syntax highlighting and git integration
+    category: tools
+    type: bash
+    check_cmd: bat
+    help_cmd: bat --help
+    docs_url: https://github.com/sharkdp/bat
+    install_script: |
+      set -euo pipefail
+      version="$(curl -fsSL https://api.github.com/repos/sharkdp/bat/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 0.24.0)"
+      machine="$(uname -m)"
+      if [ "$machine" = "aarch64" ]; then
+        arch="aarch64"
+      else
+        arch="x86_64"
+      fi
+      filename="bat-v${version}-${arch}-unknown-linux-gnu.tar.gz"
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl -fsSL -o "$tmpdir/$filename" "https://github.com/sharkdp/bat/releases/download/v${version}/${filename}"
+      tar -C "$tmpdir" -xzf "$tmpdir/$filename"
+      sudo mv "$tmpdir/bat-v${version}-${arch}-unknown-linux-gnu/bat" /usr/local/bin/bat
+      sudo chmod +x /usr/local/bin/bat
+    remove_script: |
+      set -euo pipefail
+      sudo rm -f /usr/local/bin/bat
+
   docker:
     name: Docker
     description: Container runtime + docker compose plugin
@@ -312,6 +340,17 @@ tools:
       set -euo pipefail
       sudo apt-get remove -y 'php8.4*'
       sudo apt-get autoremove -y
+
+  pre-commit:
+    name: pre-commit
+    description: Git hook manager for automated code quality checks
+    category: tools
+    type: uvx
+    pip_name: pre-commit
+    help_cmd: pre-commit --help
+    docs_url: https://pre-commit.com/
+    requires:
+      - uv
 
   pi:
     name: Pi Coding Agent
