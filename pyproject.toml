@@ -1,6 +1,6 @@
 [project]
 name = "dev-setup"
-version = "1.7.1"
+version = "1.8.0"
 description = "Development environment setup CLI for Linux"
 readme = "README.md"
 requires-python = ">=3.11"

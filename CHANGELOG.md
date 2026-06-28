@@ -1,3 +1,17 @@
+## v1.8.0 (2026-06-28)
+
+### Feat
+
+- **catalog**: add ipython to tools
+- add bat and pre-commit to tool catalog
+
+### Fix
+
+- update git push command to ensure tags are pushed correctly
+- update Pi Coding Agent tool configuration for improved installation and usage
+- enhance Makefile with run-tests options for improved testing flexibility
+- remove legacy migration and correct YAML refactor bugs
+
 ## v1.7.1 (2026-06-27)
 
 ### Fix
