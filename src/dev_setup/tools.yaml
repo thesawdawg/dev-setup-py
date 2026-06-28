@@ -146,6 +146,35 @@ tools:
       set -euo pipefail
       sudo apt-get remove -y gh
 
+  git-lfs:
+    name: Git LFS
+    description: Git extension for versioning large files
+    category: core
+    type: bash
+    check_cmd: git-lfs
+    help_cmd: git lfs --help
+    docs_url: https://git-lfs.com/
+    install_script: |
+      set -euo pipefail
+      version="$(curl -fsSL https://api.github.com/repos/git-lfs/git-lfs/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 3.5.1)"
+      machine="$(uname -m)"
+      if [ "$machine" = "aarch64" ]; then
+        arch="arm64"
+      else
+        arch="amd64"
+      fi
+      filename="git-lfs-linux-${arch}-v${version}.tar.gz"
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl -fsSL -o "$tmpdir/$filename" "https://github.com/git-lfs/git-lfs/releases/download/v${version}/${filename}"
+      tar -C "$tmpdir" -xzf "$tmpdir/$filename"
+      sudo bash "$tmpdir/git-lfs-${version}/install.sh"
+      git lfs install
+    remove_script: |
+      set -euo pipefail
+      git lfs uninstall 2>/dev/null || true
+      sudo rm -f /usr/local/bin/git-lfs
+
   go:
     name: Go
     description: Go programming language toolchain
@@ -232,6 +261,34 @@ tools:
       set -euo pipefail
       sudo apt-get remove -y openjdk-21-jdk openjdk-21-jre
       sudo apt-get autoremove -y
+
+  lazygit:
+    name: lazygit
+    description: TUI git client for fast, keyboard-driven git workflows
+    category: core
+    type: bash
+    check_cmd: lazygit
+    help_cmd: lazygit --help
+    docs_url: https://github.com/jesseduffield/lazygit
+    install_script: |
+      set -euo pipefail
+      version="$(curl -fsSL https://api.github.com/repos/jesseduffield/lazygit/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 0.44.1)"
+      machine="$(uname -m)"
+      if [ "$machine" = "aarch64" ]; then
+        arch="arm64"
+      else
+        arch="x86_64"
+      fi
+      filename="lazygit_${version}_Linux_${arch}.tar.gz"
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl -fsSL -o "$tmpdir/$filename" "https://github.com/jesseduffield/lazygit/releases/download/v${version}/${filename}"
+      tar -C "$tmpdir" -xzf "$tmpdir/$filename" lazygit
+      sudo mv "$tmpdir/lazygit" /usr/local/bin/lazygit
+      sudo chmod +x /usr/local/bin/lazygit
+    remove_script: |
+      set -euo pipefail
+      sudo rm -f /usr/local/bin/lazygit
 
   mkcert:
     name: mkcert
