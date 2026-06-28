@@ -1,3 +1,9 @@
+## v1.7.0 (2026-06-27)
+
+### Feat
+
+- load tools from YAML catalogs
+
 ## v1.6.0 (2026-06-26)
 
 ### Feat
