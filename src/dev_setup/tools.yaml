@@ -316,7 +316,7 @@ tools:
   pi:
     name: Pi Coding Agent
     description: AI coding agent - pi-coding-agent npm package
-    category: tools
+    category: ai-tools
     type: npm
     check_cmd: pi
     npm_name: pi-coding-agent
@@ -460,3 +460,15 @@ tools:
     remove_script: |
       set -euo pipefail
       rm -f "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx" "$HOME/.cargo/bin/uv" "$HOME/.cargo/bin/uvx"
+
+  whichllm:
+    name: whichllm
+    description: Tool to check llm compatibility with hardware
+    category: ai-tools
+    type: uvx
+    check_cmd: whichllm
+    pip_name: whichllm
+    help_cmd: --help
+    docs_url: https://github.com/Andyyyy64/whichllm
+    requires:
+      - uvx
