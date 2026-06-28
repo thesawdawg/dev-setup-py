@@ -1,3 +1,9 @@
+## v1.7.1 (2026-06-27)
+
+### Fix
+
+- include whichllm and corrected uv.lock
+
 ## v1.7.0 (2026-06-27)
 
 ### Feat
