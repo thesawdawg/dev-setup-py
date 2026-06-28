@@ -1,0 +1,52 @@
+name: Bump version
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  bump:
+    name: cz bump
+    runs-on: ubuntu-latest
+    # Skip when the merge commit itself is already a bump commit to avoid
+    # an infinite push loop.
+    if: "!startsWith(github.event.head_commit.message, 'bump:')"
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # commitizen needs full history to determine bump type
+          # GH_PAT (a Personal Access Token with repo write scope) is required
+          # so that the tag push re-triggers publish.yml — GitHub Actions does
+          # not re-process events from pushes made with GITHUB_TOKEN.
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run cz bump
+        id: bump
+        run: |
+          set +e
+          uv run --group dev cz bump --yes
+          EXIT=$?
+          if [ "$EXIT" -eq 21 ]; then
+            echo "No conventional commits found since last tag — nothing to bump."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$EXIT" -ne 0 ]; then
+            exit "$EXIT"
+          fi
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push commit and tag
+        if: steps.bump.outputs.bumped == 'true'
+        run: git push --follow-tags
