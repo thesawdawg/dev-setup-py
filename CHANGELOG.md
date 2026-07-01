@@ -1,3 +1,10 @@
+## v1.8.1 (2026-07-01)
+
+### Fix
+
+- move GH_PAT presence check out of step if: condition
+- harden bump workflow and close CI/removal gaps found in review
+
 ## v1.8.0 (2026-06-28)
 
 ### Feat
