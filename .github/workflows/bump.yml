@@ -1,23 +1,26 @@
 name: Bump version
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches:
       - master
 
-# Serialize bump runs so two rapid merges to master can't race each other
-# into computing the same "next version" and colliding on push.
+# Serialize bump runs against master regardless of which PR triggered them.
 concurrency:
-  group: bump-${{ github.ref }}
+  group: bump-master
   cancel-in-progress: false
 
 jobs:
   bump:
     name: cz bump
     runs-on: ubuntu-latest
-    # Skip when the merge commit itself is already a bump commit to avoid
-    # an infinite push loop.
-    if: "!startsWith(github.event.head_commit.message, 'bump:')"
+    # Only run for PRs that were actually merged, not closed unmerged.
+    # A raw `git push` — which is how this job publishes its own commit —
+    # never fires pull_request events, so there's no infinite-loop risk
+    # from this job triggering itself (unlike the old push-to-master
+    # trigger, which needed an explicit "bump:" message guard for that).
+    if: github.event.pull_request.merged == true
     permissions:
       contents: write
     env:
@@ -36,21 +39,42 @@ jobs:
           echo "::error::GH_PAT secret is not set. It is required so the tag push triggers publish.yml (GITHUB_TOKEN pushes are not re-processed by Actions)."
           exit 1
 
+      - name: Check for an approving review
+        # Skip the (comparatively expensive) checkout/uv/cz steps below for
+        # merges that went through without an approval, e.g. an admin
+        # bypassing branch protection.
+        id: approval
+        if: env.HAS_GH_PAT == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          approved="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" --jq '[.[] | select(.state == "APPROVED")] | length > 0')"
+          echo "approved=${approved}" >> "$GITHUB_OUTPUT"
+          if [ "$approved" != "true" ]; then
+            echo "PR #${{ github.event.pull_request.number }} was merged without an approving review — skipping bump."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.approval.outputs.approved == 'true'
         with:
+          ref: master  # the merge already happened server-side by the time this runs
           fetch-depth: 0  # commitizen needs full history to determine bump type
           token: ${{ secrets.GH_PAT }}
 
       - name: Install uv
+        if: steps.approval.outputs.approved == 'true'
         uses: astral-sh/setup-uv@v5
 
       - name: Configure git
+        if: steps.approval.outputs.approved == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Run cz bump
         id: bump
+        if: steps.approval.outputs.approved == 'true'
         run: |
           if uv run --group dev cz bump --yes; then
             echo "bumped=true" >> "$GITHUB_OUTPUT"
