@@ -1,3 +1,9 @@
+## v1.9.0 (2026-07-01)
+
+### Feat
+
+- remove eza tool and update llm-checker configuration in tools.yaml
+
 ## v1.8.2 (2026-07-01)
 
 ### Fix
