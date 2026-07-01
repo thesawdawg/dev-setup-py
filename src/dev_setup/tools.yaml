@@ -207,6 +207,47 @@ tools:
       PY
       fi
 
+  homebrew:
+    name: Homebrew
+    description: Package manager for Linux (and macOS)
+    category: tools
+    type: bash
+    check_cmd: command -v brew >/dev/null 2>&1 || test -x /home/linuxbrew/.linuxbrew/bin/brew
+    help_cmd: brew --help
+    docs_url: https://docs.brew.sh/Homebrew-on-Linux
+    install_script: |
+      set -euo pipefail
+      sudo apt-get update -q
+      sudo apt-get install -y build-essential bubblewrap
+      NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      marker="# Homebrew"
+      line='eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
+      touch "$HOME/.bashrc"
+      if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
+        printf '\n%s\n%s\n' "$marker" "$line" >> "$HOME/.bashrc"
+      fi
+    remove_script: |
+      set -euo pipefail
+      NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)"
+      if [ -f "$HOME/.bashrc" ]; then
+        python3 - "$HOME/.bashrc" <<'PY'
+      import sys
+      path = sys.argv[1]
+      lines = open(path).read().splitlines()
+      out = []
+      skip = 0
+      for line in lines:
+          if skip:
+              skip -= 1
+              continue
+          if line == "# Homebrew":
+              skip = 1
+              continue
+          out.append(line)
+      open(path, "w").write("\n".join(out) + ("\n" if out else ""))
+      PY
+      fi
+
   htop:
     name: htop
     description: Interactive process and resource monitor
@@ -565,3 +606,21 @@ tools:
     docs_url: https://github.com/signerless/llm-checker
     requires:
       - nvm
+
+  lmstudio:
+    name: LM Studio
+    description: Run large language models locally with a GUI
+    category: ai-tools
+    type: bash
+    check_cmd: command -v lms >/dev/null 2>&1 || test -x "$HOME/.lmstudio/bin/lms"
+    help_cmd: lms --help
+    docs_url: https://lmstudio.ai/docs/cli
+    install_script: |
+      set -euo pipefail
+      curl -fsSL https://lmstudio.ai/install.sh | bash
+    remove_script: |
+      set -euo pipefail
+      rm -rf "$HOME/.lmstudio"
+      if [ -f "$HOME/.bashrc" ]; then
+        sed -i '/lmstudio/d' "$HOME/.bashrc"
+      fi
