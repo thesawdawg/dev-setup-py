@@ -1,3 +1,9 @@
+## v1.9.1 (2026-07-01)
+
+### Fix
+
+- correct lmstudio tool entry and add homebrew
+
 ## v1.9.0 (2026-07-01)
 
 ### Feat
