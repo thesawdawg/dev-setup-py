@@ -72,11 +72,20 @@ jobs:
           if ! git diff --staged --quiet; then
             # cz bump already tagged the pre-lock commit; amending moves HEAD
             # to a new SHA, so the tag must be recreated to point at it.
+            # Must stay annotated (-a) — `git push --follow-tags` only
+            # pushes annotated tags, so a lightweight retag here would
+            # silently never reach the remote.
             tag="$(git describe --tags --exact-match HEAD)"
             git commit --amend --no-edit
-            git tag -f "$tag" HEAD
+            git tag -f -a "$tag" -m "$tag" HEAD
           fi
 
       - name: Push commit and tag
         if: steps.bump.outputs.bumped == 'true'
-        run: git push --follow-tags
+        run: |
+          git push --follow-tags
+          tag="$(git describe --tags --exact-match HEAD)"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            echo "::error::${tag} was not found on origin after push --follow-tags (publish.yml will not trigger)."
+            exit 1
+          fi
