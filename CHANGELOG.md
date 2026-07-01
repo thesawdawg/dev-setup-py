@@ -1,3 +1,9 @@
+## v1.8.2 (2026-07-01)
+
+### Fix
+
+- bump workflow silently dropped the tag after lockfile sync
+
 ## v1.8.1 (2026-07-01)
 
 ### Fix
