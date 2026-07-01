@@ -54,9 +54,12 @@ jobs:
           - aws
           - eza
           - gh
+          - git-lfs
           - go
           - htop
+          - ipython     # uvx tool, requires uv
           - java
+          - lazygit
           - mkcert
           - nvm
           - php

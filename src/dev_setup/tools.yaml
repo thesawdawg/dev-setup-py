@@ -172,7 +172,10 @@ tools:
       git lfs install
     remove_script: |
       set -euo pipefail
-      git lfs uninstall 2>/dev/null || true
+      if ! git lfs uninstall; then
+        echo "warning: 'git lfs uninstall' failed — LFS filter hooks may remain in ~/.gitconfig." >&2
+        echo "warning: run 'git lfs uninstall' manually before removing the binary, or clean up ~/.gitconfig by hand." >&2
+      fi
       sudo rm -f /usr/local/bin/git-lfs
 
   go:
