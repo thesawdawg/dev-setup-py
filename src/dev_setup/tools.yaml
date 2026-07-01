@@ -103,28 +103,6 @@ tools:
         || sudo yum remove -y docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>/dev/null \
         || true
 
-  eza:
-    name: eza
-    description: Modern ls replacement with git status, icons, and tree view
-    category: tools
-    type: bash
-    check_cmd: eza
-    help_cmd: eza --help
-    docs_url: https://eza.rocks/
-    install_script: |
-      set -euo pipefail
-      curl -fsSL https://raw.githubusercontent.com/eza-community/eza/main/deb.asc \
-        | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
-      echo 'deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main' \
-        | sudo tee /etc/apt/sources.list.d/gierens.list >/dev/null
-      sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
-      sudo apt-get update -q
-      sudo apt-get install -y eza
-    remove_script: |
-      set -euo pipefail
-      sudo apt-get remove -y eza
-      sudo rm -f /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
-
   gh:
     name: GitHub CLI
     description: GitHub's official CLI - PRs, issues, Actions, and more
@@ -577,14 +555,13 @@ tools:
       set -euo pipefail
       rm -f "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx" "$HOME/.cargo/bin/uv" "$HOME/.cargo/bin/uvx"
 
-  whichllm:
-    name: whichllm
+  llm-checker:
+    name: llm-checker
     description: Tool to check llm compatibility with hardware
     category: ai-tools
-    type: uvx
-    check_cmd: whichllm
-    pip_name: whichllm
+    type: npm
+    check_cmd: llm-checker hw-detect
     help_cmd: --help
-    docs_url: https://github.com/Andyyyy64/whichllm
+    docs_url: https://github.com/signerless/llm-checker
     requires:
-      - uv
+      - nvm
