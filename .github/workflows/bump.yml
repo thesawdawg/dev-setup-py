@@ -20,6 +20,10 @@ jobs:
     if: "!startsWith(github.event.head_commit.message, 'bump:')"
     permissions:
       contents: write
+    env:
+      # secrets can't be referenced directly in step `if:` conditions, so
+      # surface presence via an env var instead.
+      HAS_GH_PAT: ${{ secrets.GH_PAT != '' }}
 
     steps:
       - name: Require GH_PAT
@@ -27,7 +31,7 @@ jobs:
         # so that the tag push re-triggers publish.yml — GitHub Actions does
         # not re-process events from pushes made with GITHUB_TOKEN. Fail loudly
         # instead of silently pushing a tag that will never publish.
-        if: ${{ secrets.GH_PAT == '' }}
+        if: env.HAS_GH_PAT != 'true'
         run: |
           echo "::error::GH_PAT secret is not set. It is required so the tag push triggers publish.yml (GITHUB_TOKEN pushes are not re-processed by Actions)."
           exit 1
