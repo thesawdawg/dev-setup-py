@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import click
 import questionary
@@ -58,24 +59,49 @@ def _install_interactive() -> None:
     ui.print_banner()
     tools = registry.all_tools()
 
-    choices = []
+    # Probe installed status concurrently — each check shells out.
+    with ui.spinner("Checking installed packages..."), ThreadPoolExecutor(max_workers=8) as pool:
+        statuses = pool.map(lambda t: t.is_installed(), tools)
+        installed = dict(zip((t.key for t in tools), statuses, strict=True))
+
+    by_cat: dict[str, list[Tool]] = {}
     for t in tools:
-        is_inst = t.is_installed()
-        missing = registry.missing_requires(t) if not is_inst else []
-        label = (
-            f"{'[installed] ' if is_inst else ''}"
-            f"{t.key:<14} {t.description}"
-        )
-        choices.append(questionary.Choice(
-            title=label,
-            value=t.key,
-            checked=False,
-            disabled=f"requires {', '.join(missing)}" if missing else False,
+        by_cat.setdefault(t.category, []).append(t)
+
+    key_width = max((len(t.key) for t in tools), default=12) + 2
+    desc_width = max(20, ui.console.width - key_width - 14)
+
+    choices: list = []
+    _ORDER = {"core": 0, "tools": 1, "custom": 999}
+    for cat in sorted(by_cat, key=lambda c: (_ORDER.get(c, 500), c)):
+        entries = by_cat[cat]
+        n_inst = sum(installed[t.key] for t in entries)
+        choices.append(questionary.Separator(
+            f"\n  {cat.upper()}  ({n_inst}/{len(entries)} installed)"
         ))
+        for t in entries:
+            is_inst = installed[t.key]
+            missing = [] if is_inst else registry.missing_requires(t)
+            desc = t.description
+            if len(desc) > desc_width:
+                desc = desc[: desc_width - 1] + "…"
+            if is_inst:
+                disabled = "installed ✔"
+            elif missing:
+                disabled = f"requires {', '.join(missing)}"
+            else:
+                disabled = None
+            choices.append(questionary.Choice(
+                title=f"{t.key:<{key_width}}{desc}",
+                value=t.key,
+                checked=False,
+                disabled=disabled,
+            ))
 
     selected = questionary.checkbox(
-        "Select packages to install  (Space to toggle, Enter to confirm):",
+        "Select packages to install:",
         choices=choices,
+        instruction="(Space toggle · Enter confirm · installed items are skipped)",
         style=ui._STYLE,
     ).ask()
 
@@ -83,15 +109,7 @@ def _install_interactive() -> None:
         ui.info("No packages selected.")
         return
 
-    already = [k for k in selected if registry.get(k) and registry.get(k).is_installed()]  # type: ignore[union-attr]
-    to_install = [k for k in selected if k not in already]
-
-    if already:
-        ui.dim(f"Already installed: {', '.join(already)}")
-
-    if not to_install:
-        ui.info("Nothing new to install.")
-        return
+    to_install = selected
 
     if not ui.confirm(f"Install {len(to_install)} package(s)?"):
         ui.warn("Aborted.")
