@@ -1,17 +1,33 @@
 from __future__ import annotations
 
-import shutil
+import hashlib
 import shlex
+import shutil
 import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Optional
 
 from dev_setup.base import Tool
 
 _verbose: bool = False
 
+# Auto-inferred requires per install type (re-derived on load, not persisted)
+AUTO_REQUIRES = {
+    "npm": ["nvm"],
+    "pip": ["uv"],
+    "uvx": ["uv"],
+}
 
-def _run(cmd: list, *, cwd: Optional[Path] = None) -> None:
+# dataclass field name -> catalog YAML key (only where they differ)
+_YAML_KEY = {"install_type": "type"}
+# fields that are identity/metadata, always persisted
+_ALWAYS_PERSIST = ("name", "description", "category", "install_type")
+# fields never read from / written to the catalog
+_NON_CATALOG = ("key", "builtin")
+
+
+def _run(cmd: list, *, cwd: Path | None = None) -> None:
     """Run a command. Streams output when verbose, captures when not."""
     if _verbose:
         subprocess.run(cmd, check=True, cwd=cwd)
@@ -23,114 +39,57 @@ def _run(cmd: list, *, cwd: Optional[Path] = None) -> None:
             raise RuntimeError(msg) from e
 
 
+@dataclass
 class GenericTool(Tool):
-    category = "custom"
-    builtin = False
+    key: str = ""
+    name: str = ""
+    description: str = ""
+    category: str = "custom"
+    install_type: str = "unknown"
+    check_cmd: str = ""
+    version_cmd: str = ""
+    npm_name: str = ""
+    pip_name: str = ""
+    git_url: str = ""
+    git_install_cmd: str = ""
+    git_remove_cmd: str = ""
+    apt_packages: str = ""
+    script_url: str = ""
+    sha256: str = ""
+    install_script: str = ""
+    remove_script: str = ""
+    help_cmd: str = ""
+    docs_url: str = ""
+    requires: list | None = None
+    builtin: bool = False
 
-    def __init__(
-        self,
-        key: str,
-        name: str,
-        description: str = "",
-        category: str = "custom",
-        install_type: str = "unknown",
-        check_cmd: str = "",
-        version_cmd: str = "",
-        npm_name: str = "",
-        pip_name: str = "",
-        git_url: str = "",
-        git_install_cmd: str = "",
-        git_remove_cmd: str = "",
-        apt_packages: str = "",
-        script_url: str = "",
-        install_script: str = "",
-        remove_script: str = "",
-        help_cmd: str = "",
-        docs_url: str = "",
-        requires: Optional[list] = None,
-    ) -> None:
-        self.key = key
-        self.name = name
-        self.description = description
-        self.category = category
-        self.install_type = install_type
-        self.check_cmd = check_cmd
-        self.version_cmd = version_cmd
-        self.npm_name = npm_name
-        self.pip_name = pip_name
-        self.git_url = git_url
-        self.git_install_cmd = git_install_cmd
-        self.git_remove_cmd = git_remove_cmd
-        self.apt_packages = apt_packages
-        self.script_url = script_url
-        self.install_script = install_script
-        self.remove_script = remove_script
-        self.help_cmd = help_cmd
-        self.docs_url = docs_url
-        # npm packages need nvm/node; explicit catalog requires takes precedence
-        if requires is not None:
-            self.requires = requires
-        elif install_type == "npm":
-            self.requires = ["nvm"]
-        elif install_type in ("pip", "uvx"):
-            self.requires = ["uv"]
-        else:
-            self.requires = []
+    def __post_init__(self) -> None:
+        if not self.name:
+            self.name = self.key
+        if self.requires is None:
+            self.requires = list(AUTO_REQUIRES.get(self.install_type, []))
 
     @classmethod
-    def from_dict(cls, data: dict, key: str) -> "GenericTool":
-        return cls(
-            key=key,
-            name=data.get("name", key),
-            description=data.get("description", ""),
-            category=data.get("category", "custom"),
-            install_type=data.get("type", "unknown"),
-            check_cmd=data.get("check_cmd", ""),
-            version_cmd=data.get("version_cmd", ""),
-            npm_name=data.get("npm_name", ""),
-            pip_name=data.get("pip_name", ""),
-            git_url=data.get("git_url", ""),
-            git_install_cmd=data.get("git_install_cmd", ""),
-            git_remove_cmd=data.get("git_remove_cmd", ""),
-            apt_packages=data.get("apt_packages", ""),
-            script_url=data.get("script_url", ""),
-            install_script=data.get("install_script", ""),
-            remove_script=data.get("remove_script", ""),
-            help_cmd=data.get("help_cmd", ""),
-            docs_url=data.get("docs_url", ""),
-            requires=data.get("requires"),
-        )
+    def from_dict(cls, data: dict, key: str) -> GenericTool:
+        kwargs = {
+            f.name: data.get(_YAML_KEY.get(f.name, f.name), f.default)
+            for f in fields(cls)
+            if f.name not in _NON_CATALOG and f.name != "requires"
+        }
+        # `requires` default is None (auto-derive); dict may carry an explicit list
+        kwargs["requires"] = data.get("requires")
+        return cls(key=key, **kwargs)
 
     def to_dict(self) -> dict:
-        d: dict = {
-            "name": self.name,
-            "description": self.description,
-            "category": self.category,
-            "type": self.install_type,
-        }
-        for field, val in [
-            ("check_cmd", self.check_cmd),
-            ("version_cmd", self.version_cmd),
-            ("npm_name", self.npm_name),
-            ("pip_name", self.pip_name),
-            ("git_url", self.git_url),
-            ("git_install_cmd", self.git_install_cmd),
-            ("git_remove_cmd", self.git_remove_cmd),
-            ("apt_packages", self.apt_packages),
-            ("script_url", self.script_url),
-            ("install_script", self.install_script),
-            ("remove_script", self.remove_script),
-            ("help_cmd", self.help_cmd),
-            ("docs_url", self.docs_url),
-        ]:
-            if val:
-                d[field] = val
+        d: dict = {}
+        for f in fields(self):
+            if f.name in _NON_CATALOG or f.name == "requires":
+                continue
+            val = getattr(self, f.name)
+            if f.name in _ALWAYS_PERSIST or val:
+                d[_YAML_KEY.get(f.name, f.name)] = val
         # Only persist explicit requires — auto-inferred ones are re-derived on load
-        auto = (
-            (self.install_type == "npm" and self.requires == ["nvm"])
-            or (self.install_type in ("pip", "uvx") and self.requires == ["uv"])
-        )
-        if self.requires is not None and not auto:
+        if self.requires is not None and self.requires != AUTO_REQUIRES.get(self.install_type, []):
             d["requires"] = self.requires
         return d
 
@@ -138,19 +97,26 @@ class GenericTool(Tool):
         from dev_setup import catalog
         catalog.save_user_tool(self.key, self.to_dict())
 
+    # -- Strategy dispatch ----------------------------------------------------
+
     def is_installed(self) -> bool:
         if self.check_cmd:
             return _check_cmd_installed(self.check_cmd, install_type=self.install_type)
-        t = self.install_type
-        if t == "npm":
-            return self.npm_name and _npm_global_installed(self.npm_name)
-        if t in ("pip", "uvx"):
-            return bool(self.pip_name) and shutil.which(self.pip_name) is not None
-        if t == "git":
-            return bool(self.git_url) and _git_clone_dest(self.git_url).exists()
-        if t == "apt":
-            return bool(self.apt_packages) and _apt_installed(self.apt_packages.split()[0])
-        return False
+        checker = _CHECKERS.get(self.install_type)
+        return checker(self) if checker else False
+
+    def install(self) -> str | None:
+        installer = _INSTALLERS.get(self.install_type)
+        if installer is None:
+            raise RuntimeError(f"Unsupported install type: {self.install_type!r}")
+        installer(self)
+        return self.get_version() or None
+
+    def remove(self) -> None:
+        remover = _REMOVERS.get(self.install_type)
+        if remover is None:
+            raise RuntimeError(f"Unsupported remove type: {self.install_type!r}")
+        remover(self)
 
     def get_version(self) -> str:
         # Prefer explicit version_cmd; fall through to check_cmd / type-derived cmd
@@ -174,121 +140,193 @@ class GenericTool(Tool):
 
         return ""
 
-    def install(self) -> Optional[str]:
-        from dev_setup import ui
-        t = self.install_type
 
-        if t == "npm":
-            if not self.npm_name:
-                raise RuntimeError("npm_name not set")
-            with ui.spinner(f"Installing {self.name} via npm..."):
-                subprocess.run(
-                    ["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(self.npm_name)}"],
-                    check=True, capture_output=True,
-                )
-        elif t in ("pip", "uvx"):
-            if not self.pip_name:
-                raise RuntimeError("pip_name not set")
-            uv = shutil.which("uv")
-            if not uv:
-                raise RuntimeError(
-                    "uv is required to install uvx packages. "
-                    "Install it first: dev-setup install uv"
-                )
-            with ui.spinner(f"Installing {self.name} via uvx..."):
-                subprocess.run(
-                    [uv, "tool", "install", self.pip_name],
-                    check=True, capture_output=True,
-                )
-        elif t == "git":
-            if not self.git_url:
-                raise RuntimeError("git_url not set")
-            dest = _git_clone_dest(self.git_url)
-            with ui.spinner(f"Cloning {self.name}..."):
-                subprocess.run(
-                    ["git", "clone", "--depth=1", self.git_url, str(dest)],
-                    check=True, capture_output=True,
-                )
-            if self.git_install_cmd:
-                with ui.spinner(f"Running install command..."):
-                    subprocess.run(
-                        ["bash", "-c", self.git_install_cmd],
-                        cwd=dest, check=True, capture_output=True,
-                    )
-        elif t == "apt":
-            if not self.apt_packages:
-                raise RuntimeError("apt_packages not set")
-            ui.info(f"Installing {self.name} via apt...")
-            subprocess.run(["sudo", "apt-get", "update", "-q"], capture_output=True)
-            _run(["sudo", "apt-get", "install", "-y"] + self.apt_packages.split())
-        elif t == "script":
-            if not self.script_url:
-                raise RuntimeError("script_url not set")
-            ui.info(f"Running install script for {self.name}...")
-            _run(["bash", "-c", f"curl -fsSL '{self.script_url}' | sh"])
-        elif t == "bash":
-            if not self.install_script:
-                raise RuntimeError("install_script not set")
-            ui.info(f"Installing {self.name}...")
-            _run_bash_script(self.install_script)
-        else:
-            raise RuntimeError(f"Unsupported install type: {t!r}")
+# -- Install strategies --------------------------------------------------------
 
-        return self.get_version() or None
 
-    def remove(self) -> None:
-        from dev_setup import ui
-        t = self.install_type
+def _install_npm(tool: GenericTool) -> None:
+    from dev_setup import ui
+    if not tool.npm_name:
+        raise RuntimeError("npm_name not set")
+    with ui.spinner(f"Installing {tool.name} via npm..."):
+        subprocess.run(
+            ["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(tool.npm_name)}"],
+            check=True, capture_output=True,
+        )
 
-        if t == "npm":
-            with ui.spinner(f"Removing {self.name}..."):
-                subprocess.run(
-                    ["bash", "-lc", f"{_npm_init()} && npm uninstall -g {shlex.quote(self.npm_name)}"],
-                    check=True, capture_output=True,
-                )
-        elif t in ("pip", "uvx"):
-            uv = shutil.which("uv")
-            if not uv:
-                raise RuntimeError(
-                    "uv is required to remove uvx packages. "
-                    "Install it first: dev-setup install uv"
-                )
-            with ui.spinner(f"Removing {self.name}..."):
-                subprocess.run(
-                    [uv, "tool", "uninstall", self.pip_name],
-                    check=True, capture_output=True,
-                )
-        elif t == "git":
-            dest = _git_clone_dest(self.git_url)
-            if self.git_remove_cmd:
-                with ui.spinner(f"Running remove command..."):
-                    subprocess.run(
-                        ["bash", "-c", self.git_remove_cmd],
-                        cwd=dest, capture_output=True,
-                    )
-            if dest.exists():
-                shutil.rmtree(dest)
-        elif t == "apt":
-            ui.info(f"Removing {self.name}...")
-            if self.remove_script:
-                _run_bash_script(self.remove_script)
-            else:
-                _run(["sudo", "apt-get", "remove", "-y"] + self.apt_packages.split())
-        elif t == "script":
-            raise RuntimeError(
-                "Script-type packages cannot be auto-removed. "
-                "Remove manually then run: dev-setup delete " + self.key
+
+def _install_uvx(tool: GenericTool) -> None:
+    from dev_setup import ui
+    if not tool.pip_name:
+        raise RuntimeError("pip_name not set")
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError(
+            "uv is required to install uvx packages. "
+            "Install it first: dev-setup install uv"
+        )
+    with ui.spinner(f"Installing {tool.name} via uvx..."):
+        subprocess.run([uv, "tool", "install", tool.pip_name], check=True, capture_output=True)
+
+
+def _install_git(tool: GenericTool) -> None:
+    from dev_setup import ui
+    if not tool.git_url:
+        raise RuntimeError("git_url not set")
+    dest = _git_clone_dest(tool.git_url)
+    with ui.spinner(f"Cloning {tool.name}..."):
+        subprocess.run(
+            ["git", "clone", "--depth=1", tool.git_url, str(dest)],
+            check=True, capture_output=True,
+        )
+    if tool.git_install_cmd:
+        with ui.spinner("Running install command..."):
+            subprocess.run(
+                ["bash", "-c", tool.git_install_cmd],
+                cwd=dest, check=True, capture_output=True,
             )
-        elif t == "bash":
-            if not self.remove_script:
-                raise RuntimeError(
-                    f"No remove script defined for '{self.key}'. "
-                    "Remove manually then run: dev-setup delete " + self.key
-                )
-            ui.info(f"Removing {self.name}...")
-            _run_bash_script(self.remove_script)
-        else:
-            raise RuntimeError(f"Unsupported remove type: {t!r}")
+
+
+def _install_apt(tool: GenericTool) -> None:
+    from dev_setup import ui
+    if not tool.apt_packages:
+        raise RuntimeError("apt_packages not set")
+    ui.info(f"Installing {tool.name} via apt...")
+    subprocess.run(["sudo", "apt-get", "update", "-q"], capture_output=True)
+    _run(["sudo", "apt-get", "install", "-y"] + tool.apt_packages.split())
+
+
+def _install_script_url(tool: GenericTool) -> None:
+    from dev_setup import ui
+    if not tool.script_url:
+        raise RuntimeError("script_url not set")
+    ui.info(f"Running install script for {tool.name}...")
+    script = _download_script(tool.script_url, expected_sha256=tool.sha256)
+    _run_bash_script(script)
+
+
+def _install_bash(tool: GenericTool) -> None:
+    from dev_setup import ui
+    if not tool.install_script:
+        raise RuntimeError("install_script not set")
+    ui.info(f"Installing {tool.name}...")
+    _run_bash_script(tool.install_script)
+
+
+# -- Remove strategies -----------------------------------------------------------
+
+
+def _remove_npm(tool: GenericTool) -> None:
+    from dev_setup import ui
+    with ui.spinner(f"Removing {tool.name}..."):
+        subprocess.run(
+            ["bash", "-lc", f"{_npm_init()} && npm uninstall -g {shlex.quote(tool.npm_name)}"],
+            check=True, capture_output=True,
+        )
+
+
+def _remove_uvx(tool: GenericTool) -> None:
+    from dev_setup import ui
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError(
+            "uv is required to remove uvx packages. "
+            "Install it first: dev-setup install uv"
+        )
+    with ui.spinner(f"Removing {tool.name}..."):
+        subprocess.run([uv, "tool", "uninstall", tool.pip_name], check=True, capture_output=True)
+
+
+def _remove_git(tool: GenericTool) -> None:
+    from dev_setup import ui
+    dest = _git_clone_dest(tool.git_url)
+    if tool.git_remove_cmd:
+        with ui.spinner("Running remove command..."):
+            subprocess.run(["bash", "-c", tool.git_remove_cmd], cwd=dest, capture_output=True)
+    if dest.exists():
+        shutil.rmtree(dest)
+
+
+def _remove_apt(tool: GenericTool) -> None:
+    from dev_setup import ui
+    ui.info(f"Removing {tool.name}...")
+    if tool.remove_script:
+        _run_bash_script(tool.remove_script)
+    else:
+        _run(["sudo", "apt-get", "remove", "-y"] + tool.apt_packages.split())
+
+
+def _remove_script_url(tool: GenericTool) -> None:
+    from dev_setup import ui
+    if not tool.remove_script:
+        raise RuntimeError(
+            "No remove script defined for this script-installed package. "
+            "Remove manually then run: dev-setup delete " + tool.key
+        )
+    ui.info(f"Removing {tool.name}...")
+    _run_bash_script(tool.remove_script)
+
+
+def _remove_bash(tool: GenericTool) -> None:
+    from dev_setup import ui
+    if not tool.remove_script:
+        raise RuntimeError(
+            f"No remove script defined for '{tool.key}'. "
+            "Remove manually then run: dev-setup delete " + tool.key
+        )
+    ui.info(f"Removing {tool.name}...")
+    _run_bash_script(tool.remove_script)
+
+
+# -- Installed-state strategies ---------------------------------------------------
+
+
+def _installed_npm(tool: GenericTool) -> bool:
+    return bool(tool.npm_name) and _npm_global_installed(tool.npm_name)
+
+
+def _installed_uvx(tool: GenericTool) -> bool:
+    return bool(tool.pip_name) and shutil.which(tool.pip_name) is not None
+
+
+def _installed_git(tool: GenericTool) -> bool:
+    return bool(tool.git_url) and _git_clone_dest(tool.git_url).exists()
+
+
+def _installed_apt(tool: GenericTool) -> bool:
+    return bool(tool.apt_packages) and _apt_installed(tool.apt_packages.split()[0])
+
+
+_INSTALLERS: dict[str, Callable[[GenericTool], None]] = {
+    "npm": _install_npm,
+    "pip": _install_uvx,
+    "uvx": _install_uvx,
+    "git": _install_git,
+    "apt": _install_apt,
+    "script": _install_script_url,
+    "bash": _install_bash,
+}
+
+_REMOVERS: dict[str, Callable[[GenericTool], None]] = {
+    "npm": _remove_npm,
+    "pip": _remove_uvx,
+    "uvx": _remove_uvx,
+    "git": _remove_git,
+    "apt": _remove_apt,
+    "script": _remove_script_url,
+    "bash": _remove_bash,
+}
+
+_CHECKERS: dict[str, Callable[[GenericTool], bool]] = {
+    "npm": _installed_npm,
+    "pip": _installed_uvx,
+    "uvx": _installed_uvx,
+    "git": _installed_git,
+    "apt": _installed_apt,
+}
+
+
+# -- Helpers ----------------------------------------------------------------------
 
 
 def _npm_global_installed(pkg: str) -> bool:
@@ -318,6 +356,26 @@ def _apt_installed(pkg: str) -> bool:
 def _git_clone_dest(url: str) -> Path:
     repo_name = url.rstrip("/").split("/")[-1].removesuffix(".git")
     return Path.home() / ".local" / "share" / "dev-setup" / repo_name
+
+
+def _download_script(url: str, *, expected_sha256: str = "") -> str:
+    """Download a script over HTTPS and optionally verify its sha256."""
+    import urllib.request
+
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        data = resp.read()
+
+    if expected_sha256:
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != expected_sha256.lower():
+            raise RuntimeError(
+                f"Checksum mismatch for {url}\n"
+                f"  expected: {expected_sha256.lower()}\n"
+                f"  actual:   {actual}\n"
+                "The script may have changed upstream — refusing to run it."
+            )
+
+    return data.decode("utf-8")
 
 
 def _run_bash_script(script: str) -> None:
@@ -350,7 +408,10 @@ def _bash_version(key: str) -> str:
     for flag in ["--version", "-v", "version"]:
         try:
             r = subprocess.run(
-                ["bash", "-lc", f". \"$HOME/.nvm/nvm.sh\" 2>/dev/null; {shlex.quote(key)} {flag} 2>/dev/null"],
+                [
+                    "bash", "-lc",
+                    f'. "$HOME/.nvm/nvm.sh" 2>/dev/null; {shlex.quote(key)} {flag} 2>/dev/null',
+                ],
                 capture_output=True, text=True, timeout=5,
             )
             if r.returncode == 0 and r.stdout.strip():

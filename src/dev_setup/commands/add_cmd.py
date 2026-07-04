@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import re
-import sys
-from typing import Optional
 
 import click
 
@@ -152,7 +150,7 @@ def _edit_script(
     required: bool = True,
     prefill: str = "",
     quiet: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """Open $EDITOR with a bash template. Returns stripped script or None if aborted."""
     if prefill:
         template = prefill
@@ -205,9 +203,12 @@ def _extract_installed_paths(install_script: str) -> list[str]:
     # curl ... -o /path/binary
     for m in re.finditer(r'\bcurl\b[^|\n]*?-o\s+(\S+)', install_script):
         p = m.group(1).strip()
-        if p.startswith(("/", "~/")) and _is_safe_literal_path(p):
-            if not p.endswith(('.sh', '.tar.gz', '.zip', '.tmp', '.tar', '.bz2', '.gz')):
-                paths.append(p)
+        if (
+            p.startswith(("/", "~/"))
+            and _is_safe_literal_path(p)
+            and not p.endswith(('.sh', '.tar.gz', '.zip', '.tmp', '.tar', '.bz2', '.gz'))
+        ):
+            paths.append(p)
 
     # sudo mv /tmp/x /usr/local/bin/y  — destination only
     for m in re.finditer(
@@ -251,7 +252,7 @@ def _suggest_remove_script(install_script: str, check_cmd: str, name: str) -> st
     # Fallback: derive removal from check_cmd if nothing else found
     if not actions and not svc_lines and check_cmd:
         actions.append(f'CMD=$(command -v {check_cmd} 2>/dev/null || true)')
-        actions.append(f'[ -n "$CMD" ] && sudo rm -f "$CMD"')
+        actions.append('[ -n "$CMD" ] && sudo rm -f "$CMD"')
 
     if not svc_lines and not actions:
         return ""
@@ -325,7 +326,7 @@ def _validate_remove_script(
 
 
 def _truncate_script(script: str) -> str:
-    lines = [l for l in script.splitlines() if l.strip()]
+    lines = [ln for ln in script.splitlines() if ln.strip()]
     if not lines:
         return "[dim](empty)[/]"
     first = lines[0][:60]

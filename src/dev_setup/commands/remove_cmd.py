@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-from typing import Tuple
 
 import click
 
@@ -12,7 +11,7 @@ from dev_setup.base import Tool
 @click.command("remove")
 @click.option("--verbose", "-v", is_flag=True, help="Stream removal output to the terminal.")
 @click.argument("packages", nargs=-1)
-def remove_cmd(packages: Tuple[str, ...], verbose: bool) -> None:
+def remove_cmd(packages: tuple[str, ...], verbose: bool) -> None:
     """Uninstall installed packages."""
     from dev_setup import generic
     generic._verbose = verbose

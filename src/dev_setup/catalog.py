@@ -31,6 +31,7 @@ SUPPORTED_FIELDS = {
     "git_install_cmd",
     "git_remove_cmd",
     "script_url",
+    "sha256",
     "install_script",
     "remove_script",
 }

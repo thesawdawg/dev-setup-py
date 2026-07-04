@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import shutil
-import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
 
 
 class Tool(ABC):
@@ -22,7 +19,7 @@ class Tool(ABC):
     def is_installed(self) -> bool: ...
 
     @abstractmethod
-    def install(self) -> Optional[str]:
+    def install(self) -> str | None:
         """Install the tool. Return version string if available. Raise on failure."""
         ...
 
@@ -33,26 +30,6 @@ class Tool(ABC):
 
     def get_version(self) -> str:
         return ""
-
-
-class WhichTool(Tool):
-    """Base for tools whose presence is detected via PATH lookup (shutil.which)."""
-
-    def is_installed(self) -> bool:
-        return shutil.which(self.key) is not None
-
-    def get_version(self) -> str:
-        if not shutil.which(self.key):
-            return ""
-        r = subprocess.run([self.key, "--version"], capture_output=True, text=True)
-        if r.returncode != 0:
-            return ""
-        out = r.stdout.strip() or r.stderr.strip()
-        return out.splitlines()[0] if out else ""
-
-
-def run_bash(cmd: str, **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(["bash", "-c", cmd], **kwargs)
 
 
 def patch_bashrc(block_name: str, content: str) -> bool:
