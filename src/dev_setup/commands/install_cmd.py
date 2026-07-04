@@ -74,7 +74,7 @@ def _install_interactive() -> None:
     choices: list = []
     _ORDER = {"core": 0, "tools": 1, "custom": 999}
     for cat in sorted(by_cat, key=lambda c: (_ORDER.get(c, 500), c)):
-        entries = by_cat[cat]
+        entries = sorted(by_cat[cat], key=lambda t: t.key)
         n_inst = sum(installed[t.key] for t in entries)
         choices.append(questionary.Separator(
             f"\n  {cat.upper()}  ({n_inst}/{len(entries)} installed)"
@@ -86,13 +86,17 @@ def _install_interactive() -> None:
             if len(desc) > desc_width:
                 desc = desc[: desc_width - 1] + "…"
             if is_inst:
-                disabled = "installed ✔"
+                disabled = True
             elif missing:
                 disabled = f"requires {', '.join(missing)}"
             else:
                 disabled = None
+            title = [
+                ("class:check", "✔ " if is_inst else "  "),
+                ("class:text", f"{t.key:<{key_width}}{desc}"),
+            ]
             choices.append(questionary.Choice(
-                title=f"{t.key:<{key_width}}{desc}",
+                title=title,
                 value=t.key,
                 checked=False,
                 disabled=disabled,

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Bash(docker build *)",
+      "Bash(git -C /home/sawyer/Documents/Projects/ClaudeProjects/dev-setup-py log --format=\"%H %ai %s\")",
+      "Bash(git -C /home/sawyer/Documents/Projects/ClaudeProjects/dev-setup-py add src/dev_setup/packages/eza.py)",
+      "Bash(git -C /home/sawyer/Documents/Projects/ClaudeProjects/dev-setup-py commit -m ' *)",
+      "Bash(git -C /home/sawyer/Documents/Projects/ClaudeProjects/dev-setup-py status --short)",
+      "Bash(git -C /home/sawyer/Documents/Projects/ClaudeProjects/dev-setup-py diff HEAD)",
+      "Bash(git -C /home/sawyer/Documents/Projects/ClaudeProjects/dev-setup-py log --oneline -10)",
+      "Bash(git -C /home/sawyer/Documents/Projects/ClaudeProjects/dev-setup-py status)",
+      "mcp__github__list_issues",
+      "mcp__github__issue_read",
+      "Bash(gh run *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git checkout *)",
+      "Skill(code-review)"
+    ]
+  }
+}
