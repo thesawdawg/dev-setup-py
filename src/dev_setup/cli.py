@@ -1,4 +1,5 @@
 import click
+
 from dev_setup import __version__
 
 
@@ -20,13 +21,13 @@ def version_cmd() -> None:
 
 
 def _register_commands() -> None:
-    from dev_setup.commands.list_cmd import list_cmd
-    from dev_setup.commands.install_cmd import install_cmd
-    from dev_setup.commands.remove_cmd import remove_cmd
     from dev_setup.commands.add_cmd import add_cmd
+    from dev_setup.commands.catalog_cmd import catalog_cmd
     from dev_setup.commands.delete_cmd import delete_cmd
     from dev_setup.commands.docs_cmd import docs_cmd
-    from dev_setup.commands.catalog_cmd import catalog_cmd
+    from dev_setup.commands.install_cmd import install_cmd
+    from dev_setup.commands.list_cmd import list_cmd
+    from dev_setup.commands.remove_cmd import remove_cmd
 
     cli.add_command(list_cmd, "list")
     cli.add_command(install_cmd, "install")

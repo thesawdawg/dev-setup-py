@@ -47,6 +47,18 @@ packages = ["src/dev_setup"]
 dev = [
     "commitizen>=3.0",
     "pytest>=8.0",
+    "ruff>=0.8",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "SIM105",  # try/except/pass is intentional around subprocess probes
 ]
 
 [tool.commitizen]

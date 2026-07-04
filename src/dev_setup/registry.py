@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 from dev_setup import catalog
 from dev_setup.base import Tool
 from dev_setup.generic import GenericTool
 
-_registry: Dict[str, Tool] = {}
-_order: List[str] = []
+_registry: dict[str, Tool] = {}
+_order: list[str] = []
 _initialized = False
 
 
@@ -43,12 +41,12 @@ def reload() -> None:
     init()
 
 
-def get(key: str) -> Optional[Tool]:
+def get(key: str) -> Tool | None:
     init()
     return _registry.get(key)
 
 
-def all_tools() -> List[Tool]:
+def all_tools() -> list[Tool]:
     init()
     return [_registry[k] for k in _order if k in _registry]
 
@@ -73,9 +71,27 @@ def deregister(key: str) -> None:
 
 
 def missing_requires(tool: Tool) -> list:
-    """Return keys in tool.requires that are not currently installed."""
+    """Return keys in the transitive requires closure that are not installed.
+
+    Walks requires recursively (depth-first) with cycle protection, so a
+    dependency's own missing dependencies are surfaced too. Order is
+    deterministic: deepest dependencies first.
+    """
     init()
-    return [
-        key for key in tool.requires
-        if key not in _registry or not _registry[key].is_installed()
-    ]
+    missing: list[str] = []
+    seen: set = {tool.key}
+
+    def visit(key: str) -> None:
+        if key in seen:
+            return
+        seen.add(key)
+        dep = _registry.get(key)
+        if dep is not None:
+            for sub in dep.requires:
+                visit(sub)
+        if dep is None or not dep.is_installed():
+            missing.append(key)
+
+    for key in tool.requires:
+        visit(key)
+    return missing

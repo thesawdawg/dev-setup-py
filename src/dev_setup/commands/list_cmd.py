@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import click
 from rich.table import Table
 
 from dev_setup import registry, ui
+from dev_setup.base import Tool
+
+_MAX_WORKERS = 8
+
+
+def _probe(tool: Tool) -> tuple[Tool, bool, str]:
+    """Gather subprocess-heavy status for one tool (runs in a worker thread)."""
+    is_inst = tool.is_installed()
+    version = tool.get_version() if is_inst else ""
+    return tool, is_inst, version
 
 
 @click.command("list")
@@ -15,17 +27,21 @@ def list_cmd(show_filter: str, category: str) -> None:
     ui.print_banner()
 
     tools = registry.all_tools()
-    by_cat: dict = {}
+    if category:
+        tools = [t for t in tools if t.category == category]
 
-    for tool in tools:
-        if category and tool.category != category:
-            continue
-        is_inst = tool.is_installed()
+    # Probe installed status + version concurrently — each check shells out,
+    # so this dominates the command's runtime when done serially.
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+        probed = list(pool.map(_probe, tools))
+
+    by_cat: dict = {}
+    for tool, is_inst, version in probed:
         if show_filter == "installed" and not is_inst:
             continue
         if show_filter == "available" and is_inst:
             continue
-        by_cat.setdefault(tool.category, []).append((tool, is_inst))
+        by_cat.setdefault(tool.category, []).append((tool, is_inst, version))
 
     if not by_cat:
         ui.warn("No packages match the given filters.")
@@ -47,10 +63,9 @@ def list_cmd(show_filter: str, category: str) -> None:
         tbl.add_column("Type", style="dim", min_width=8)
         tbl.add_column("Version", style="dim")
 
-        for tool, is_inst in entries:
+        for tool, is_inst, version in entries:
             missing = registry.missing_requires(tool) if not is_inst else []
             icon = "[green bold]✔[/]" if is_inst else "[red bold]✘[/]"
-            version = tool.get_version() if is_inst else ""
             tbl.add_row(icon, tool.key, tool.description, tool.install_type, version)
             if tool.help_cmd:
                 tbl.add_row("", "", f"[dim cyan]  ? {tool.help_cmd}[/]", "", "")
