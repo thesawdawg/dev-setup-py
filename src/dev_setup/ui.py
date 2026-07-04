@@ -21,6 +21,7 @@ _STYLE = QStyle([
     ("selected",    "fg:#A78BFA"),
     ("separator",   "fg:#6B7280"),
     ("instruction", "fg:#6B7280 italic"),
+    ("check",       "fg:#22C55E bold"),
 ])
 
 

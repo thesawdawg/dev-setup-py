@@ -100,7 +100,7 @@ tools:
   docker:
     name: Docker
     description: Container runtime + docker compose plugin
-    category: core
+    category: tools
     type: bash
     check_cmd: docker
     help_cmd: docker --help
@@ -156,7 +156,7 @@ tools:
   git-lfs:
     name: Git LFS
     description: Git extension for versioning large files
-    category: core
+    category: tools
     type: bash
     check_cmd: git-lfs
     help_cmd: git lfs --help
@@ -326,7 +326,7 @@ tools:
   lazygit:
     name: lazygit
     description: TUI git client for fast, keyboard-driven git workflows
-    category: core
+    category: tools
     type: bash
     check_cmd: lazygit
     help_cmd: lazygit --help
@@ -421,7 +421,7 @@ tools:
   ollama:
     name: Ollama
     description: Run large language models locally
-    category: tools
+    category: ai-tools
     type: bash
     check_cmd: ollama
     help_cmd: ollama --help
@@ -440,7 +440,7 @@ tools:
   php:
     name: PHP 8.4
     description: PHP 8.4 + common extensions via ondrej/php PPA
-    category: tools
+    category: languages
     type: bash
     check_cmd: php
     help_cmd: php --help
@@ -567,7 +567,7 @@ tools:
   starship:
     name: Starship
     description: Fast, cross-shell customizable prompt
-    category: tools
+    category: customization
     type: bash
     check_cmd: starship
     help_cmd: starship --help

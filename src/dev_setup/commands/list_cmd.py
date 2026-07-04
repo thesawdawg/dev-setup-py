@@ -49,7 +49,7 @@ def list_cmd(show_filter: str, category: str) -> None:
 
     _ORDER = {"core": 0, "tools": 1, "custom": 999}
     for cat in sorted(by_cat, key=lambda c: (_ORDER.get(c, 500), c)):
-        entries = by_cat.get(cat, [])
+        entries = sorted(by_cat.get(cat, []), key=lambda e: e[0].key)
         if not entries:
             continue
 
