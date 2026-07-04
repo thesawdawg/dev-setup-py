@@ -1,3 +1,9 @@
+## v1.10.0 (2026-07-04)
+
+### Feat
+
+- **catalog**: add ansible and ansible-vault tools
+
 ## v1.9.1 (2026-07-01)
 
 ### Fix
