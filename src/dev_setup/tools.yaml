@@ -1,5 +1,34 @@
 version: 1
 tools:
+  ansible:
+    name: Ansible
+    description: Automation engine for configuration management and app deployment
+    category: tools
+    type: apt
+    check_cmd: ansible
+    apt_packages: ansible
+    help_cmd: ansible --help
+    docs_url: https://docs.ansible.com/
+    remove_script: |
+      set -euo pipefail
+      sudo apt-get remove -y ansible
+      sudo apt-get autoremove -y
+
+  ansible-vault:
+    name: Ansible Vault
+    description: Encrypt and manage secrets within Ansible projects (bundled with Ansible)
+    category: tools
+    type: apt
+    check_cmd: ansible-vault
+    apt_packages: ansible
+    help_cmd: ansible-vault --help
+    docs_url: https://docs.ansible.com/ansible/latest/vault_guide/index.html
+    requires:
+      - ansible
+    remove_script: |
+      set -euo pipefail
+      echo "ansible-vault is bundled with the ansible package — run 'dev-setup remove ansible' to uninstall it."
+
   aws:
     name: AWS CLI
     description: Amazon Web Services command line interface (v2)
