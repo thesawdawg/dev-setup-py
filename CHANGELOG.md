@@ -1,3 +1,13 @@
+## v1.12.0 (2026-07-05)
+
+### Feat
+
+- add functions/scripts subsystem (dev-setup run / functions)
+
+### Fix
+
+- enforce required function params — empty values and bashrc calls
+
 ## v1.11.0 (2026-07-05)
 
 ### Feat
