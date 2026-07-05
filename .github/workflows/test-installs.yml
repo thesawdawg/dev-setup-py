@@ -69,6 +69,7 @@ jobs:
           - starship
           - uv
           - whichllm    # uvx tool, requires uv
+          - yq
 
     steps:
       - name: Download image artifact

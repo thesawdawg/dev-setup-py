@@ -653,3 +653,27 @@ tools:
       if [ -f "$HOME/.bashrc" ]; then
         sed -i '/lmstudio/d' "$HOME/.bashrc"
       fi
+
+  yq:
+    name: yq
+    description: Portable command-line YAML/JSON/XML processor
+    category: tools
+    type: bash
+    check_cmd: yq
+    help_cmd: yq --help
+    docs_url: https://mikefarah.gitbook.io/yq
+    install_script: |
+      set -euo pipefail
+      version="$(curl -fsSL https://api.github.com/repos/mikefarah/yq/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || echo v4.44.3)"
+      machine="$(uname -m)"
+      if [ "$machine" = "aarch64" ]; then
+        arch="arm64"
+      else
+        arch="amd64"
+      fi
+      curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_${arch}"
+      sudo mv /tmp/yq /usr/local/bin/yq
+      sudo chmod +x /usr/local/bin/yq
+    remove_script: |
+      set -euo pipefail
+      sudo rm -f /usr/local/bin/yq

@@ -39,6 +39,7 @@ class FunctionDef:
     key: str = ""
     name: str = ""
     description: str = ""
+    category: str = "custom"
     type: str = "script"
     register: str = ""
     params: list[FunctionParam] = field(default_factory=list)
@@ -62,7 +63,12 @@ class FunctionDef:
         return cls(key=key, **kwargs)
 
     def to_dict(self) -> dict:
-        d: dict = {"name": self.name, "description": self.description, "type": self.type}
+        d: dict = {
+            "name": self.name,
+            "description": self.description,
+            "category": self.category,
+            "type": self.type,
+        }
         if self.register:
             d["register"] = self.register
         if self.params:

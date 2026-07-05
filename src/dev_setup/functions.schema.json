@@ -35,6 +35,10 @@
           "type": "string",
           "description": "Short description shown in `dev-setup functions list`. Defaults to \"\"."
         },
+        "category": {
+          "type": "string",
+          "description": "Group shown in `dev-setup functions list` (functions are listed grouped by category, like tools). Freeform, not a fixed enum. Defaults to \"custom\"."
+        },
         "type": {
           "type": "string",
           "enum": ["script", "shell-eval"],

@@ -320,6 +320,7 @@ directly for `register: eval` (which has no argv channel of its own once `eval`'
 |-------|----------|-------------|
 | `name` | no | Display name shown in `functions list`. Defaults to the catalog key. |
 | `description` | no | Short description shown in `functions list`. Defaults to `""`. |
+| `category` | no | Group shown in `functions list` (grouped/sorted like tools). Freeform string, defaults to `custom`. |
 | `type` | yes | `script` or `shell-eval` — see the type table above. |
 | `register` | shell-eval only | `bashrc` (default) or `eval`. Rejected for `type: script`. |
 | `params` | no | List of param objects (see below), resolved positionally in the order declared. |
@@ -349,6 +350,16 @@ differently per invocation path:
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have — for now, custom functions are hand-edited YAML at
 `~/.config/dev-setup/functions.yaml`.
+
+### Built-in functions
+
+| Key | Category | Type | Description | Args |
+|-----|----------|------|--------------|------|
+| `ssh-agent-key` | auth | shell-eval (bashrc) | Start ssh-agent in the current shell and add a key to it | `key_path` |
+| `validate-docker-compose` | validation | script | Validate a docker-compose.yml file in the current directory | — |
+| `validate-yaml` | validation | script | Validate a YAML file's syntax using `yq` | `file` |
+| `acc-check` | web-dev | script | Run the pi coding agent's `/dogfood` skill against a web URL | `url`, `instruction` (optional) |
+| `aws-saml-reauth` | web-dev | script | Reauthorize the AWS CLI via `saml2aws login --force` | `profile` (optional) |
 
 ---
 
@@ -380,6 +391,7 @@ Optional utilities you may want on some machines.
 | `pi` | Pi Coding Agent | AI coding agent npm package | `pi --help` |
 | `saml2aws` | saml2aws | SAML → AWS STS credentials CLI (Versent) | `saml2aws --help` |
 | `starship` | Starship | Fast, cross-shell customizable prompt | `starship --help` |
+| `yq` | yq | Portable command-line YAML/JSON/XML processor | `yq --help` |
 
 ### Languages
 
