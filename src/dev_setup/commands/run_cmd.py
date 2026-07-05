@@ -39,8 +39,12 @@ def _prompt_param(p: FunctionParam) -> str:
 
 def _run_script(fn: FunctionDef, args: tuple[str, ...]) -> None:
     ui.section(fn.name)
+    # Only prompt when there's an actual terminal to prompt on — otherwise a missing
+    # required param would hit an unreadable stdin and fail as an opaque, unrelated
+    # exception instead of the clean "Missing required parameter(s)" message.
+    prompt = _prompt_param if sys.stdin.isatty() else None
     try:
-        runner.run_script_function(fn, args, prompt=_prompt_param)
+        runner.run_script_function(fn, args, prompt=prompt)
         ui.success(f"{fn.name} completed")
     except ParamResolutionError as exc:
         ui.error(str(exc))
