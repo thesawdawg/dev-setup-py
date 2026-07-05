@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/thesawdawg/dev-setup-py/functions.schema.json",
+  "title": "dev-setup functions catalog",
+  "description": "Schema for functions.yaml (bundled at src/dev_setup/functions.yaml, user overrides at ~/.config/dev-setup/functions.yaml). Defines reusable shell functions/scripts invoked via `dev-setup run <key>` or, for bashrc-registered functions, called directly by name after `dev-setup functions enable <key>`. Mirrors the validation in functions_catalog.py — keep both in sync.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "functions"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Catalog schema version. Currently always 1."
+    },
+    "functions": {
+      "type": "object",
+      "description": "Map of function key -> function definition.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9_-]*$",
+        "description": "Lowercase letters, digits, hyphens, underscores; must start with a letter or digit."
+      },
+      "additionalProperties": { "$ref": "#/definitions/function" }
+    }
+  },
+  "definitions": {
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "script"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name shown in `dev-setup functions list`. Defaults to the catalog key if omitted."
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description shown in `dev-setup functions list`. Defaults to \"\"."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["script", "shell-eval"],
+          "description": "Execution model. 'script': runs as a subprocess (like a tool's install_script) — for anything that just calls other binaries/apps and doesn't need to change your shell's state; params are resolved positionally and missing required ones are prompted for interactively. 'shell-eval': for things that must mutate the *calling* shell (env vars, cd, aliases, agents like ssh-agent) — a dev-setup subprocess can't do this on its own, so see 'register' for how it actually takes effect."
+        },
+        "register": {
+          "type": "string",
+          "enum": ["bashrc", "eval"],
+          "description": "Only meaningful when type is 'shell-eval' — rejected for type 'script'. 'bashrc' (default): `dev-setup functions enable <key>` patches a real shell function into ~/.bashrc (idempotent); afterward you call it directly by name in a new shell (`dev-setup run` refuses to run these itself and points at `functions enable` instead). Required params without a default get a runtime guard baked into the generated function that fails loudly (prints to stderr, returns 1) if left blank. 'eval': `dev-setup run <key> [args]` prints resolved shell code to stdout ONLY, for `eval \"$(dev-setup run key args)\"` — no prompting, since anything else on stdout would corrupt the eval capture; a missing required param is reported on stderr and exits non-zero instead."
+        },
+        "params": {
+          "type": "array",
+          "description": "Named parameters, resolved positionally from CLI args in the order declared here. Each becomes a named shell variable in the script body (e.g. \"$key_path\", not positional \"$1\") via a runner-injected prelude. An explicitly empty value counts as missing for a required param, same as not passing it at all.",
+          "items": { "$ref": "#/definitions/param" }
+        },
+        "script": {
+          "type": "string",
+          "description": "Required. The bash script body, referencing params by name (e.g. \"$key_path\"). For bashrc-registered functions, keep this free of blank lines if you hand-edit — dev-setup already strips them when rendering, since a blank line would make `functions disable` stop removing the block early and orphan the rest (closing brace included)."
+        },
+        "help_cmd": {
+          "type": "string",
+          "description": "Optional help command shown alongside the function in `dev-setup functions list`."
+        },
+        "docs_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Optional documentation URL for this function."
+        }
+      },
+      "if": {
+        "properties": { "type": { "const": "shell-eval" } },
+        "required": ["type"]
+      },
+      "else": {
+        "properties": { "register": false }
+      }
+    },
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+          "description": "Shell variable name this param is bound to in the script body. Must be a valid shell identifier; must be unique within the function."
+        },
+        "description": {
+          "type": "string",
+          "description": "Defaults to \"\". Shown as the prompt label when this param is missing and can be interactively prompted for (type: script only — shell-eval never prompts)."
+        },
+        "required": {
+          "type": "boolean",
+          "default": true,
+          "description": "Defaults to true. Whether this param must resolve to a non-empty value. For type: script / register: eval, an unresolved required param raises/exits before anything runs. For a bashrc-registered function, a required param with no default instead gets a runtime bash guard that fails at call time."
+        },
+        "default": {
+          "type": "string",
+          "default": "",
+          "description": "Defaults to \"\". Fallback value used when no value is supplied and (for type: script) no interactive prompt filled it in. A required param WITH a default never triggers the bashrc runtime guard or a resolution error, since the default always satisfies it."
+        }
+      }
+    }
+  }
+}

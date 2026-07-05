@@ -284,6 +284,13 @@ dev-setup functions path      # print ~/.config/dev-setup/functions.yaml
 
 ### functions.yaml schema
 
+A JSON Schema documenting every field (`src/dev_setup/functions.schema.json`) mirrors the
+validation in `functions_catalog.py` — point your editor's YAML language server at it for
+inline docs/autocomplete/validation while hand-editing a functions catalog (in VS Code with
+the YAML extension, add a `yaml.schemas` mapping to the file's path, or add a
+`# yaml-language-server: $schema=<path>` comment at the top of the file, as the bundled
+catalog does).
+
 ```yaml
 version: 1
 functions:

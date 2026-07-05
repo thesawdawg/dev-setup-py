@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from importlib import resources
+
 import pytest
 import yaml
 
@@ -292,3 +295,37 @@ def test_render_bashrc_function_required_with_default_has_no_guard():
     )
     rendered = runner.render_bashrc_function(fn)
     assert "missing required argument" not in rendered
+
+
+# -- schema/code sync ---------------------------------------------------------------
+# functions.schema.json is hand-maintained documentation, not loaded at runtime — these
+# guard against it silently drifting from the fields/enums validate_catalog() enforces.
+
+
+def _load_schema() -> dict:
+    resource = resources.files("dev_setup").joinpath("functions.schema.json")
+    return json.loads(resource.read_text())
+
+
+def test_schema_function_fields_match_supported_fields():
+    schema = _load_schema()
+    documented = set(schema["definitions"]["function"]["properties"])
+    assert documented == catalog.SUPPORTED_FIELDS
+
+
+def test_schema_param_fields_match_supported_param_fields():
+    schema = _load_schema()
+    documented = set(schema["definitions"]["param"]["properties"])
+    assert documented == catalog.SUPPORTED_PARAM_FIELDS
+
+
+def test_schema_type_enum_matches_catalog_types():
+    schema = _load_schema()
+    documented = set(schema["definitions"]["function"]["properties"]["type"]["enum"])
+    assert documented == catalog.TYPES
+
+
+def test_schema_register_enum_matches_catalog_register_modes():
+    schema = _load_schema()
+    documented = set(schema["definitions"]["function"]["properties"]["register"]["enum"])
+    assert documented == catalog.REGISTER_MODES
