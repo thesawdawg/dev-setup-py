@@ -124,6 +124,12 @@ aren't installed/removed, they're invoked (`dev-setup run <key>`), so they get t
 schema instead of overloading `GenericTool`. Some duplication with `catalog.py`/`registry.py`
 is deliberate (see "Key design decisions" below).
 
+`src/dev_setup/functions.schema.json` is a hand-maintained JSON Schema documenting every
+field for editor tooling (YAML language server autocomplete/validation) — it is **not**
+loaded or enforced at runtime (no `jsonschema` dependency), so if you add/change a field or
+a constraint in `functions_catalog.py`'s `validate_catalog()`, update the schema file too or
+they'll silently drift apart.
+
 **Why two function `type`s exist**: a `dev-setup` command is its own child process, so
 anything it does with `subprocess` (env vars, `cd`, aliases) is invisible to the shell that
 invoked it the moment the process exits. `type: script` is for functions that don't need to

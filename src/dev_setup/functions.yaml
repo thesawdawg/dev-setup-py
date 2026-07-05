@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=./functions.schema.json
 version: 1
 functions:
   ssh-agent-key:
