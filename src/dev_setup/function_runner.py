@@ -20,22 +20,28 @@ def resolve_params(
     *,
     prompt: Callable[[FunctionParam], str] | None = None,
 ) -> list[str]:
-    """Resolve param values positionally from `args`, filling any gap via `prompt` or a
-    catalog default. When `prompt` is None (the eval codepath, which must keep stdout
-    clean), missing required params raise instead of being asked for interactively.
+    """Resolve one value per declared param, filling any gap via `prompt` or a catalog
+    default. When `prompt` is None (the eval codepath, which must keep stdout clean),
+    missing required params raise instead of being asked for interactively.
+
+    A value counts as "provided" only if it's non-empty — an explicitly empty positional
+    arg (`dev-setup run key ""`) is treated the same as a missing one for a required
+    param, rather than silently running with an empty value.
     """
-    values: list[str] = list(args[: len(params)])
+    positional = list(args[: len(params)])
+    positional += [""] * (len(params) - len(positional))
+
+    values: list[str] = []
     missing: list[str] = []
-    for i in range(len(values), len(params)):
-        p = params[i]
-        if prompt is not None:
-            values.append(prompt(p))
-        elif p.default:
-            values.append(p.default)
-        elif p.required:
+    for p, value in zip(params, positional, strict=True):
+        if not value and prompt is not None:
+            value = prompt(p)
+        if not value and p.default:
+            value = p.default
+        if not value and p.required:
             missing.append(p.name)
-        else:
-            values.append("")
+        values.append(value)
+
     if missing:
         raise ParamResolutionError("Missing required parameter(s): " + ", ".join(missing))
     return values
@@ -67,6 +73,25 @@ def render_eval_script(fn: FunctionDef, args: tuple[str, ...]) -> str:
     return f"{prelude}\n{fn.script}" if prelude else fn.script
 
 
+def _bashrc_prelude(fn: FunctionDef) -> list[str]:
+    """Per-param lines for a bashrc-registered function: `name="$N"` plus, for required
+    params with no default, a guard that fails loudly if the caller left it blank.
+
+    dev-setup itself is never in the loop when an enabled function is called directly by
+    the user's shell — `resolve_params` can't help here — so this is the only place
+    "required" can be enforced for this mode.
+    """
+    lines: list[str] = []
+    for i, p in enumerate(fn.params):
+        lines.append(f'local {p.name}="${i + 1}"')
+        if p.required and not p.default:
+            lines.append(f'if [ -z "${p.name}" ]; then')
+            lines.append(f'  echo "{fn.key}: missing required argument: {p.name}" >&2')
+            lines.append("  return 1")
+            lines.append("fi")
+    return lines
+
+
 def render_bashrc_function(fn: FunctionDef) -> str:
     """Build the `name() { ... }` block registered into ~/.bashrc.
 
@@ -75,8 +100,7 @@ def render_bashrc_function(fn: FunctionDef) -> str:
     marker as the end of the block — a blank line inside the function would make
     `disable` orphan everything after it, closing brace included.
     """
-    prelude = _positional_prelude(fn.params)
-    body_lines = [f"  local {line}" for line in prelude.splitlines()]
+    body_lines = [f"  {line}" for line in _bashrc_prelude(fn)]
     body_lines += [f"  {line}" for line in fn.script.rstrip("\n").splitlines() if line.strip()]
     return f"{fn.key}() {{\n" + "\n".join(body_lines) + "\n}"
 

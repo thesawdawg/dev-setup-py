@@ -194,6 +194,23 @@ def test_resolve_params_optional_without_default_resolves_empty():
     assert runner.resolve_params(params, ()) == [""]
 
 
+def test_resolve_params_explicit_empty_string_counts_as_missing():
+    """An explicitly empty positional arg must not satisfy a required param — this was
+    the reported bug: `dev-setup run key ""` ran successfully with an empty value."""
+    with pytest.raises(ParamResolutionError, match="a"):
+        runner.resolve_params(_params("a"), ("",))
+
+
+def test_resolve_params_explicit_empty_string_falls_through_to_prompt():
+    values = runner.resolve_params(_params("a"), ("",), prompt=lambda p: "prompted")
+    assert values == ["prompted"]
+
+
+def test_resolve_params_explicit_empty_string_falls_through_to_default():
+    params = [FunctionParam(name="a", required=True, default="fallback")]
+    assert runner.resolve_params(params, ("",)) == ["fallback"]
+
+
 # -- rendering ----------------------------------------------------------------------
 
 
@@ -234,10 +251,44 @@ def test_render_bashrc_function_uses_positional_refs():
         script='ssh-add "$key_path"\n',
     )
     rendered = runner.render_bashrc_function(fn)
-    assert rendered == 'my-fn() {\n  local key_path="$1"\n  ssh-add "$key_path"\n}'
+    assert rendered == (
+        "my-fn() {\n"
+        '  local key_path="$1"\n'
+        '  if [ -z "$key_path" ]; then\n'
+        '    echo "my-fn: missing required argument: key_path" >&2\n'
+        "    return 1\n"
+        "  fi\n"
+        '  ssh-add "$key_path"\n'
+        "}"
+    )
 
 
 def test_render_bashrc_function_no_params():
     fn = _fn(key="my-fn", type="shell-eval", register="bashrc", script="echo hi\n")
     rendered = runner.render_bashrc_function(fn)
     assert rendered == "my-fn() {\n  echo hi\n}"
+
+
+def test_render_bashrc_function_optional_param_has_no_guard():
+    fn = _fn(
+        key="my-fn",
+        type="shell-eval",
+        register="bashrc",
+        params=[FunctionParam(name="msg", required=False)],
+        script='echo "$msg"\n',
+    )
+    rendered = runner.render_bashrc_function(fn)
+    assert "missing required argument" not in rendered
+    assert rendered == 'my-fn() {\n  local msg="$1"\n  echo "$msg"\n}'
+
+
+def test_render_bashrc_function_required_with_default_has_no_guard():
+    fn = _fn(
+        key="my-fn",
+        type="shell-eval",
+        register="bashrc",
+        params=[FunctionParam(name="msg", required=True, default="hi")],
+        script='echo "$msg"\n',
+    )
+    rendered = runner.render_bashrc_function(fn)
+    assert "missing required argument" not in rendered
