@@ -229,7 +229,6 @@ dev-setup catalog path                 # print ~/.config/dev-setup/tools.yaml
 dev-setup catalog export               # write ./dev-setup-tools.yaml
 dev-setup catalog export tools.yaml    # write effective catalog to a path
 dev-setup catalog import tools.yaml    # validate and merge into user catalog
-dev-setup catalog migrate              # migrate legacy JSON custom packages
 ```
 
 The effective catalog is loaded in this order:
@@ -239,6 +238,78 @@ The effective catalog is loaded in this order:
 3. User overrides and additions from `~/.config/dev-setup/tools.yaml`
 
 When a user key matches a bundled key, the user definition overrides the bundled definition in place. New user keys are appended after bundled tools.
+
+---
+
+## Functions/Scripts
+
+Reusable shell functions/snippets, tracked in a separate catalog from installable tools
+(`~/.config/dev-setup/functions.yaml`, same bundled+user precedence merge as `tools.yaml`).
+Unlike tools, functions aren't installed/removed — they're invoked.
+
+There are two function `type`s, because a `dev-setup` command runs as its own child process
+and can't mutate the shell that invoked it:
+
+| Type | What it does | How you invoke it |
+|------|---------------|--------------------|
+| `script` | Runs as a subprocess (like a tool's `install_script`) — for anything that just calls other binaries/apps and doesn't need to change your shell's state. | `dev-setup run <key> [args...]` — prompts for any missing required param. |
+| `shell-eval` | For things that must mutate the *calling* shell — env vars, `cd`, aliases, agents. Has two `register` modes (see below). | Depends on `register`. |
+
+`shell-eval` functions declare `register`:
+
+- **`register: bashrc`** (default) — `dev-setup functions enable <key>` patches a real shell
+  function into `~/.bashrc` (idempotent, using the same patch/remove mechanism as tool
+  bashrc blocks). After enabling, open a new shell (or `source ~/.bashrc`) and call the
+  function directly by name — `dev-setup` itself never runs it, since a child process
+  can't export environment changes back to your interactive shell.
+  ```bash
+  dev-setup functions enable ssh-agent-key
+  source ~/.bashrc
+  ssh-agent-key ~/.ssh/id_ed25519
+  ```
+  `dev-setup functions disable <key>` removes it from `~/.bashrc`.
+- **`register: eval`** — `dev-setup run <key> [args]` resolves params and prints shell code
+  to stdout only (no prompts, no formatting — anything else on stdout would corrupt the
+  `eval` capture); missing required params are reported on stderr and exit non-zero instead.
+  ```bash
+  eval "$(dev-setup run some-eval-function arg1)"
+  ```
+
+Other commands:
+
+```bash
+dev-setup functions list      # show all functions, their type, and declared params
+dev-setup functions path      # print ~/.config/dev-setup/functions.yaml
+```
+
+### functions.yaml schema
+
+```yaml
+version: 1
+functions:
+  ssh-agent-key:
+    name: SSH Agent + Add Key
+    description: Start ssh-agent in the current shell and add a key to it
+    type: shell-eval
+    register: bashrc
+    params:
+      - name: key_path
+        description: Path to the SSH private key
+        required: true
+    script: |
+      eval "$(ssh-agent -s)"
+      ssh-add "$key_path"
+    docs_url: https://www.ssh.com/academy/ssh/agent
+```
+
+Each `params` entry becomes a named shell variable in the script body (`$key_path`, not
+positional `$1`) — the runner injects a prelude mapping real argv positions to those names
+for `script`/bashrc-registered functions, or bakes the already-resolved, shell-quoted values
+directly for `register: eval` (which has no argv channel of its own once `eval`'d).
+
+Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
+ones tools already have — for now, custom functions are hand-edited YAML at
+`~/.config/dev-setup/functions.yaml`.
 
 ---
 
@@ -409,14 +480,21 @@ dev-setup-py/
         ├── registry.py    # Loads bundled + user YAML into the live tool registry
         ├── generic.py     # GenericTool - handles all catalog install types
         ├── tools.yaml     # Bundled built-in tool catalog
+        ├── functions_catalog.py   # YAML catalog loading/validation for functions.yaml
+        ├── functions_registry.py # Loads bundled + user YAML into the live function registry
+        ├── function_runner.py    # Param resolution + script/eval/bashrc rendering & execution
+        ├── functions.yaml        # Bundled built-in function catalog
         ├── ui.py          # Rich console helpers, questionary wrappers, styled prompts
         ├── commands/
         │   ├── list_cmd.py
         │   ├── install_cmd.py
         │   ├── remove_cmd.py
+        │   ├── update_cmd.py
         │   ├── add_cmd.py
         │   ├── delete_cmd.py
-        │   └── catalog_cmd.py
+        │   ├── catalog_cmd.py
+        │   ├── run_cmd.py
+        │   └── functions_cmd.py
 ```
 
 ### Adding a new built-in tool
@@ -442,7 +520,7 @@ mytool:
 ### Key design decisions
 
 - **uv owns Python provisioning.** The bash wrapper only guarantees uv is present; Python version and virtualenv management is delegated entirely to `uv run`.
-- **Catalogs are the source of truth.** Bundled YAML loads first, legacy JSON is migrated, then user YAML overrides matching keys and appends new tools.
+- **Catalogs are the source of truth.** Bundled YAML loads first, then user YAML overrides matching keys and appends new tools.
 - **Tool execution is generic.** The Python engine handles npm, uvx/pip, apt, git, script URLs, and bash scripts from catalog metadata.
 - **Custom packages are plain YAML.** Scripts are stored as strings and written to a temp file at install time, giving bash full parsing fidelity.
 - **`install()` raises on failure.** Tools raise `RuntimeError` or `subprocess.CalledProcessError`; command handlers catch and report them. No `InstallResult` enum to check.
