@@ -9,6 +9,7 @@ import yaml
 from dev_setup import function_runner as runner
 from dev_setup import functions_catalog as catalog
 from dev_setup import functions_registry as registry
+from dev_setup import scripts
 from dev_setup.function_runner import ParamResolutionError
 from dev_setup.functions_catalog import CatalogError
 from dev_setup.functions_registry import FunctionDef, FunctionParam
@@ -235,6 +236,102 @@ def test_resolve_params_explicit_empty_string_falls_through_to_prompt():
 def test_resolve_params_explicit_empty_string_falls_through_to_default():
     params = [FunctionParam(name="a", required=True, default="fallback")]
     assert runner.resolve_params(params, ("",)) == ["fallback"]
+
+
+# -- built-in Python scripts --------------------------------------------------------
+
+
+def test_builtin_python_script_decorator_registers_metadata(monkeypatch):
+    monkeypatch.setattr(scripts, "_scripts", {})
+    monkeypatch.setattr(scripts, "_loaded", True)
+
+    @scripts.register(
+        key="decorated",
+        name="Decorated",
+        description="registered by decorator",
+        params=[scripts.param("message", "Message")],
+    )
+    def handler(message: str) -> None:
+        assert message
+
+    registered = scripts.all_scripts()
+
+    assert registered == [
+        scripts.BuiltinScript(
+            key="decorated",
+            name="Decorated",
+            description="registered by decorator",
+            category="scripts",
+            params=(scripts.param("message", "Message"),),
+            handler=handler,
+        )
+    ]
+
+
+def test_builtin_python_script_registers_as_function(isolated_catalog, monkeypatch):
+    calls: list[dict[str, str]] = []
+
+    def handler(name: str) -> None:
+        calls.append({"name": name})
+
+    monkeypatch.setattr(
+        scripts,
+        "all_scripts",
+        lambda: [
+            scripts.BuiltinScript(
+                key="hello-python",
+                name="Hello Python",
+                description="Python-backed function",
+                category="python",
+                params=(scripts.param("name"),),
+                handler=handler,
+            )
+        ],
+    )
+
+    registry.reload()
+    fn = registry.get("hello-python")
+
+    assert fn is not None
+    assert fn.type == "python"
+    assert fn.builtin is True
+    assert fn.params[0].name == "name"
+
+    runner.run_python_function(fn, ("Sawyer",))
+    assert calls == [{"name": "Sawyer"}]
+
+
+def test_user_catalog_can_override_builtin_python_script(isolated_catalog, monkeypatch):
+    monkeypatch.setattr(
+        scripts,
+        "all_scripts",
+        lambda: [
+            scripts.BuiltinScript(
+                key="overridden",
+                name="Built-in",
+                description="Python-backed function",
+                handler=lambda: None,
+            )
+        ],
+    )
+    catalog.write_user_catalog(
+        {
+            "overridden": {
+                "name": "User Override",
+                "description": "from yaml",
+                "type": "script",
+                "script": "echo yaml",
+            }
+        }
+    )
+
+    registry.reload()
+    fn = registry.get("overridden")
+
+    assert fn is not None
+    assert fn.name == "User Override"
+    assert fn.type == "script"
+    assert fn.python_callable is None
 
 
 # -- rendering ----------------------------------------------------------------------
