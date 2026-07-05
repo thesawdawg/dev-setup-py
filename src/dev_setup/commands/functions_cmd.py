@@ -22,15 +22,21 @@ def list_cmd() -> None:
         ui.info("No functions defined.")
         return
 
+    by_cat: dict[str, list] = {}
+    for f in fns:
+        by_cat.setdefault(f.category, []).append(f)
+
     key_width = max((len(f.key) for f in fns), default=12) + 2
-    for f in sorted(fns, key=lambda f: f.key):
-        mode = f.type if f.type == "script" else f"{f.type} ({f.register})"
-        ui.console.print(
-            f"  [bold cyan]{f.key:<{key_width}}[/] [dim]{mode:<22}[/] {f.description}"
-        )
-        params = " ".join(f"<{p.name}>" for p in f.params)
-        if params:
-            ui.dim(f"    args: {params}")
+    for cat in sorted(by_cat, key=lambda c: (c == "custom", c)):
+        ui.console.print(f"\n  [bold]{cat.upper()}[/]")
+        for f in sorted(by_cat[cat], key=lambda f: f.key):
+            mode = f.type if f.type == "script" else f"{f.type} ({f.register})"
+            ui.console.print(
+                f"  [bold cyan]{f.key:<{key_width}}[/] [dim]{mode:<22}[/] {f.description}"
+            )
+            params = " ".join(f"<{p.name}>" for p in f.params)
+            if params:
+                ui.dim(f"    args: {params}")
 
 
 @functions_cmd.command("enable")

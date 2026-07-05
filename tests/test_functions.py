@@ -38,6 +38,29 @@ def test_bundled_catalog_loads_ssh_agent_key(isolated_catalog):
     assert fns["ssh-agent-key"]["register"] == "bashrc"
 
 
+def test_bundled_catalog_loads_validation_and_web_dev_functions(isolated_catalog):
+    fns = catalog.load_bundled_catalog()
+    assert fns["validate-docker-compose"]["category"] == "validation"
+    assert fns["validate-yaml"]["category"] == "validation"
+    assert fns["acc-check"]["category"] == "web-dev"
+    assert fns["aws-saml-reauth"]["category"] == "web-dev"
+
+
+def test_category_defaults_to_custom(isolated_catalog):
+    result = catalog.validate_catalog(
+        {"version": 1, "functions": {"fn": {"type": "script", "script": "echo hi"}}}
+    )
+    assert result["fn"]["category"] == "custom"
+
+
+def test_category_round_trips_through_functiondef(isolated_catalog):
+    fn = registry.FunctionDef.from_dict(
+        {"type": "script", "script": "echo hi", "category": "validation"}, key="fn"
+    )
+    assert fn.category == "validation"
+    assert fn.to_dict()["category"] == "validation"
+
+
 def test_user_catalog_overrides_bundled_function_in_place(isolated_catalog):
     catalog.write_user_catalog(
         {

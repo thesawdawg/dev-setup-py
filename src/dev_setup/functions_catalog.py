@@ -23,6 +23,7 @@ REGISTER_MODES = {"bashrc", "eval"}
 SUPPORTED_FIELDS = {
     "name",
     "description",
+    "category",
     "type",
     "register",
     "params",
@@ -78,6 +79,7 @@ def validate_catalog(raw: Any, *, source: Path | str = "<catalog>") -> dict[str,
         item = copy.deepcopy(data)
         item.setdefault("name", key)
         item.setdefault("description", "")
+        item.setdefault("category", "custom")
 
         fn_type = item.get("type")
         if fn_type not in TYPES:

@@ -4,6 +4,7 @@ functions:
   ssh-agent-key:
     name: SSH Agent + Add Key
     description: Start ssh-agent in the current shell and add a key to it
+    category: auth
     type: shell-eval
     register: bashrc
     params:
@@ -14,3 +15,97 @@ functions:
       eval "$(ssh-agent -s)"
       ssh-add "$key_path"
     docs_url: https://www.ssh.com/academy/ssh/agent
+
+  validate-docker-compose:
+    name: Validate Docker Compose
+    description: Validate a docker-compose.yml file in the current directory
+    category: validation
+    type: script
+    script: |
+      set -euo pipefail
+      if ! command -v docker >/dev/null 2>&1; then
+        echo "docker is required. Install it first: dev-setup install docker" >&2
+        exit 1
+      fi
+      file=""
+      for candidate in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
+        if [ -f "$candidate" ]; then
+          file="$candidate"
+          break
+        fi
+      done
+      if [ -z "$file" ]; then
+        echo "No docker-compose.yml/docker-compose.yaml/compose.yml/compose.yaml found in $(pwd)" >&2
+        exit 1
+      fi
+      echo "Validating $file..."
+      docker compose -f "$file" config --quiet
+      echo "$file is valid"
+    docs_url: https://docs.docker.com/reference/cli/docker/compose/config/
+
+  validate-yaml:
+    name: Validate YAML
+    description: Validate a YAML file's syntax using yq
+    category: validation
+    type: script
+    params:
+      - name: file
+        description: Path to the YAML file to validate
+        required: true
+    script: |
+      set -euo pipefail
+      if ! command -v yq >/dev/null 2>&1; then
+        echo "yq is required. Install it first: dev-setup install yq" >&2
+        exit 1
+      fi
+      if [ ! -f "$file" ]; then
+        echo "File not found: $file" >&2
+        exit 1
+      fi
+      yq eval '.' "$file" > /dev/null
+      echo "$file is valid YAML"
+    docs_url: https://mikefarah.gitbook.io/yq
+
+  acc-check:
+    name: Accessibility/QA Check
+    description: Run the pi coding agent's /dogfood skill against a web URL
+    category: web-dev
+    type: script
+    params:
+      - name: url
+        description: URL to review
+        required: true
+      - name: instruction
+        description: Additional scope or instruction for the review (optional)
+        required: false
+    script: |
+      set -euo pipefail
+      . "$HOME/.nvm/nvm.sh" 2>/dev/null || true
+      if ! command -v pi >/dev/null 2>&1; then
+        echo "pi is required. Install it first: dev-setup install pi" >&2
+        exit 1
+      fi
+      pi -p "/dogfood $url $instruction"
+    docs_url: https://pi.dev/docs/latest
+
+  aws-saml-reauth:
+    name: AWS SAML Reauth
+    description: Reauthorize the AWS CLI via saml2aws
+    category: web-dev
+    type: script
+    params:
+      - name: profile
+        description: AWS profile to reauthenticate (optional, uses saml2aws default if omitted)
+        required: false
+    script: |
+      set -euo pipefail
+      if ! command -v saml2aws >/dev/null 2>&1; then
+        echo "saml2aws is required. Install it first: dev-setup install saml2aws" >&2
+        exit 1
+      fi
+      if [ -n "$profile" ]; then
+        saml2aws login --force --profile "$profile"
+      else
+        saml2aws login --force
+      fi
+    docs_url: https://github.com/Versent/saml2aws

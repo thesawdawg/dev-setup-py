@@ -156,6 +156,14 @@ body. `remove_bashrc_block` (shared with tool bashrc patches) treats the first b
 after its marker as the end of the block, so a blank line inside the rendered function would
 make `functions disable` orphan everything after it — closing brace included.
 
+Functions have a `category` field (defaults to `custom`, freeform — not an enum) that
+`functions list` groups/sorts by, mirroring tools. A `script`-type function that shells out to
+another CLI should guard on `command -v <tool>` and point at `dev-setup install <tool>` in the
+error rather than let a raw "command not found" surface — see `validate-yaml`/`aws-saml-reauth`
+in `functions.yaml`. If that CLI is only reachable via nvm (like `pi`), source
+`"$HOME/.nvm/nvm.sh"` first (see `acc-check`) — `script`-type functions run via a non-login,
+non-interactive `bash <tmpfile>`, so `~/.bashrc`/nvm's shell init never runs on their own.
+
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have.
 
