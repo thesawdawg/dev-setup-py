@@ -118,6 +118,14 @@ class GenericTool(Tool):
             raise RuntimeError(f"Unsupported remove type: {self.install_type!r}")
         remover(self)
 
+    def update(self, version: str | None = None) -> str | None:
+        """Update an already-installed tool to the latest (or a specified) version."""
+        updater = _UPDATERS.get(self.install_type)
+        if updater is None:
+            raise RuntimeError(f"Unsupported update type: {self.install_type!r}")
+        updater(self, version)
+        return self.get_version() or None
+
     def get_version(self) -> str:
         # Prefer explicit version_cmd; fall through to check_cmd / type-derived cmd
         cmd = self.version_cmd or (
@@ -211,6 +219,87 @@ def _install_bash(tool: GenericTool) -> None:
         raise RuntimeError("install_script not set")
     ui.info(f"Installing {tool.name}...")
     _run_bash_script(tool.install_script)
+
+
+# -- Update strategies --------------------------------------------------------
+
+
+def _update_npm(tool: GenericTool, version: str | None) -> None:
+    from dev_setup import ui
+    if not tool.npm_name:
+        raise RuntimeError("npm_name not set")
+    target = f"{tool.npm_name}@{version or 'latest'}"
+    with ui.spinner(f"Updating {tool.name} via npm..."):
+        subprocess.run(
+            ["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(target)}"],
+            check=True, capture_output=True,
+        )
+
+
+def _update_uvx(tool: GenericTool, version: str | None) -> None:
+    from dev_setup import ui
+    if not tool.pip_name:
+        raise RuntimeError("pip_name not set")
+    uv = shutil.which("uv")
+    if not uv:
+        raise RuntimeError(
+            "uv is required to update uvx packages. "
+            "Install it first: dev-setup install uv"
+        )
+    target = f"{tool.pip_name}=={version}" if version else tool.pip_name
+    with ui.spinner(f"Updating {tool.name} via uv tool upgrade..."):
+        subprocess.run([uv, "tool", "upgrade", target], check=True, capture_output=True)
+
+
+def _update_apt(tool: GenericTool, version: str | None) -> None:
+    from dev_setup import ui
+    if not tool.apt_packages:
+        raise RuntimeError("apt_packages not set")
+    packages = tool.apt_packages.split()
+    subprocess.run(["sudo", "apt-get", "update", "-q"], capture_output=True)
+    if version:
+        if len(packages) != 1:
+            raise RuntimeError(
+                "Version pinning is only supported for apt tools with a single package."
+            )
+        ui.info(f"Updating {tool.name} to version {version} via apt...")
+        _run(["sudo", "apt-get", "install", "-y", f"{packages[0]}={version}"])
+    else:
+        ui.info(f"Updating {tool.name} via apt...")
+        _run(["sudo", "apt-get", "install", "--only-upgrade", "-y"] + packages)
+
+
+def _update_git(tool: GenericTool, version: str | None) -> None:
+    from dev_setup import ui
+    if version:
+        raise RuntimeError(
+            "Version pinning is not supported for git tools (shallow clone). "
+            f"Reinstall instead: dev-setup remove {tool.key} && dev-setup install {tool.key}"
+        )
+    if not tool.git_url:
+        raise RuntimeError("git_url not set")
+    dest = _git_clone_dest(tool.git_url)
+    if not dest.exists():
+        raise RuntimeError(f"{tool.name} clone not found at {dest}")
+    with ui.spinner(f"Pulling latest {tool.name}..."):
+        _run(["git", "-C", str(dest), "pull"])
+        if tool.git_install_cmd:
+            subprocess.run(
+                ["bash", "-c", tool.git_install_cmd],
+                cwd=dest, check=True, capture_output=True,
+            )
+
+
+def _update_script_url(tool: GenericTool, version: str | None) -> None:
+    if version:
+        raise RuntimeError("Version pinning is not supported for 'script' tools.")
+    _install_script_url(tool)
+
+
+def _update_bash(tool: GenericTool, version: str | None) -> None:
+    if version:
+        raise RuntimeError("Version pinning is not supported for 'bash' tools.")
+    _install_bash(tool)
 
 
 # -- Remove strategies -----------------------------------------------------------
@@ -323,6 +412,16 @@ _CHECKERS: dict[str, Callable[[GenericTool], bool]] = {
     "uvx": _installed_uvx,
     "git": _installed_git,
     "apt": _installed_apt,
+}
+
+_UPDATERS: dict[str, Callable[[GenericTool, str | None], None]] = {
+    "npm": _update_npm,
+    "pip": _update_uvx,
+    "uvx": _update_uvx,
+    "git": _update_git,
+    "apt": _update_apt,
+    "script": _update_script_url,
+    "bash": _update_bash,
 }
 
 
