@@ -122,6 +122,35 @@ dev-setup uninstall htop          # alias
 
 ---
 
+### `update`
+
+Update one or more already-installed packages to the latest version, or pin a single package to
+a specific version with `--version`.
+
+```bash
+dev-setup update nvm                    # update to latest
+dev-setup update pi --version 1.2.3     # pin a single package to a specific version
+```
+
+Packages that aren't installed are skipped with a warning rather than treated as an error.
+`--version` can only be combined with a single package.
+
+How "update" is performed depends on the package's install `type`:
+
+| Type | Latest | Specific version |
+|------|--------|-------------------|
+| `npm` | `npm install -g <pkg>@latest` | `npm install -g <pkg>@<version>` |
+| `pip` / `uvx` | `uv tool upgrade <pkg>` | `uv tool upgrade <pkg>==<version>` |
+| `apt` | `apt-get install --only-upgrade` | `apt-get install <pkg>=<version>` (single package only) |
+| `git` | `git pull` (+ re-run `git_install_cmd`) | not supported — repos are cloned shallow (`--depth=1`) |
+| `script` / `bash` | Re-runs the install script | not supported — no version parameter to inject |
+
+For `script`/`bash` packages, "update" is a full reinstall (the same script that may have used
+`sudo` runs again), since there's no narrower update mechanism available. `dev-setup update` asks
+for confirmation before doing this.
+
+---
+
 ### `add`
 
 Guided wizard to register a new custom package. Supports six install types:
