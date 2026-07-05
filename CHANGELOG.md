@@ -1,3 +1,9 @@
+## v1.13.0 (2026-07-05)
+
+### Feat
+
+- add category field, yq tool, and 4 new functions
+
 ## v1.12.0 (2026-07-05)
 
 ### Feat
