@@ -1,3 +1,16 @@
+## v1.11.0 (2026-07-05)
+
+### Feat
+
+- add interactive update picker with recommended-update detection
+- add update command to upgrade installed packages
+- add CLAUDE.md for project guidance and tool installation instructions
+- group interactive install picker by category with aligned columns and parallel status probe
+
+### Refactor
+
+- dataclass GenericTool with strategy dispatch, recursive requires, sha256 script verification, parallel list, ruff lint + unit tests
+
 ## v1.10.0 (2026-07-04)
 
 ### Feat
