@@ -314,6 +314,38 @@ positional `$1`) — the runner injects a prelude mapping real argv positions to
 for `script`/bashrc-registered functions, or bakes the already-resolved, shell-quoted values
 directly for `register: eval` (which has no argv channel of its own once `eval`'d).
 
+#### Function fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | no | Display name shown in `functions list`. Defaults to the catalog key. |
+| `description` | no | Short description shown in `functions list`. Defaults to `""`. |
+| `type` | yes | `script` or `shell-eval` — see the type table above. |
+| `register` | shell-eval only | `bashrc` (default) or `eval`. Rejected for `type: script`. |
+| `params` | no | List of param objects (see below), resolved positionally in the order declared. |
+| `script` | yes | The bash script body. References params by name (`"$key_path"`), not by position (`$1`). |
+| `help_cmd` | no | Help command shown alongside the function in `functions list`. |
+| `docs_url` | no | Documentation URL for this function. |
+
+#### Param fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | yes | Shell variable name the param is bound to. Must be a valid shell identifier (letters/digits/underscore, not starting with a digit) and unique within the function. |
+| `description` | no | Defaults to `""`. Shown as the prompt label when this param is missing and interactively promptable (`type: script` only — `shell-eval` never prompts). |
+| `required` | no | Defaults to `true`. Whether the param must resolve to a non-empty value. An explicitly empty value (`dev-setup run key ""`) counts as missing, same as not passing it at all. |
+| `default` | no | Defaults to `""`. Fallback value used when nothing else resolves it. A required param *with* a default is always satisfied by it, so it never triggers a resolution error or (for `register: bashrc`) the runtime bash guard described below. |
+
+Unknown fields fail validation, same as tools. A required param without a default behaves
+differently per invocation path:
+- `type: script` — prompts for it interactively (unless stdin isn't a terminal, in which case
+  it's reported and the command exits non-zero rather than hitting an unreadable prompt).
+- `register: eval` — reported on stderr and exits non-zero; never prompts, to keep stdout
+  clean for `eval` capture.
+- `register: bashrc` — `dev-setup` is never involved when the enabled function is called
+  directly, so enforcement happens inside the generated function itself: it fails loudly
+  (message to stderr, `return 1`) if the argument is left blank at call time.
+
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have — for now, custom functions are hand-edited YAML at
 `~/.config/dev-setup/functions.yaml`.
