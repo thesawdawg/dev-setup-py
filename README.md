@@ -125,15 +125,24 @@ dev-setup uninstall htop          # alias
 ### `update`
 
 Update one or more already-installed packages to the latest version, or pin a single package to
-a specific version with `--version`.
+a specific version with `--version`. With no arguments, launches an interactive multi-select
+picker over installed packages, similar to `install`.
 
 ```bash
 dev-setup update nvm                    # update to latest
 dev-setup update pi --version 1.2.3     # pin a single package to a specific version
+dev-setup update                        # interactive picker
 ```
 
 Packages that aren't installed are skipped with a warning rather than treated as an error.
-`--version` can only be combined with a single package.
+`--version` can only be combined with a single package (and is not available in the interactive
+picker).
+
+The interactive picker probes every installed package for a newer version (`npm view`, `uv tool
+list --outdated`, `apt-cache policy`, or comparing local vs. remote git HEAD) and pre-checks the
+ones with a known update available. `script`/`bash` packages have no reliable way to check for
+a newer version ahead of time, so they're listed as "unknown" and left unchecked — selecting one
+still works, it just can't be pre-recommended.
 
 How "update" is performed depends on the package's install `type`:
 

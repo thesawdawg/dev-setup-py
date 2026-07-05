@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import functools
 import hashlib
+import re
 import shlex
 import shutil
 import subprocess
@@ -25,6 +27,19 @@ _YAML_KEY = {"install_type": "type"}
 _ALWAYS_PERSIST = ("name", "description", "category", "install_type")
 # fields never read from / written to the catalog
 _NON_CATALOG = ("key", "builtin")
+
+
+@dataclass
+class UpdateStatus:
+    """Best-effort result of probing whether a newer version is available.
+
+    `available` is None when the install type has no reliable way to check
+    (script/bash) or the probe itself failed (offline, missing tool, etc).
+    """
+
+    current: str = ""
+    latest: str = ""
+    available: bool | None = None
 
 
 def _run(cmd: list, *, cwd: Path | None = None) -> None:
@@ -125,6 +140,16 @@ class GenericTool(Tool):
             raise RuntimeError(f"Unsupported update type: {self.install_type!r}")
         updater(self, version)
         return self.get_version() or None
+
+    def check_for_update(self) -> UpdateStatus:
+        """Best-effort probe for a newer version. Never raises."""
+        checker = _UPDATE_CHECKERS.get(self.install_type)
+        if checker is None:
+            return UpdateStatus()
+        try:
+            return checker(self)
+        except Exception:
+            return UpdateStatus()
 
     def get_version(self) -> str:
         # Prefer explicit version_cmd; fall through to check_cmd / type-derived cmd
@@ -300,6 +325,161 @@ def _update_bash(tool: GenericTool, version: str | None) -> None:
     if version:
         raise RuntimeError("Version pinning is not supported for 'bash' tools.")
     _install_bash(tool)
+
+
+# -- Update-availability checks -------------------------------------------------
+# Best-effort: each function returns UpdateStatus() (all-empty/unknown) rather
+# than raising, so a probe failure just shows as "unknown" to the caller.
+
+
+def _npm_installed_version(pkg: str) -> str:
+    import json
+    try:
+        r = subprocess.run(
+            ["bash", "-lc", f"{_npm_init()} && npm list -g --depth=0 --json {shlex.quote(pkg)}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        data = json.loads(r.stdout or "{}")
+        return data.get("dependencies", {}).get(pkg, {}).get("version", "")
+    except Exception:
+        return ""
+
+
+def _npm_latest_version(pkg: str) -> str:
+    try:
+        r = subprocess.run(
+            ["bash", "-lc", f"{_npm_init()} && npm view {shlex.quote(pkg)} version"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _check_update_npm(tool: GenericTool) -> UpdateStatus:
+    if not tool.npm_name:
+        return UpdateStatus()
+    current = _npm_installed_version(tool.npm_name)
+    latest = _npm_latest_version(tool.npm_name)
+    if not latest:
+        return UpdateStatus(current=current)
+    return UpdateStatus(current=current, latest=latest, available=bool(current) and current != latest)
+
+
+def _uv_tool_current_version(pkg: str) -> str:
+    uv = shutil.which("uv")
+    if not uv:
+        return ""
+    try:
+        r = subprocess.run(
+            [uv, "tool", "list", "--color", "never"], capture_output=True, text=True, timeout=15,
+        )
+    except Exception:
+        return ""
+    for line in r.stdout.splitlines():
+        if line.startswith((" ", "-", "\t")):
+            continue  # sub-lines (installed executables) under each tool
+        m = re.match(rf"^{re.escape(pkg)}\s+v?([\w.\-+]+)", line.strip())
+        if m:
+            return m.group(1)
+    return ""
+
+
+@functools.lru_cache(maxsize=1)
+def _uv_outdated_map() -> dict[str, str]:
+    """Package name -> latest version, for every outdated `uv tool`. One call per process."""
+    uv = shutil.which("uv")
+    if not uv:
+        return {}
+    try:
+        r = subprocess.run(
+            [uv, "tool", "list", "--outdated", "--color", "never"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except Exception:
+        return {}
+    result: dict[str, str] = {}
+    for line in r.stdout.splitlines():
+        if line.startswith((" ", "-", "\t")):
+            continue
+        m = re.match(r"^(\S+)\s+v?[\w.\-+]+\s*\[latest:\s*([\w.\-+]+)\]", line.strip())
+        if m:
+            result[m.group(1)] = m.group(2)
+    return result
+
+
+def _check_update_uvx(tool: GenericTool) -> UpdateStatus:
+    if not tool.pip_name or not shutil.which("uv"):
+        return UpdateStatus()
+    current = _uv_tool_current_version(tool.pip_name)
+    latest = _uv_outdated_map().get(tool.pip_name, "")
+    if not latest:
+        return UpdateStatus(current=current, available=False if current else None)
+    return UpdateStatus(current=current, latest=latest, available=True)
+
+
+def _check_update_apt(tool: GenericTool) -> UpdateStatus:
+    if not tool.apt_packages:
+        return UpdateStatus()
+    pkg = tool.apt_packages.split()[0]
+    try:
+        r = subprocess.run(
+            ["dpkg-query", "-W", "-f=${Version}", pkg], capture_output=True, text=True, timeout=10,
+        )
+        current = r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        current = ""
+    try:
+        r = subprocess.run(["apt-cache", "policy", pkg], capture_output=True, text=True, timeout=10)
+    except Exception:
+        return UpdateStatus(current=current)
+    candidate = ""
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("Candidate:"):
+            candidate = line.split(":", 1)[1].strip()
+            break
+    if not candidate or candidate == "(none)":
+        return UpdateStatus(current=current)
+    return UpdateStatus(current=current, latest=candidate, available=bool(current) and current != candidate)
+
+
+def _check_update_git(tool: GenericTool) -> UpdateStatus:
+    if not tool.git_url:
+        return UpdateStatus()
+    dest = _git_clone_dest(tool.git_url)
+    if not dest.exists():
+        return UpdateStatus()
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(dest), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        current = r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        current = ""
+    try:
+        r = subprocess.run(
+            ["git", "ls-remote", tool.git_url, "HEAD"], capture_output=True, text=True, timeout=10,
+        )
+        remote_full = r.stdout.split()[0] if r.returncode == 0 and r.stdout.strip() else ""
+    except Exception:
+        remote_full = ""
+    if not remote_full:
+        return UpdateStatus(current=current)
+    latest = remote_full[:7]
+    if not current:
+        return UpdateStatus(latest=latest)
+    return UpdateStatus(current=current, latest=latest, available=not remote_full.startswith(current))
+
+
+_UPDATE_CHECKERS: dict[str, Callable[[GenericTool], UpdateStatus]] = {
+    "npm": _check_update_npm,
+    "pip": _check_update_uvx,
+    "uvx": _check_update_uvx,
+    "apt": _check_update_apt,
+    "git": _check_update_git,
+}
 
 
 # -- Remove strategies -----------------------------------------------------------
