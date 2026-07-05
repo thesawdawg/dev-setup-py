@@ -1,0 +1,15 @@
+version: 1
+functions:
+  ssh-agent-key:
+    name: SSH Agent + Add Key
+    description: Start ssh-agent in the current shell and add a key to it
+    type: shell-eval
+    register: bashrc
+    params:
+      - name: key_path
+        description: Path to the SSH private key
+        required: true
+    script: |
+      eval "$(ssh-agent -s)"
+      ssh-add "$key_path"
+    docs_url: https://www.ssh.com/academy/ssh/agent

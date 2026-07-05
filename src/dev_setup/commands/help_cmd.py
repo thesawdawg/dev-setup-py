@@ -17,6 +17,8 @@ def print_help() -> None:
         ("delete",  "<key>",                                  "Remove a custom package from the registry"),
         ("catalog", "<path|export|import>",                   "Manage YAML tool catalogs"),
         ("docs",    "<package>",                              "Open documentation in browser"),
+        ("run",     "<function> [args...]",                   "Run a function/script"),
+        ("functions", "<list|enable|disable|path>",           "Manage functions/scripts"),
         ("version", "",                                        "Show version"),
     ]
     for cmd, args, desc in rows:
@@ -39,6 +41,9 @@ def print_help() -> None:
         "dev-setup add",
         "dev-setup delete my-tool",
         "dev-setup catalog export",
+        "dev-setup functions list",
+        "dev-setup functions enable ssh-agent-key",
+        "ssh-agent-key ~/.ssh/id_ed25519",
     ]
     for ex in examples:
         ui.console.print(f"  [dim]$[/] [green]{ex}[/]")
