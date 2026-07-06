@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 
 from dev_setup import functions_catalog as catalog
+from dev_setup import scripts as builtin_scripts
 
 # field name -> catalog YAML key (only where they differ)
 _YAML_KEY: dict[str, str] = {}
-_NON_CATALOG = ("key", "builtin")
+_NON_CATALOG = ("key", "builtin", "python_callable")
 
 
 @dataclass
@@ -47,6 +49,7 @@ class FunctionDef:
     help_cmd: str = ""
     docs_url: str = ""
     builtin: bool = False
+    python_callable: Callable[..., int | None] | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -102,6 +105,25 @@ def _load_builtins() -> None:
         fn = FunctionDef.from_dict(data, key=key)
         fn.builtin = key in bundled and key not in user
         _register(fn)
+
+    for script in builtin_scripts.all_scripts():
+        if script.key in user:
+            continue
+        params = [FunctionParam.from_dict(p) for p in script.params]
+        _register(
+            FunctionDef(
+                key=script.key,
+                name=script.name,
+                description=script.description,
+                category=script.category,
+                type="python",
+                params=params,
+                help_cmd=script.help_cmd,
+                docs_url=script.docs_url,
+                builtin=True,
+                python_callable=script.handler,
+            )
+        )
 
 
 def init() -> None:

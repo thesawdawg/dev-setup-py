@@ -131,3 +131,20 @@ def run_script_function(
         subprocess.run(["bash", tmp, *values], check=True)
     finally:
         os.unlink(tmp)
+
+
+def run_python_function(
+    fn: FunctionDef,
+    args: tuple[str, ...],
+    *,
+    prompt: Callable[[FunctionParam], str] | None = None,
+) -> None:
+    """Execute a built-in Python function registered from dev_setup.scripts."""
+    if fn.python_callable is None:
+        raise RuntimeError(f"Python function '{fn.key}' has no callable")
+
+    values = resolve_params(fn.params, args, prompt=prompt)
+    kwargs = {p.name: value for p, value in zip(fn.params, values, strict=True)}
+    result = fn.python_callable(**kwargs)
+    if isinstance(result, int) and result != 0:
+        raise subprocess.CalledProcessError(result, fn.key)

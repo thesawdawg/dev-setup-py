@@ -243,17 +243,20 @@ When a user key matches a bundled key, the user definition overrides the bundled
 
 ## Functions/Scripts
 
-Reusable shell functions/snippets, tracked in a separate catalog from installable tools
-(`~/.config/dev-setup/functions.yaml`, same bundled+user precedence merge as `tools.yaml`).
+Reusable functions/snippets, tracked separately from installable tools. Shell-backed functions
+come from the bundled `src/dev_setup/functions.yaml` catalog plus user overrides/additions in
+`~/.config/dev-setup/functions.yaml` (same bundled+user precedence merge as `tools.yaml`).
+Package-maintained Python functions can also be registered from `src/dev_setup/scripts`.
 Unlike tools, functions aren't installed/removed — they're invoked.
 
-There are two function `type`s, because a `dev-setup` command runs as its own child process
-and can't mutate the shell that invoked it:
+There are three function `type`s. User YAML supports `script` and `shell-eval`; `python` is
+reserved for built-ins registered from package code.
 
 | Type | What it does | How you invoke it |
 |------|---------------|--------------------|
 | `script` | Runs as a subprocess (like a tool's `install_script`) — for anything that just calls other binaries/apps and doesn't need to change your shell's state. | `dev-setup run <key> [args...]` — prompts for any missing required param. |
-| `shell-eval` | For things that must mutate the *calling* shell — env vars, `cd`, aliases, agents. Has two `register` modes (see below). | Depends on `register`. |
+| `shell-eval` | For things that must mutate the *calling* shell — env vars, `cd`, aliases, agents. Has two `register` modes (see below), because a `dev-setup` command runs as its own child process and can't mutate the shell that invoked it. | Depends on `register`. |
+| `python` | Built-in only. Runs a Python callable registered from `src/dev_setup/scripts`, using the same positional param resolution as `script`. | `dev-setup run <key> [args...]` — prompts for any missing required param. |
 
 `shell-eval` functions declare `register`:
 
@@ -285,10 +288,11 @@ dev-setup functions path      # print ~/.config/dev-setup/functions.yaml
 ### functions.yaml schema
 
 A JSON Schema documenting every field (`src/dev_setup/functions.schema.json`) mirrors the
-validation in `functions_catalog.py` — point your editor's YAML language server at it for
-inline docs/autocomplete/validation while hand-editing a functions catalog (in VS Code with
-the YAML extension, add a `yaml.schemas` mapping to the file's path, or add a
-`# yaml-language-server: $schema=<path>` comment at the top of the file, as the bundled
+validation in `functions_catalog.py`. It documents YAML-backed functions only (`script` and
+`shell-eval`), not package-maintained `python` functions. Point your editor's YAML language
+server at it for inline docs/autocomplete/validation while hand-editing a functions catalog
+(in VS Code with the YAML extension, add a `yaml.schemas` mapping to the file's path, or add
+a `# yaml-language-server: $schema=<path>` comment at the top of the file, as the bundled
 catalog does).
 
 ```yaml
@@ -321,7 +325,7 @@ directly for `register: eval` (which has no argv channel of its own once `eval`'
 | `name` | no | Display name shown in `functions list`. Defaults to the catalog key. |
 | `description` | no | Short description shown in `functions list`. Defaults to `""`. |
 | `category` | no | Group shown in `functions list` (grouped/sorted like tools). Freeform string, defaults to `custom`. |
-| `type` | yes | `script` or `shell-eval` — see the type table above. |
+| `type` | yes | `script` or `shell-eval` — YAML catalogs cannot declare `python` functions. |
 | `register` | shell-eval only | `bashrc` (default) or `eval`. Rejected for `type: script`. |
 | `params` | no | List of param objects (see below), resolved positionally in the order declared. |
 | `script` | yes | The bash script body. References params by name (`"$key_path"`), not by position (`$1`). |
@@ -352,6 +356,28 @@ ones tools already have — for now, custom functions are hand-edited YAML at
 `~/.config/dev-setup/functions.yaml`.
 
 ### Built-in functions
+
+Built-ins can come from either the bundled YAML catalog or Python modules in
+`src/dev_setup/scripts`. A Python built-in registers itself with `@register(...)`; the registry
+loads those modules at startup, exposes them in `dev-setup functions list`, and runs them
+through `dev-setup run` with the same param prompting/default behavior as shell `script`
+functions. A user YAML function with the same key overrides a Python built-in.
+
+Example Python built-in:
+
+```python
+from dev_setup.scripts import param, register
+
+
+@register(
+    key="hello-python",
+    name="Hello Python",
+    description="Print a greeting from Python",
+    params=[param("name", "Name to greet")],
+)
+def hello_python(name: str) -> None:
+    print(f"Hello, {name}")
+```
 
 | Key | Category | Type | Description | Args |
 |-----|----------|------|--------------|------|
@@ -532,10 +558,11 @@ dev-setup-py/
         ├── generic.py     # GenericTool - handles all catalog install types
         ├── tools.yaml     # Bundled built-in tool catalog
         ├── functions_catalog.py   # YAML catalog loading/validation for functions.yaml
-        ├── functions_registry.py # Loads bundled + user YAML into the live function registry
-        ├── function_runner.py    # Param resolution + script/eval/bashrc rendering & execution
+        ├── functions_registry.py # Loads YAML + Python built-ins into the function registry
+        ├── function_runner.py    # Param resolution + shell/Python function execution
         ├── functions.yaml        # Bundled built-in function catalog
         ├── ui.py          # Rich console helpers, questionary wrappers, styled prompts
+        ├── scripts/       # Built-in Python functions registered with @register(...)
         ├── commands/
         │   ├── list_cmd.py
         │   ├── install_cmd.py

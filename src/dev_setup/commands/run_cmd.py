@@ -22,6 +22,8 @@ def run_cmd(key: str, args: tuple[str, ...]) -> None:
 
     if fn.type == "script":
         _run_script(fn, args)
+    elif fn.type == "python":
+        _run_python(fn, args)
     elif fn.type == "shell-eval" and fn.register == "eval":
         _run_eval(fn, args)
     else:  # shell-eval + bashrc — dev-setup can't mutate the calling shell itself
@@ -45,6 +47,20 @@ def _run_script(fn: FunctionDef, args: tuple[str, ...]) -> None:
     prompt = _prompt_param if sys.stdin.isatty() else None
     try:
         runner.run_script_function(fn, args, prompt=prompt)
+        ui.success(f"{fn.name} completed")
+    except ParamResolutionError as exc:
+        ui.error(str(exc))
+        sys.exit(1)
+    except Exception as exc:
+        ui.error(f"'{fn.name}' failed: {exc}")
+        sys.exit(1)
+
+
+def _run_python(fn: FunctionDef, args: tuple[str, ...]) -> None:
+    ui.section(fn.name)
+    prompt = _prompt_param if sys.stdin.isatty() else None
+    try:
+        runner.run_python_function(fn, args, prompt=prompt)
         ui.success(f"{fn.name} completed")
     except ParamResolutionError as exc:
         ui.error(str(exc))
