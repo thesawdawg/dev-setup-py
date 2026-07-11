@@ -24,7 +24,7 @@ sudo apt-get install -y python3 python3-pip curl ca-certificates sudo
 
 | Requirement | When |
 |-------------|------|
-| `git` | `git`-type custom packages (`devthings add` → git) |
+| `git` | `git`-type custom packages (`devstuff add` → git) |
 | `node` / `npm` | `npm`-type custom packages |
 | `uv` | Running from source via `./dev-setup` (auto-installed if missing) |
 
@@ -44,7 +44,7 @@ pipx install devstuff
 pip install devstuff
 ```
 
-After install, `devthings` is the primary command. Run `devthings --help` to verify. The former
+After install, `devstuff` is the primary command. Run `devstuff --help` to verify. The former
 `dev-setup` command remains available as a compatibility alias.
 
 ### From source (development)
@@ -67,14 +67,14 @@ For editable development installs:
 
 ```bash
 pip install -e .
-devthings list
+devstuff list
 ```
 
 ---
 
 ## How it works
 
-When installed from PyPI (via `pip` or `pipx`), `devthings` is a standard Python entry point — Python is the only runtime dependency. The `[project.scripts]` entries in `pyproject.toml` map both `devthings` and the compatibility alias `dev-setup` directly to `dev_setup.__main__:main`.
+When installed from PyPI (via `pip` or `pipx`), `devstuff` is a standard Python entry point — Python is the only runtime dependency. The `[project.scripts]` entries in `pyproject.toml` map both `devstuff` and the compatibility alias `dev-setup` directly to `dev_setup.__main__:main`.
 
 The bash `./dev-setup` script in the repo is a convenience runner for the git-clone workflow. It creates a `.venv` using `python3 -m venv` (falling back to `uv venv` on systems where `python3-venv` is a separate package) and installs the project in editable mode on first run.
 
@@ -87,12 +87,12 @@ The bash `./dev-setup` script in the repo is a convenience runner for the git-cl
 Show all available packages with their install status, type, version, and help command.
 
 ```bash
-devthings list                    # all packages
-devthings list core               # core category only
-devthings list tools              # tools category only
-devthings list custom             # custom/user-added packages only
-devthings list --installed        # only installed packages
-devthings list --available        # only packages not yet installed
+devstuff list                    # all packages
+devstuff list core               # core category only
+devstuff list tools              # tools category only
+devstuff list custom             # custom/user-added packages only
+devstuff list --installed        # only installed packages
+devstuff list --available        # only packages not yet installed
 ```
 
 Output columns: status (✔/✘), package key, description, install type, version (if installed), help command.
@@ -104,8 +104,8 @@ Output columns: status (✔/✘), package key, description, install type, versio
 Install one or more packages by key, or launch an interactive multi-select picker.
 
 ```bash
-devthings install docker nvm      # install specific packages
-devthings install                 # interactive picker (Space to toggle, Enter to confirm)
+devstuff install docker nvm      # install specific packages
+devstuff install                 # interactive picker (Space to toggle, Enter to confirm)
 ```
 
 The interactive picker shows all available packages with their current install status and lets you select multiple at once before confirming.
@@ -117,8 +117,8 @@ The interactive picker shows all available packages with their current install s
 Uninstall an installed package. Always asks for confirmation before proceeding.
 
 ```bash
-devthings remove htop
-devthings uninstall htop          # alias
+devstuff remove htop
+devstuff uninstall htop          # alias
 ```
 
 ---
@@ -130,9 +130,9 @@ a specific version with `--version`. With no arguments, launches an interactive 
 picker over installed packages, similar to `install`.
 
 ```bash
-devthings update nvm                    # update to latest
-devthings update pi --version 1.2.3     # pin a single package to a specific version
-devthings update                        # interactive picker
+devstuff update nvm                    # update to latest
+devstuff update pi --version 1.2.3     # pin a single package to a specific version
+devstuff update                        # interactive picker
 ```
 
 Packages that aren't installed are skipped with a warning rather than treated as an error.
@@ -156,7 +156,7 @@ How "update" is performed depends on the package's install `type`:
 | `script` / `bash` | Re-runs the install script | not supported — no version parameter to inject |
 
 For `script`/`bash` packages, "update" is a full reinstall (the same script that may have used
-`sudo` runs again), since there's no narrower update mechanism available. `devthings update` asks
+`sudo` runs again), since there's no narrower update mechanism available. `devstuff update` asks
 for confirmation before doing this.
 
 ---
@@ -175,7 +175,7 @@ Guided wizard to register a new custom package. Supports six install types:
 | `bash` | Arbitrary multi-step bash — opens `$EDITOR` for install and remove scripts |
 
 ```bash
-devthings add
+devstuff add
 ```
 
 The wizard collects type-specific fields, then prompts for a help command (e.g. `tool --help`). Packages are saved into `~/.config/dev-setup/tools.yaml`.
@@ -213,8 +213,8 @@ tools:
 Remove a user catalog entry from the registry. Built-in-only packages cannot be deleted, but a user override of a built-in package can be deleted to restore the bundled definition.
 
 ```bash
-devthings delete my-tool
-devthings rm my-tool              # alias
+devstuff delete my-tool
+devstuff rm my-tool              # alias
 ```
 
 Asks for confirmation, then removes the entry from `~/.config/dev-setup/tools.yaml`.
@@ -226,10 +226,10 @@ Asks for confirmation, then removes the entry from `~/.config/dev-setup/tools.ya
 Manage the user YAML catalog.
 
 ```bash
-devthings catalog path                 # print ~/.config/dev-setup/tools.yaml
-devthings catalog export               # write ./dev-setup-tools.yaml
-devthings catalog export tools.yaml    # write effective catalog to a path
-devthings catalog import tools.yaml    # validate and merge into user catalog
+devstuff catalog path                 # print ~/.config/dev-setup/tools.yaml
+devstuff catalog export               # write ./dev-setup-tools.yaml
+devstuff catalog export tools.yaml    # write effective catalog to a path
+devstuff catalog import tools.yaml    # validate and merge into user catalog
 ```
 
 The effective catalog is loaded in this order:
@@ -248,39 +248,39 @@ Reusable shell functions/snippets, tracked in a separate catalog from installabl
 (`~/.config/dev-setup/functions.yaml`, same bundled+user precedence merge as `tools.yaml`).
 Unlike tools, functions aren't installed/removed — they're invoked.
 
-There are two function `type`s, because a `devthings` command runs as its own child process
+There are two function `type`s, because a `devstuff` command runs as its own child process
 and can't mutate the shell that invoked it:
 
 | Type | What it does | How you invoke it |
 |------|---------------|--------------------|
-| `script` | Runs as a subprocess (like a tool's `install_script`) — for anything that just calls other binaries/apps and doesn't need to change your shell's state. | `devthings run <key> [args...]` — prompts for any missing required param. |
+| `script` | Runs as a subprocess (like a tool's `install_script`) — for anything that just calls other binaries/apps and doesn't need to change your shell's state. | `devstuff run <key> [args...]` — prompts for any missing required param. |
 | `shell-eval` | For things that must mutate the *calling* shell — env vars, `cd`, aliases, agents. Has two `register` modes (see below). | Depends on `register`. |
 
 `shell-eval` functions declare `register`:
 
-- **`register: bashrc`** (default) — `devthings functions enable <key>` patches a real shell
+- **`register: bashrc`** (default) — `devstuff functions enable <key>` patches a real shell
   function into `~/.bashrc` (idempotent, using the same patch/remove mechanism as tool
   bashrc blocks). After enabling, open a new shell (or `source ~/.bashrc`) and call the
-  function directly by name — `devthings` itself never runs it, since a child process
+  function directly by name — `devstuff` itself never runs it, since a child process
   can't export environment changes back to your interactive shell.
   ```bash
-  devthings functions enable ssh-agent-key
+  devstuff functions enable ssh-agent-key
   source ~/.bashrc
   ssh-agent-key ~/.ssh/id_ed25519
   ```
-  `devthings functions disable <key>` removes it from `~/.bashrc`.
-- **`register: eval`** — `devthings run <key> [args]` resolves params and prints shell code
+  `devstuff functions disable <key>` removes it from `~/.bashrc`.
+- **`register: eval`** — `devstuff run <key> [args]` resolves params and prints shell code
   to stdout only (no prompts, no formatting — anything else on stdout would corrupt the
   `eval` capture); missing required params are reported on stderr and exit non-zero instead.
   ```bash
-  eval "$(devthings run some-eval-function arg1)"
+  eval "$(devstuff run some-eval-function arg1)"
   ```
 
 Other commands:
 
 ```bash
-devthings functions list      # show all functions, their type, and declared params
-devthings functions path      # print ~/.config/dev-setup/functions.yaml
+devstuff functions list      # show all functions, their type, and declared params
+devstuff functions path      # print ~/.config/dev-setup/functions.yaml
 ```
 
 ### functions.yaml schema
@@ -335,7 +335,7 @@ directly for `register: eval` (which has no argv channel of its own once `eval`'
 |-------|----------|-------------|
 | `name` | yes | Shell variable name the param is bound to. Must be a valid shell identifier (letters/digits/underscore, not starting with a digit) and unique within the function. |
 | `description` | no | Defaults to `""`. Shown as the prompt label when this param is missing and interactively promptable (`type: script` only — `shell-eval` never prompts). |
-| `required` | no | Defaults to `true`. Whether the param must resolve to a non-empty value. An explicitly empty value (`devthings run key ""`) counts as missing, same as not passing it at all. |
+| `required` | no | Defaults to `true`. Whether the param must resolve to a non-empty value. An explicitly empty value (`devstuff run key ""`) counts as missing, same as not passing it at all. |
 | `default` | no | Defaults to `""`. Fallback value used when nothing else resolves it. A required param *with* a default is always satisfied by it, so it never triggers a resolution error or (for `register: bashrc`) the runtime bash guard described below. |
 
 Unknown fields fail validation, same as tools. A required param without a default behaves
@@ -344,7 +344,7 @@ differently per invocation path:
   it's reported and the command exits non-zero rather than hitting an unreadable prompt).
 - `register: eval` — reported on stderr and exits non-zero; never prompts, to keep stdout
   clean for `eval` capture.
-- `register: bashrc` — `devthings` is never involved when the enabled function is called
+- `register: bashrc` — `devstuff` is never involved when the enabled function is called
   directly, so enforcement happens inside the generated function itself: it fails loudly
   (message to stderr, `return 1`) if the argument is left blank at call time.
 
@@ -406,7 +406,7 @@ Optional utilities you may want on some machines.
 
 ## Custom packages
 
-Custom packages live in `~/.config/dev-setup/tools.yaml`. You can create them via `devthings add`, import them with `devthings catalog import`, or edit the YAML by hand.
+Custom packages live in `~/.config/dev-setup/tools.yaml`. You can create them via `devstuff add`, import them with `devstuff catalog import`, or edit the YAML by hand.
 
 ### YAML schema
 
@@ -439,7 +439,7 @@ tools:
 | `type` | yes | `npm`, `pip`, `uvx`, `apt`, `git`, `script`, or `bash` |
 | `check_cmd` | no | Binary name or shell check used to detect install status |
 | `help_cmd` | no | Command shown in `list` under the package entry |
-| `docs_url` | no | URL opened by `devthings docs <key>` |
+| `docs_url` | no | URL opened by `devstuff docs <key>` |
 | `requires` | no | List of package keys that must already be installed |
 | `npm_name` | npm | npm package name |
 | `pip_name` | pip | PyPI package name |
@@ -521,7 +521,7 @@ tools:
 ```
 dev-setup-py/
 ├── dev-setup              # Bash entry point — bootstraps uv, then exec's Python
-├── install.sh             # Installs devstuff and exposes the devthings command
+├── install.sh             # Installs devstuff and exposes the devstuff command
 ├── pyproject.toml         # Python project (hatchling, requires-python >=3.11)
 └── src/
     └── dev_setup/

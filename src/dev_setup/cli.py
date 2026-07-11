@@ -17,7 +17,7 @@ def cli(ctx: click.Context) -> None:
 @cli.command("version")
 def version_cmd() -> None:
     """Print version and exit."""
-    click.echo(f"devthings {__version__}")
+    click.echo(f"devstuff {__version__}")
 
 
 def _register_commands() -> None:

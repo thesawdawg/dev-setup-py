@@ -196,7 +196,7 @@ def _install_uvx(tool: GenericTool) -> None:
     if not uv:
         raise RuntimeError(
             "uv is required to install uvx packages. "
-            "Install it first: devthings install uv"
+            "Install it first: devstuff install uv"
         )
     with ui.spinner(f"Installing {tool.name} via uvx..."):
         subprocess.run([uv, "tool", "install", tool.pip_name], check=True, capture_output=True)
@@ -269,7 +269,7 @@ def _update_uvx(tool: GenericTool, version: str | None) -> None:
     if not uv:
         raise RuntimeError(
             "uv is required to update uvx packages. "
-            "Install it first: devthings install uv"
+            "Install it first: devstuff install uv"
         )
     target = f"{tool.pip_name}=={version}" if version else tool.pip_name
     with ui.spinner(f"Updating {tool.name} via uv tool upgrade..."):
@@ -299,7 +299,7 @@ def _update_git(tool: GenericTool, version: str | None) -> None:
     if version:
         raise RuntimeError(
             "Version pinning is not supported for git tools (shallow clone). "
-            f"Reinstall instead: devthings remove {tool.key} && devthings install {tool.key}"
+            f"Reinstall instead: devstuff remove {tool.key} && devstuff install {tool.key}"
         )
     if not tool.git_url:
         raise RuntimeError("git_url not set")
@@ -500,7 +500,7 @@ def _remove_uvx(tool: GenericTool) -> None:
     if not uv:
         raise RuntimeError(
             "uv is required to remove uvx packages. "
-            "Install it first: devthings install uv"
+            "Install it first: devstuff install uv"
         )
     with ui.spinner(f"Removing {tool.name}..."):
         subprocess.run([uv, "tool", "uninstall", tool.pip_name], check=True, capture_output=True)
@@ -530,7 +530,7 @@ def _remove_script_url(tool: GenericTool) -> None:
     if not tool.remove_script:
         raise RuntimeError(
             "No remove script defined for this script-installed package. "
-            "Remove manually then run: devthings delete " + tool.key
+            "Remove manually then run: devstuff delete " + tool.key
         )
     ui.info(f"Removing {tool.name}...")
     _run_bash_script(tool.remove_script)
@@ -541,7 +541,7 @@ def _remove_bash(tool: GenericTool) -> None:
     if not tool.remove_script:
         raise RuntimeError(
             f"No remove script defined for '{tool.key}'. "
-            "Remove manually then run: devthings delete " + tool.key
+            "Remove manually then run: devstuff delete " + tool.key
         )
     ui.info(f"Removing {tool.name}...")
     _run_bash_script(tool.remove_script)

@@ -41,7 +41,7 @@ def _install_one(tool: Tool) -> bool:
     missing = registry.missing_requires(tool)
     if missing:
         ui.error(f"Cannot install {tool.name} — missing required tools: {', '.join(missing)}")
-        ui.dim(f"Install first:  devthings install {' '.join(missing)}")
+        ui.dim(f"Install first:  devstuff install {' '.join(missing)}")
         return False
     try:
         version = tool.install()
