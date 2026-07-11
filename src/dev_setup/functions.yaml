@@ -24,7 +24,7 @@ functions:
     script: |
       set -euo pipefail
       if ! command -v docker >/dev/null 2>&1; then
-        echo "docker is required. Install it first: dev-setup install docker" >&2
+        echo "docker is required. Install it first: devthings install docker" >&2
         exit 1
       fi
       file=""
@@ -55,7 +55,7 @@ functions:
     script: |
       set -euo pipefail
       if ! command -v yq >/dev/null 2>&1; then
-        echo "yq is required. Install it first: dev-setup install yq" >&2
+        echo "yq is required. Install it first: devthings install yq" >&2
         exit 1
       fi
       if [ ! -f "$file" ]; then
@@ -82,7 +82,7 @@ functions:
       set -euo pipefail
       . "$HOME/.nvm/nvm.sh" 2>/dev/null || true
       if ! command -v pi >/dev/null 2>&1; then
-        echo "pi is required. Install it first: dev-setup install pi" >&2
+        echo "pi is required. Install it first: devthings install pi" >&2
         exit 1
       fi
       pi -p "/dogfood $url $instruction"
@@ -100,7 +100,7 @@ functions:
     script: |
       set -euo pipefail
       if ! command -v saml2aws >/dev/null 2>&1; then
-        echo "saml2aws is required. Install it first: dev-setup install saml2aws" >&2
+        echo "saml2aws is required. Install it first: devthings install saml2aws" >&2
         exit 1
       fi
       if [ -n "$profile" ]; then

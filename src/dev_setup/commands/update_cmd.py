@@ -52,7 +52,7 @@ def _update_one(tool: Tool, version: str | None) -> bool:
 
     if not tool.is_installed():
         ui.warn(f"{tool.name} is not installed — nothing to update.")
-        ui.dim(f"Install first:  dev-setup install {tool.key}")
+        ui.dim(f"Install first:  devthings install {tool.key}")
         return True
 
     if tool.install_type in ("bash", "script"):

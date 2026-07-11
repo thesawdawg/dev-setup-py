@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Local runner for development / git-clone installs.
-# For production: pip install dev-setup  or  pipx install dev-setup
+# For production: pip install devstuff  or  pipx install devstuff
 set -euo pipefail
 
 DEVSETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,7 +53,7 @@ _setup_venv() {
     echo "    sudo apt install python3-venv" >&2
     echo "" >&2
     echo "  Or install the tool directly (no venv needed):" >&2
-    echo "    pip install dev-setup   or   pipx install dev-setup" >&2
+    echo "    pip install devstuff   or   pipx install devstuff" >&2
     exit 1
 }
 

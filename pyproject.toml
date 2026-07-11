@@ -1,5 +1,5 @@
 [project]
-name = "dev-setup"
+name = "devstuff"
 version = "1.13.0"
 description = "Development environment setup CLI for Linux"
 readme = "README.md"
@@ -31,6 +31,7 @@ dependencies = [
 ]
 
 [project.scripts]
+devthings = "dev_setup.__main__:main"
 dev-setup = "dev_setup.__main__:main"
 
 [project.urls]

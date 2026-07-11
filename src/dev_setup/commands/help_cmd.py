@@ -5,7 +5,7 @@ from dev_setup.catalog import USER_CATALOG_PATH
 def print_help() -> None:
     ui.print_banner()
     ui.console.print("[bold]USAGE[/]")
-    ui.console.print("  dev-setup [bold cyan]<command>[/] [OPTIONS] [ARGS]\n")
+    ui.console.print("  devthings [bold cyan]<command>[/] [OPTIONS] [ARGS]\n")
 
     ui.console.print("[bold]COMMANDS[/]")
     rows = [
@@ -29,20 +29,20 @@ def print_help() -> None:
     ui.console.print()
     ui.console.print("[bold]EXAMPLES[/]")
     examples = [
-        "dev-setup list",
-        "dev-setup list core",
-        "dev-setup list --installed",
-        "dev-setup install docker nvm",
-        "dev-setup install",
-        "dev-setup remove htop",
-        "dev-setup update nvm",
-        "dev-setup update pi --version 1.2.3",
-        "dev-setup update",
-        "dev-setup add",
-        "dev-setup delete my-tool",
-        "dev-setup catalog export",
-        "dev-setup functions list",
-        "dev-setup functions enable ssh-agent-key",
+        "devthings list",
+        "devthings list core",
+        "devthings list --installed",
+        "devthings install docker nvm",
+        "devthings install",
+        "devthings remove htop",
+        "devthings update nvm",
+        "devthings update pi --version 1.2.3",
+        "devthings update",
+        "devthings add",
+        "devthings delete my-tool",
+        "devthings catalog export",
+        "devthings functions list",
+        "devthings functions enable ssh-agent-key",
         "ssh-agent-key ~/.ssh/id_ed25519",
     ]
     for ex in examples:
