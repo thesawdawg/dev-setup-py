@@ -31,7 +31,7 @@ dependencies = [
 ]
 
 [project.scripts]
-devthings = "dev_setup.__main__:main"
+devstuff = "dev_setup.__main__:main"
 dev-setup = "dev_setup.__main__:main"
 
 [project.urls]
