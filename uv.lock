@@ -166,7 +166,7 @@ wheels = [
 ]
 
 [[package]]
-name = "dev-setup"
+name = "devstuff"
 version = "1.13.0"
 source = { editable = "." }
 dependencies = [

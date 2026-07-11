@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Installs dev-setup from PyPI using pipx (preferred) or pip.
+# Installs devstuff from PyPI using pipx (preferred) or pip.
 set -euo pipefail
 
-PACKAGE="dev-setup"
+PACKAGE="devstuff"
 
 _find_python() {
     local py
@@ -39,7 +39,7 @@ if command -v pipx &>/dev/null || "$PYTHON" -m pipx --version &>/dev/null 2>&1; 
     echo "  ❯ Installing $PACKAGE via pipx..."
     $PIPX install "$PACKAGE"
     echo ""
-    echo "  ✔ Done. Run: dev-setup --help"
+    echo "  ✔ Done. Run: devthings --help"
     exit 0
 fi
 
@@ -53,7 +53,7 @@ if "$PYTHON" -m pip --version &>/dev/null 2>&1; then
     echo "  ❯ Installing $PACKAGE via pipx..."
     "$PYTHON" -m pipx install "$PACKAGE"
     echo ""
-    echo "  ✔ Done. Run: dev-setup --help"
+    echo "  ✔ Done. Run: devthings --help"
     [ "$NEED_RELOAD" -eq 1 ] && echo "    (run 'source ~/.bashrc' first if the command isn't found)"
     exit 0
 fi
@@ -63,5 +63,5 @@ echo "  ❯ Installing $PACKAGE via pip..."
 "$PYTHON" -m pip install --user "$PACKAGE" --quiet
 _ensure_local_bin_on_path
 echo ""
-echo "  ✔ Done. Run: dev-setup --help"
+echo "  ✔ Done. Run: devthings --help"
 [ "$NEED_RELOAD" -eq 1 ] && echo "    (run 'source ~/.bashrc' first if the command isn't found)"

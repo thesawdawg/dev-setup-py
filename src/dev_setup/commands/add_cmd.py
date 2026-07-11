@@ -127,7 +127,7 @@ def add_cmd() -> None:
     from dev_setup import registry
     registry.register(tool)
 
-    ui.success(f"Package '{key}' added. Install with: dev-setup install {key}")
+    ui.success(f"Package '{key}' added. Install with: devthings install {key}")
 
 
 def _prompt_key() -> str:

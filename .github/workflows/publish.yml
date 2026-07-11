@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/dev-setup
+      url: https://pypi.org/p/devstuff
     permissions:
       id-token: write  # required for OIDC trusted publishing
     steps:

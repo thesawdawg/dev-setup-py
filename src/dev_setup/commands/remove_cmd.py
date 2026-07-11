@@ -17,7 +17,7 @@ def remove_cmd(packages: tuple[str, ...], verbose: bool) -> None:
     generic._verbose = verbose
 
     if not packages:
-        ui.error("Specify at least one package key. See: dev-setup list --installed")
+        ui.error("Specify at least one package key. See: devthings list --installed")
         sys.exit(1)
 
     failed = False

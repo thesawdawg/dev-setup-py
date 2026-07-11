@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/thesawdawg/dev-setup-py/functions.schema.json",
-  "title": "dev-setup functions catalog",
-  "description": "Schema for functions.yaml (bundled at src/dev_setup/functions.yaml, user overrides at ~/.config/dev-setup/functions.yaml). Defines reusable shell functions/scripts invoked via `dev-setup run <key>` or, for bashrc-registered functions, called directly by name after `dev-setup functions enable <key>`. Mirrors the validation in functions_catalog.py — keep both in sync.",
+  "title": "devthings functions catalog",
+  "description": "Schema for functions.yaml (bundled at src/dev_setup/functions.yaml, user overrides at ~/.config/dev-setup/functions.yaml). Defines reusable shell functions/scripts invoked via `devthings run <key>` or, for bashrc-registered functions, called directly by name after `devthings functions enable <key>`. Mirrors the validation in functions_catalog.py — keep both in sync.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "functions"],
@@ -29,25 +29,25 @@
       "properties": {
         "name": {
           "type": "string",
-          "description": "Display name shown in `dev-setup functions list`. Defaults to the catalog key if omitted."
+          "description": "Display name shown in `devthings functions list`. Defaults to the catalog key if omitted."
         },
         "description": {
           "type": "string",
-          "description": "Short description shown in `dev-setup functions list`. Defaults to \"\"."
+          "description": "Short description shown in `devthings functions list`. Defaults to \"\"."
         },
         "category": {
           "type": "string",
-          "description": "Group shown in `dev-setup functions list` (functions are listed grouped by category, like tools). Freeform, not a fixed enum. Defaults to \"custom\"."
+          "description": "Group shown in `devthings functions list` (functions are listed grouped by category, like tools). Freeform, not a fixed enum. Defaults to \"custom\"."
         },
         "type": {
           "type": "string",
           "enum": ["script", "shell-eval"],
-          "description": "Execution model. 'script': runs as a subprocess (like a tool's install_script) — for anything that just calls other binaries/apps and doesn't need to change your shell's state; params are resolved positionally and missing required ones are prompted for interactively. 'shell-eval': for things that must mutate the *calling* shell (env vars, cd, aliases, agents like ssh-agent) — a dev-setup subprocess can't do this on its own, so see 'register' for how it actually takes effect."
+          "description": "Execution model. 'script': runs as a subprocess (like a tool's install_script) — for anything that just calls other binaries/apps and doesn't need to change your shell's state; params are resolved positionally and missing required ones are prompted for interactively. 'shell-eval': for things that must mutate the *calling* shell (env vars, cd, aliases, agents like ssh-agent) — a devthings subprocess can't do this on its own, so see 'register' for how it actually takes effect."
         },
         "register": {
           "type": "string",
           "enum": ["bashrc", "eval"],
-          "description": "Only meaningful when type is 'shell-eval' — rejected for type 'script'. 'bashrc' (default): `dev-setup functions enable <key>` patches a real shell function into ~/.bashrc (idempotent); afterward you call it directly by name in a new shell (`dev-setup run` refuses to run these itself and points at `functions enable` instead). Required params without a default get a runtime guard baked into the generated function that fails loudly (prints to stderr, returns 1) if left blank. 'eval': `dev-setup run <key> [args]` prints resolved shell code to stdout ONLY, for `eval \"$(dev-setup run key args)\"` — no prompting, since anything else on stdout would corrupt the eval capture; a missing required param is reported on stderr and exits non-zero instead."
+          "description": "Only meaningful when type is 'shell-eval' — rejected for type 'script'. 'bashrc' (default): `devthings functions enable <key>` patches a real shell function into ~/.bashrc (idempotent); afterward you call it directly by name in a new shell (`devthings run` refuses to run these itself and points at `functions enable` instead). Required params without a default get a runtime guard baked into the generated function that fails loudly (prints to stderr, returns 1) if left blank. 'eval': `devthings run <key> [args]` prints resolved shell code to stdout ONLY, for `eval \"$(devthings run key args)\"` — no prompting, since anything else on stdout would corrupt the eval capture; a missing required param is reported on stderr and exits non-zero instead."
         },
         "params": {
           "type": "array",
@@ -56,11 +56,11 @@
         },
         "script": {
           "type": "string",
-          "description": "Required. The bash script body, referencing params by name (e.g. \"$key_path\"). For bashrc-registered functions, keep this free of blank lines if you hand-edit — dev-setup already strips them when rendering, since a blank line would make `functions disable` stop removing the block early and orphan the rest (closing brace included)."
+          "description": "Required. The bash script body, referencing params by name (e.g. \"$key_path\"). For bashrc-registered functions, keep this free of blank lines if you hand-edit — devthings already strips them when rendering, since a blank line would make `functions disable` stop removing the block early and orphan the rest (closing brace included)."
         },
         "help_cmd": {
           "type": "string",
-          "description": "Optional help command shown alongside the function in `dev-setup functions list`."
+          "description": "Optional help command shown alongside the function in `devthings functions list`."
         },
         "docs_url": {
           "type": "string",
