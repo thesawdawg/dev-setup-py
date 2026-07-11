@@ -14,7 +14,7 @@ from dev_setup.functions_registry import FunctionDef, FunctionParam
 @click.argument("key")
 @click.argument("args", nargs=-1)
 def run_cmd(key: str, args: tuple[str, ...]) -> None:
-    """Run a function/script. See: devthings functions list"""
+    """Run a function/script. See: devstuff functions list"""
     fn = functions_registry.get(key)
     if fn is None:
         ui.error(f"Unknown function: '{key}'")
@@ -26,7 +26,7 @@ def run_cmd(key: str, args: tuple[str, ...]) -> None:
         _run_eval(fn, args)
     else:  # shell-eval + bashrc — dev-setup can't mutate the calling shell itself
         ui.error(f"'{fn.key}' is registered via ~/.bashrc, not run directly.")
-        ui.dim(f"Enable it once:  devthings functions enable {fn.key}")
+        ui.dim(f"Enable it once:  devstuff functions enable {fn.key}")
         ui.dim(f"Then call it directly in your shell:  {fn.key} ...")
         sys.exit(1)
 

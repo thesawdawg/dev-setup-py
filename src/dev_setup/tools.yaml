@@ -27,7 +27,7 @@ tools:
       - ansible
     remove_script: |
       set -euo pipefail
-      echo "ansible-vault is bundled with the ansible package — run 'devthings remove ansible' to uninstall it."
+      echo "ansible-vault is bundled with the ansible package — run 'devstuff remove ansible' to uninstall it."
 
   aws:
     name: AWS CLI

@@ -11,7 +11,7 @@ from dev_setup.functions_catalog import USER_CATALOG_PATH
 
 @click.group("functions")
 def functions_cmd() -> None:
-    """Manage functions/scripts. Invoke one with: devthings run <key>."""
+    """Manage functions/scripts. Invoke one with: devstuff run <key>."""
 
 
 @functions_cmd.command("list")
@@ -50,9 +50,9 @@ def enable_cmd(key: str) -> None:
     if not (fn.type == "shell-eval" and fn.register == "bashrc"):
         ui.error(f"'{fn.key}' does not use bashrc registration.")
         if fn.type == "script":
-            ui.dim(f"Run it directly:  devthings run {fn.key}")
+            ui.dim(f"Run it directly:  devstuff run {fn.key}")
         else:
-            ui.dim(f'Use:  eval "$(devthings run {fn.key} ...)"')
+            ui.dim(f'Use:  eval "$(devstuff run {fn.key} ...)"')
         sys.exit(1)
 
     added = runner.enable_bashrc_function(fn)
