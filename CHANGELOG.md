@@ -1,3 +1,9 @@
+## v1.14.1 (2026-07-12)
+
+### Fix
+
+- discover skills by SKILL.md marker, not just a skills/ folder
+
 ## v1.14.0 (2026-07-12)
 
 ### Feat
