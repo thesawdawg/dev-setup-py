@@ -168,8 +168,34 @@ def _to_ssh_url(repo: str) -> str:
     return f"git@github.com:{_owner_repo(repo)}.git"
 
 
+def _find_skill_dirs(root: Path) -> list[Path]:
+    """Recursively find directories marked as skills by a SKILL.md file.
+
+    Does not descend into a directory once it's identified as a skill, since
+    a skill's own subdirectories (scripts/, references/) aren't skills.
+    """
+    found: list[Path] = []
+
+    def _walk(d: Path) -> None:
+        if d.name == ".git":
+            return
+        if (d / "SKILL.md").is_file():
+            found.append(d)
+            return
+        for child in d.iterdir():
+            if child.is_dir():
+                _walk(child)
+
+    _walk(root)
+    return sorted(found)
+
+
 def _discover_skills(repo_dir: Path, repo: str) -> list[Path]:
     """Return the list of skill directories found in a cloned repo."""
+    by_marker = _find_skill_dirs(repo_dir)
+    if by_marker:
+        return by_marker
+
     skills_root = repo_dir / "skills"
     if skills_root.is_dir():
         return sorted(
@@ -177,7 +203,8 @@ def _discover_skills(repo_dir: Path, repo: str) -> list[Path]:
             if p.is_dir() and not p.name.startswith(".")
         )
 
-    # No skills/ subdir — if the repo root looks like a single skill, use it.
+    # No SKILL.md markers or skills/ subdir — if the repo root looks like a
+    # single skill, use it.
     has_content = any(
         p.name not in (".git",) for p in repo_dir.iterdir()
     )
