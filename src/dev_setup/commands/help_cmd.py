@@ -19,6 +19,7 @@ def print_help() -> None:
         ("docs",    "<package>",                              "Open documentation in browser"),
         ("run",     "<function> [args...]",                   "Run a function/script"),
         ("functions", "<list|enable|disable|path>",           "Manage functions/scripts"),
+        ("skills",  "add",                                    "Append skills from a GitHub repo to claude/codex/pi"),
         ("version", "",                                        "Show version"),
     ]
     for cmd, args, desc in rows:
