@@ -1,3 +1,9 @@
+## v1.14.0 (2026-07-12)
+
+### Feat
+
+- add skills command to append GitHub skills to claude, codex, pi
+
 ## v1.13.1 (2026-07-11)
 
 ## v1.13.0 (2026-07-05)
