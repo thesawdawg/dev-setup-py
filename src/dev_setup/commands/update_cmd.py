@@ -124,12 +124,11 @@ def _update_interactive() -> None:
         ]
         choices.append(questionary.Choice(title=title, value=t.key, checked=status.available is True))
 
-    selected = questionary.checkbox(
+    selected = ui.checkbox(
         "Select packages to update:",
         choices=choices,
         instruction="(Space toggle · Enter confirm · pre-checked items have a known update)",
-        style=ui._STYLE,
-    ).ask()
+    )
 
     if not selected:
         ui.info("No packages selected.")
