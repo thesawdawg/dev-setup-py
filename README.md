@@ -242,6 +242,28 @@ When a user key matches a bundled key, the user definition overrides the bundled
 
 ---
 
+### `skills`
+
+Interactively clone a GitHub repository and copy its skills into `claude`, `codex`, and/or `pi`.
+
+```bash
+devstuff skills add
+```
+
+You'll be prompted for:
+
+- **Repository** — `owner/repo` or a full URL.
+- **Targets** — which of `claude` (`~/.claude/skills`), `codex` (`~/.codex/skills`), and `pi`
+  (`~/.pi/skills`) to install into.
+
+The repo is cloned anonymously first. If that fails (private repo), you're prompted to
+authenticate via an SSH key file or a GitHub personal access token. If the repo has a top-level
+`skills/` directory, every subdirectory under it is treated as its own skill; otherwise the whole
+repo is treated as a single skill. Existing skill directories are only overwritten after
+confirmation.
+
+---
+
 ## Functions/Scripts
 
 Reusable shell functions/snippets, tracked in a separate catalog from installable tools
