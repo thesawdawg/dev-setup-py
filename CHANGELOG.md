@@ -1,3 +1,9 @@
+## v1.14.2 (2026-07-12)
+
+### Fix
+
+- make interactive prompts abortable with Ctrl+C/Ctrl+D
+
 ## v1.14.1 (2026-07-12)
 
 ### Fix
