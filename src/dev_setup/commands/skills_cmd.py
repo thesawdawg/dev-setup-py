@@ -112,10 +112,7 @@ def _clone_repo(repo: str, dest: Path) -> str | None:
         return ssh_url
 
     if auth_method == "Personal access token":
-        token = questionary.password("GitHub personal access token:").ask()
-        if not token:
-            ui.warn("No token provided — aborted.")
-            return None
+        token = ui.password("GitHub personal access token:")
         owner_repo = _owner_repo(repo)
         token_url = f"https://x-access-token:{token}@github.com/{owner_repo}.git"
         with ui.spinner("Cloning with token..."):

@@ -75,14 +75,24 @@ def spinner(label: str) -> Generator[None, None, None]:
         yield
 
 
+def _ask(question) -> object:
+    """Run a questionary prompt via unsafe_ask() so Ctrl+C/Ctrl+D raise
+    KeyboardInterrupt/EOFError instead of being swallowed into a None return
+    (questionary's default .ask() catches KeyboardInterrupt and retries
+    silently, which makes required prompts impossible to cancel). Click's
+    top-level command dispatch already catches both and exits cleanly with
+    "Aborted!", so letting them propagate is enough."""
+    return question.unsafe_ask()
+
+
 def confirm(prompt: str, default: bool = False) -> bool:
-    result = questionary.confirm(prompt, default=default, style=_STYLE).ask()
+    result = _ask(questionary.confirm(prompt, default=default, style=_STYLE))
     return bool(result)
 
 
 def text_input(prompt: str, default: str = "", required: bool = False) -> str:
     while True:
-        result = questionary.text(prompt, default=default, style=_STYLE).ask()
+        result = _ask(questionary.text(prompt, default=default, style=_STYLE))
         val = (result or "").strip()
         if val or not required:
             return val
@@ -90,13 +100,18 @@ def text_input(prompt: str, default: str = "", required: bool = False) -> str:
 
 
 def select(prompt: str, choices: list[str]) -> str:
-    result = questionary.select(prompt, choices=choices, style=_STYLE).ask()
+    result = _ask(questionary.select(prompt, choices=choices, style=_STYLE))
     return result or ""
 
 
-def checkbox(prompt: str, choices: list) -> list:
-    result = questionary.checkbox(prompt, choices=choices, style=_STYLE).ask()
+def checkbox(prompt: str, choices: list, **kwargs) -> list:
+    result = _ask(questionary.checkbox(prompt, choices=choices, style=_STYLE, **kwargs))
     return result or []
+
+
+def password(prompt: str) -> str:
+    result = _ask(questionary.password(prompt, style=_STYLE))
+    return result or ""
 
 
 def code_block(code: str, language: str = "bash") -> None:

@@ -102,12 +102,11 @@ def _install_interactive() -> None:
                 disabled=disabled,
             ))
 
-    selected = questionary.checkbox(
+    selected = ui.checkbox(
         "Select packages to install:",
         choices=choices,
         instruction="(Space toggle · Enter confirm · installed items are skipped)",
-        style=ui._STYLE,
-    ).ask()
+    )
 
     if not selected:
         ui.info("No packages selected.")
