@@ -1,3 +1,9 @@
+## v1.15.0 (2026-07-18)
+
+### Feat
+
+- complete pre-commit tool integration
+
 ## v1.14.2 (2026-07-12)
 
 ### Fix
