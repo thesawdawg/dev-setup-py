@@ -412,6 +412,7 @@ Optional utilities you may want on some machines.
 | `ollama` | Ollama | Run large language models locally | `ollama --help` |
 | `php` | PHP 8.4 | PHP 8.4 + common extensions via ondrej/php PPA | `php --help` |
 | `pi` | Pi Coding Agent | AI coding agent npm package | `pi --help` |
+| `pre-commit` | pre-commit | Git hook manager for automated code quality checks | `pre-commit --help` |
 | `saml2aws` | saml2aws | SAML → AWS STS credentials CLI (Versent) | `saml2aws --help` |
 | `starship` | Starship | Fast, cross-shell customizable prompt | `starship --help` |
 | `yq` | yq | Portable command-line YAML/JSON/XML processor | `yq --help` |

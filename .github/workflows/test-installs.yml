@@ -64,6 +64,7 @@ jobs:
           - nvm
           - php
           - pi          # installs nvm first via its declared `requires`
+          - pre-commit  # uvx tool, requires uv
           - ruby        # compiles from source — this job takes ~15 minutes
           - saml2aws
           - starship
