@@ -465,6 +465,7 @@ tools:
     category: tools
     type: uvx
     pip_name: pre-commit
+    check_cmd: pre-commit
     help_cmd: pre-commit --help
     docs_url: https://pre-commit.com/
     requires:
