@@ -63,7 +63,13 @@ tools:
               if perm and os.path.exists(path) and not os.path.isdir(path):
                   os.chmod(path, perm)
       PY
-      sudo bash "$tmpdir/aws/install"
+      # The v2 installer refuses to run over an existing install unless --update
+      # is passed, so make a reinstall/update idempotent.
+      if [ -d /usr/local/aws-cli ]; then
+        sudo bash "$tmpdir/aws/install" --update
+      else
+        sudo bash "$tmpdir/aws/install"
+      fi
     remove_script: |
       set -euo pipefail
       sudo rm -rf /usr/local/aws-cli
