@@ -1,3 +1,10 @@
+## v1.15.1 (2026-07-20)
+
+### Fix
+
+- make aws update idempotent (pass --update over existing install)
+- repair broken update paths for llm-checker and ruby
+
 ## v1.15.0 (2026-07-18)
 
 ### Feat
