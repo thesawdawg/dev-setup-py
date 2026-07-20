@@ -502,8 +502,16 @@ tools:
       set -euo pipefail
       sudo apt-get update -q
       sudo apt-get install -y git curl autoconf bison build-essential libssl-dev libyaml-dev libreadline-dev zlib1g-dev libncurses5-dev libffi-dev libgdbm-dev
-      git clone --depth=1 https://github.com/rbenv/rbenv.git "$HOME/.rbenv"
-      git clone --depth=1 https://github.com/rbenv/ruby-build.git "$HOME/.rbenv/plugins/ruby-build"
+      if [ -d "$HOME/.rbenv/.git" ]; then
+        git -C "$HOME/.rbenv" pull --ff-only || true
+      else
+        git clone --depth=1 https://github.com/rbenv/rbenv.git "$HOME/.rbenv"
+      fi
+      if [ -d "$HOME/.rbenv/plugins/ruby-build/.git" ]; then
+        git -C "$HOME/.rbenv/plugins/ruby-build" pull --ff-only || true
+      else
+        git clone --depth=1 https://github.com/rbenv/ruby-build.git "$HOME/.rbenv/plugins/ruby-build"
+      fi
       marker="# rbenv"
       block='export PATH="$HOME/.rbenv/bin:$PATH"
       eval "$(rbenv init - bash)"'
@@ -512,7 +520,7 @@ tools:
         printf '\n%s\n%s\n' "$marker" "$block" >> "$HOME/.bashrc"
       fi
       latest="$("$HOME/.rbenv/bin/rbenv" install -l | awk '/^[[:space:]]*[0-9]/ && $1 !~ /-/ { v=$1 } END { print v ? v : "3.3.6" }')"
-      "$HOME/.rbenv/bin/rbenv" install "$latest"
+      "$HOME/.rbenv/bin/rbenv" install -s "$latest"
       "$HOME/.rbenv/bin/rbenv" global "$latest"
     remove_script: |
       set -euo pipefail
@@ -631,8 +639,9 @@ tools:
     description: Tool to check llm compatibility with hardware
     category: ai-tools
     type: npm
+    npm_name: llm-checker
     check_cmd: llm-checker hw-detect
-    help_cmd: --help
+    help_cmd: llm-checker --help
     docs_url: https://github.com/signerless/llm-checker
     requires:
       - nvm
