@@ -5,7 +5,7 @@ ROOT := ..
 TOOL     ?=
 PYTEST_ARGS ?=
 
-.PHONY: build build-ci run shell run-tests clean
+.PHONY: build build-ci run shell run-tests smoke-agent clean
 
 # Build a fresh wheel from source, then build the Docker image.
 # Clean dist first so the glob in the Dockerfile matches exactly one file.
@@ -32,6 +32,19 @@ run-tests: build-ci
 	$(eval _NODESEL := $(if $(TOOL),tests/integration/test_tools.py::test_install[$(TOOL)],tests/integration/))
 	docker run --rm dev-setup-ci \
 		pytest $(_NODESEL) -m integration -v --tb=short $(PYTEST_ARGS)
+
+# Smoke-test `devstuff agent` against a live Ollama daemon.
+# Runs on the HOST, not in Docker -- the CI image has no daemon, and yours may be
+# on another machine. Skips cleanly if nothing is reachable.
+#   make smoke-agent
+#   make smoke-agent AGENT_HOST=http://192.168.1.69:11434 AGENT_MODEL=gemma4:latest
+AGENT_HOST  ?=
+AGENT_MODEL ?=
+smoke-agent:
+	cd $(ROOT) && \
+	$(if $(AGENT_HOST),DEVSTUFF_AGENT_HOST=$(AGENT_HOST)) \
+	$(if $(AGENT_MODEL),DEVSTUFF_AGENT_MODEL=$(AGENT_MODEL)) \
+	uv run pytest tests/integration/test_agent_smoke.py -m integration -v $(PYTEST_ARGS)
 
 # Remove the built images and named volume
 clean:

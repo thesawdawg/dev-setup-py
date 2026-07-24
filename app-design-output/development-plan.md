@@ -87,11 +87,12 @@ passing unit tests.
 
 | Task | Depends on | Notes |
 |------|-----------|-------|
-| `agent/sandbox.py` — `Workspace.resolve()`, `SandboxError`, denylist matcher | M1 | Security core — test first. Denies `~/.config/dev-setup/` writes per FR-14a |
+| ✅ `agent/sandbox.py` — `Workspace.resolve()`, `SandboxError`, protected paths | M1 | Done. 29 tests: traversal, symlink escape, credential dirs, catalog write-block (FR-14a) |
+| ✅ Workspace prompt at launch + `--dir` + risk guard (FR-2, FR-7b) | sandbox | Done. Warns on `$HOME`, system dirs, dirty git repos |
+| `agent/sandbox.py` — command denylist matcher | sandbox | Still to do (FR-10) |
 | `agent/catalog.py` + `agent_tools.yaml` with the five primitives | M1 | Mirror `functions_catalog.py` validation |
 | `agent/registry.py` — `AgentTool`, `to_schema()` | catalog | Emits Ollama `tools[]` JSON Schema |
 | `agent/primitives.py` — `_PRIMITIVES` dispatch dict | sandbox, registry | Mirrors `_INSTALLERS` in `generic.py` |
-| Workspace prompt at launch, default `$PWD` (FR-2) | sandbox | `--dir` skips |
 | `agent/loop.py` — tool-call loop, `max_iterations`, structured tool errors (FR-20) | registry | The retry-safety core |
 | Confirmation UX: command preview, unified diff for `write_file`, yes/no/always | loop | `difflib.unified_diff` + Rich |
 | Output truncation cap (FR-17) | loop | Mark truncation in the tool result |
@@ -133,6 +134,11 @@ passing unit tests.
 - **Integration** — `@pytest.mark.integration`, opt-in, requires a running Ollama with a pulled
   model. Asserts Flow A produces the expected files. Excluded from the default suite and from
   the CI canary (no GPU/model in CI).
+- **Smoke** (`tests/integration/test_agent_smoke.py`, `make -C dev smoke-agent`) — runs the real
+  CLI against a live daemon: preflight, `--print` round trip, the think-tag regression, and the
+  two first-run error paths. Runs on the **host**, not in the Docker CI image, which has no
+  daemon; skips cleanly when nothing is reachable. `DEVSTUFF_AGENT_HOST` / `DEVSTUFF_AGENT_MODEL`
+  point it elsewhere without editing config.
 - **End-to-end / exploratory** — manual: run the agent against a scratch dir and attempt Flows
   A–D by hand, including deliberately prompting it toward `sudo` and `../` escapes.
 - **Not applicable:** `dogfood` (no web UI).
