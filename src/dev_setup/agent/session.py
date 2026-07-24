@@ -8,6 +8,7 @@ from rich.markdown import Markdown
 from dev_setup import ui
 from dev_setup.agent.config import AgentConfig
 from dev_setup.agent.ollama import Message, OllamaClient, OllamaError
+from dev_setup.agent.sandbox import Workspace
 
 STATE_DIR = Path.home() / ".local" / "share" / "dev-setup" / "agent"
 HISTORY_PATH = STATE_DIR / "history"
@@ -36,11 +37,13 @@ class AgentSession:
         config: AgentConfig,
         *,
         model: str | None = None,
+        workspace: Workspace | None = None,
         system_prompt: str = SYSTEM_PROMPT,
     ) -> None:
         self.client = client
         self.config = config
         self.model = model or config.model
+        self.workspace = workspace
         self.system_prompt = system_prompt
         self.messages: list[dict[str, Any]] = []
         self.reset()
@@ -83,6 +86,8 @@ def _print_banner(session: AgentSession) -> None:
     ui.dim(f"model    {session.model}")
     ui.dim(f"host     {session.client.host}")
     ui.dim(f"context  {session.config.num_ctx} tokens")
+    if session.workspace:
+        ui.dim(f"workspace {session.workspace.root}")
     ui.console.print()
     ui.dim("Tools are not enabled yet — this is a chat-only preview.")
     ui.dim("/help for commands, /exit or Ctrl-D to quit.")

@@ -48,6 +48,8 @@ mutating step. It stays local: no API keys, no network egress of source code, us
 | FR-5 | Tool schemas MUST be generated from `agent_tools.yaml` (bundled, user-overridable) using the same load/validate/merge precedence as `tools.yaml` and `functions.yaml`. | Must |
 | FR-6 | Filesystem primitives `read_file`, `write_file`, `list_dir`, `cd` and shell primitive `run_command` MUST be provided, all resolved against the workspace root. | Must |
 | FR-7 | Any path argument that resolves outside the workspace root MUST be refused, and the refusal MUST be returned to the model as a tool error so it can re-plan. | Must |
+| FR-7a | Credential directories (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`) MUST be refused for read *and* write even when the workspace root would otherwise contain them — a root of `$HOME` must not put an SSH key in bounds. | Must |
+| FR-7b | At launch the CLI MUST warn when the chosen workspace is risky — a system directory, `$HOME`, or a git repo with uncommitted changes — and MUST require confirmation before continuing in interactive mode. This is advisory UX, not a security control; FR-7 is the control. | Must |
 | FR-8 | Every mutating tool call MUST be shown to the user and confirmed (yes / no / always-this-session) before execution. `write_file` MUST render a unified diff against the existing content (or mark the file as new). | Must |
 | FR-9 | A declined tool call MUST return "user declined" to the model as a tool result and continue the session — not abort it. | Must |
 | FR-10 | Commands matching the denylist MUST be refused outright, before any confirmation prompt, and MUST NOT be executable via `--yolo`. | Must |
