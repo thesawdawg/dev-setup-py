@@ -22,6 +22,7 @@ def version_cmd() -> None:
 
 def _register_commands() -> None:
     from dev_setup.commands.add_cmd import add_cmd
+    from dev_setup.commands.agent_cmd import agent_cmd
     from dev_setup.commands.catalog_cmd import catalog_cmd
     from dev_setup.commands.delete_cmd import delete_cmd
     from dev_setup.commands.docs_cmd import docs_cmd
@@ -46,6 +47,7 @@ def _register_commands() -> None:
     cli.add_command(run_cmd, "run")
     cli.add_command(functions_cmd, "functions")
     cli.add_command(skills_cmd, "skills")
+    cli.add_command(agent_cmd, "agent")
 
 
 _register_commands()
