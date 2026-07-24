@@ -1,3 +1,18 @@
+## v1.16.0 (2026-07-24)
+
+### Feat
+
+- **agent**: first-run setup wizard for agent configuration
+- **agent**: multi-line input and slash completion in the REPL
+- **agent**: milestone 4 — transcripts, /history, docs, schema
+- **agent**: complete milestone 2 — tools, sandbox denylist, approval loop
+- **agent**: add workspace sandbox, launch guard, and smoke suite
+- **agent**: add ollama-backed agent scaffold (milestone 1)
+
+### Fix
+
+- **agent**: correct argument mapping and output capture for function tools
+
 ## v1.15.1 (2026-07-20)
 
 ### Fix
