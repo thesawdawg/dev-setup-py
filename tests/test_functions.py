@@ -352,3 +352,32 @@ def test_schema_register_enum_matches_catalog_register_modes():
     schema = _load_schema()
     documented = set(schema["definitions"]["function"]["properties"]["register"]["enum"])
     assert documented == catalog.REGISTER_MODES
+
+
+def test_run_script_function_captures_output_when_asked(tmp_path):
+    """The agent path needs the output; `devstuff run` keeps streaming it live."""
+    fn = FunctionDef(
+        key="probe", name="Probe", description="d", type="script",
+        script="echo out; echo err >&2", params=[],
+    )
+    assert runner.run_script_function(fn, (), capture=True) == "out\nerr"
+
+
+def test_run_script_function_returns_none_when_not_capturing():
+    fn = FunctionDef(
+        key="probe", name="Probe", description="d", type="script",
+        script="echo hello", params=[],
+    )
+    assert runner.run_script_function(fn, ()) is None
+
+
+def test_captured_failure_carries_output_on_the_exception():
+    import subprocess
+
+    fn = FunctionDef(
+        key="probe", name="Probe", description="d", type="script",
+        script="echo 'why it failed'; exit 2", params=[],
+    )
+    with pytest.raises(subprocess.CalledProcessError) as exc:
+        runner.run_script_function(fn, (), capture=True)
+    assert "why it failed" in exc.value.stdout
