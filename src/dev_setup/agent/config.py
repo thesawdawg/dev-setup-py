@@ -137,3 +137,34 @@ def apply_overrides(config: AgentConfig, *, model: str | None = None, host: str 
     if host:
         config.host = host.strip().rstrip("/")
     return config
+
+
+def exists(path: Path | None = None) -> bool:
+    return (path or USER_CONFIG_PATH).exists()
+
+
+def save(config: AgentConfig, path: Path | None = None) -> Path:
+    """Write agent.yaml. Only fields that differ from the defaults are persisted, so
+    the file stays a short record of the user's choices rather than a dump of every
+    default — and picks up future default changes instead of pinning today's."""
+    path = path or USER_CONFIG_PATH
+    defaults = AgentConfig()
+
+    body: dict[str, Any] = {"version": VERSION}
+    for f in ("model", "host", "temperature", "num_ctx", "think"):
+        value = getattr(config, f)
+        if value != getattr(defaults, f):
+            body[f] = value
+    # model and host are the point of the wizard; always record them even if the
+    # user accepted the default, so the file documents what was chosen.
+    body.setdefault("model", config.model)
+    body.setdefault("host", config.host)
+
+    header = (
+        "# devstuff agent configuration.\n"
+        "# Written by the setup wizard; edit freely. See `devstuff agent --help`.\n"
+        "# Full field list: docs/specs/agent or the README \"Agent\" section.\n\n"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(header + yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
+    return path

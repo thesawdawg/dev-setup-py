@@ -231,6 +231,12 @@ comparison rather than reasoning from parameter counts.
 `agent_tools.schema.json` is hand-maintained for editor tooling and **not** enforced at runtime —
 same arrangement, and same drift hazard, as `functions.schema.json`.
 
+First-run UX: `agent/wizard.py` builds `agent.yaml` on the first interactive run (host → a
+pick-list of tool-capable models → reasoning visibility), re-runnable via `devstuff agent
+--setup`. It configures only those three fields deliberately — a first-run wizard asking about
+`num_ctx` and timeouts would be worse than one asking nothing; everything else keeps its default
+and is hand-editable.
+
 Not yet built: an `add` wizard for agent tools, and `catalog import`/`export` for them.
 
 ## Key design decisions (don't relitigate these)

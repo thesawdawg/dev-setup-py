@@ -272,6 +272,7 @@ the machine, there are no API keys, and it works offline.
 
 ```bash
 devstuff agent                                  # interactive REPL
+devstuff agent --setup                          # (re)run the configuration wizard
 devstuff agent --dir ~/projects                 # skip the workspace prompt
 devstuff agent --model granite4.1:8b            # override the configured model
 devstuff agent --print "which node tools do I have?"   # one-shot, non-interactive
@@ -290,14 +291,25 @@ you ❯ create a python project called xyz-project with a hello world main.py
 
 ### Setup
 
+First, make sure a tool-capable model is available:
+
 ```bash
 devstuff install ollama
 ollama pull gemma4          # or any model reporting the `tools` capability
 ```
 
-Check a model before configuring it — `ollama show <model>` must list `tools` under
-Capabilities. `devstuff agent` verifies this at startup and tells you which of your local
-models qualify if the configured one does not.
+Then the **first time you run `devstuff agent`** with no configuration, a wizard walks you
+through it — Ollama host, then a pick-list of your locally available tool-capable models, then
+whether to show the model's reasoning. It writes `~/.config/dev-setup/agent.yaml` and continues
+into the session. Re-run it any time with `devstuff agent --setup`.
+
+The wizard only lists models that report the `tools` capability (`ollama show <model>` shows it
+under Capabilities), so you can't accidentally pick one that can't call tools. `devstuff agent`
+re-verifies this at startup regardless, and tells you which local models qualify if the
+configured one doesn't.
+
+The wizard is skipped when you pass `--model`/`--host` (you're already steering) or run
+non-interactively (`--print`), which fall back to built-in defaults.
 
 ### Safety model
 
@@ -703,7 +715,8 @@ dev-setup-py/
         ├── functions.yaml        # Bundled built-in function catalog
         ├── agent_tools.yaml       # Bundled agent tool catalog
         ├── agent/                 # Local-model agent (see "Agent" above)
-        │   ├── config.py          # agent.yaml load/validate
+        │   ├── config.py          # agent.yaml load/validate/save
+        │   ├── wizard.py          # first-run setup wizard (devstuff agent --setup)
         │   ├── ollama.py          # stdlib-urllib client for /api/chat, /api/tags, /api/show
         │   ├── preflight.py       # installed / reachable / pulled / tool-capable checks
         │   ├── sandbox.py         # Workspace containment + command denylist + launch guard
