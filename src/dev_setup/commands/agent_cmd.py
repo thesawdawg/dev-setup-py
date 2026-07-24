@@ -11,6 +11,7 @@ from dev_setup.agent import preflight, registry, sandbox, session
 from dev_setup.agent.approval import ApprovalPolicy
 from dev_setup.agent.ollama import OllamaClient
 from dev_setup.agent.sandbox import SandboxError, Workspace
+from dev_setup.agent.transcript import Transcript
 from dev_setup.catalog import CatalogError
 
 
@@ -98,7 +99,15 @@ def agent_cmd(
         can_prompt=interactive and one_shot is None,
     )
     sess = session.AgentSession(
-        client, cfg, workspace, model=resolved, tools=tools, policy=policy
+        client,
+        cfg,
+        workspace,
+        model=resolved,
+        tools=tools,
+        policy=policy,
+        transcript=Transcript.create(
+            model=resolved, host=cfg.host, workspace=str(workspace.root)
+        ),
     )
 
     if one_shot is not None:

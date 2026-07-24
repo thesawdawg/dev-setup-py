@@ -113,7 +113,11 @@ the content to shell-quoting. Two further probes on gemma4: asked to install a p
 straight to `install_tool` without attempting `sudo`, and asked for `/etc/passwd` and
 `~/.ssh/id_ed25519` it was refused by the sandbox under `--yolo` and reported both cleanly.
 
-### Milestone 3 — Catalog & function bridges
+### Milestone 3 — Catalog & function bridges ✅ *(delivered inside M2)*
+
+The bridges shipped with M2 rather than after it: the tool loop needed something to dispatch to,
+and building `impl: catalog` / `impl: function` at the same time as `impl: primitive` avoided
+speculating about a dispatch shape twice.
 **Goal:** the agent can use devstuff itself; new `functions.yaml` entries become tools for free.
 **Definition of done:** Flow B works; adding a `script` function makes it callable with no code change.
 
@@ -125,19 +129,19 @@ straight to `install_tool` without attempting `sudo`, and asked for `/etc/passwd
 | System prompt: workspace, cwd, available tools, "prefer install_tool over sudo" | M2 | Keep in one module-level constant |
 | Tests: function→tool schema conversion, shell-eval exclusion, bridge dispatch | all | |
 
-### Milestone 4 — Session polish & docs
+### Milestone 4 — Session polish & docs ✅ *(complete)*
 **Goal:** shippable.
 **Definition of done:** README + `docs` command updated, `--print` works, transcripts land on disk,
 `uv run pytest` and `ruff` clean.
 
 | Task | Depends on | Notes |
 |------|-----------|-------|
-| Slash commands `/tools /cwd /model /reset /history` (FR-15) | M3 | |
-| `--print` one-shot mode (FR-16) | M3 | Refuse mutations without `--yolo` |
-| Transcript writer (FR-18) | M3 | `~/.local/share/dev-setup/agent/` |
-| README section + `help_cmd.py` entry + CLAUDE.md architecture note | M3 | CLAUDE.md needs the new subsystem described |
-| `agent_tools.schema.json` for editor tooling | M3 | Match the hand-maintained `functions.schema.json` pattern (and its drift warning) |
-| Ruff + full test pass | all | |
+| ✅ Slash commands `/tools /history /cwd /model /reset /help /exit` | M3 | |
+| ✅ `--print` one-shot mode (FR-16) | M3 | Refuses mutations without `--yolo`, rather than auto-approving |
+| ✅ `agent/transcript.py` (FR-18) | M3 | Flushed after every turn, atomic rename; failures never break the session |
+| ✅ README section + `help_cmd.py` entry + CLAUDE.md architecture note | M3 | CLAUDE.md documents the security invariants explicitly |
+| ✅ `agent_tools.schema.json` for editor tooling | M3 | Verified present in the built wheel alongside `agent_tools.yaml` |
+| ✅ Ruff + full test pass | all | 237 unit tests, 5 live smoke tests |
 
 ## Testing Strategy
 
@@ -168,13 +172,19 @@ straight to `install_tool` without attempting `sudo`, and asked for `/etc/passwd
 | Scope creep toward a general coding agent | M | M | v1 out-of-scope list is explicit; no streaming, no compaction, no sub-agents |
 | Two catalog validators (`functions_catalog` / `agent/catalog`) drift | L | M | Accepted duplication per the repo's existing design decision; note it in CLAUDE.md |
 
+## Status
+
+All four milestones are complete on branch `feat/agent-milestone-1` (unpushed). 237 unit tests
+and 5 live smoke tests pass; `agent_tools.yaml` and `agent_tools.schema.json` ship in the wheel.
+
 ## Immediate Next Action
 
-All open questions are resolved (default model `lfm2.5:latest`; catalog access is
-read-plus-install only). Nothing blocks implementation.
-
-> Build **Milestone 1** on a feature branch: `agent/config.py`, `agent/ollama.py`, and
-> `commands/agent_cmd.py` — preflight (installed / reachable / model present / `tools`
-> capability) plus a bare REPL that chats with `lfm2.5` and no tools yet.
+> Use it. Drive `devstuff agent` interactively for real work — the confirmation UX, the diff
+> rendering and the `always-this-session` flow have only been exercised by tests and one-shot
+> `--print` runs, never by a human in a REPL. That is where friction will show up.
 >
-> Stop at the end of M1 for a real run against the live daemon before starting the sandbox.
+> Then: squash-or-merge to master and let the Commitizen bump workflow version it.
+
+Deferred, in rough priority order: context compaction for long sessions (`/reset` is the current
+answer), an `add` wizard for agent tools, `catalog import`/`export` for them, and streaming
+token-by-token rendering.

@@ -264,6 +264,139 @@ confirmation.
 
 ---
 
+## Agent
+
+`devstuff agent` opens an interactive session with a **local** model (via [Ollama](https://ollama.com))
+that can call devstuff's own tools plus a workspace-scoped filesystem/shell kit. Nothing leaves
+the machine, there are no API keys, and it works offline.
+
+```bash
+devstuff agent                                  # interactive REPL
+devstuff agent --dir ~/projects                 # skip the workspace prompt
+devstuff agent --model granite4.1:8b            # override the configured model
+devstuff agent --print "which node tools do I have?"   # one-shot, non-interactive
+```
+
+```
+you ❯ create a python project called xyz-project with a hello world main.py
+
+  ↳ run_command(command='mkdir xyz-project')
+
+  ╭─ run in ./xyz-project ──────────────────────╮
+  │ mkdir xyz-project                           │
+  ╰─────────────────────────────────────────────╯
+  ? Run run_command?  Yes / No / Always allow this tool
+```
+
+### Setup
+
+```bash
+devstuff install ollama
+ollama pull gemma4          # or any model reporting the `tools` capability
+```
+
+Check a model before configuring it — `ollama show <model>` must list `tools` under
+Capabilities. `devstuff agent` verifies this at startup and tells you which of your local
+models qualify if the configured one does not.
+
+### Safety model
+
+The workspace root, chosen at launch (prompted, defaulting to the current directory), is the
+boundary:
+
+- **Path containment** — every path a tool touches is resolved (collapsing `..` and following
+  symlinks) and must land inside the workspace root. A symlink planted inside the workspace is
+  not a way out.
+- **Protected paths** — `~/.ssh`, `~/.aws`, `~/.gnupg` and `~/.config/gh` are refused for read
+  *and* write even if the workspace root contains them. `~/.config/dev-setup` is readable but
+  never writable: catalog authoring stays a human action.
+- **Confirmation** — every mutating tool call shows the exact command, or a unified diff for
+  `write_file`, and waits for yes / no / always-this-session. Read-only calls run silently.
+- **Denylist** — `sudo`, pipe-to-shell installers, catastrophic deletes, disk and service
+  commands, and redirects out of the workspace are refused before any prompt is shown, and are
+  **not** enabled by `--yolo`.
+- **Launch guard** — warns before handing the agent `$HOME`, a system directory, or a git repo
+  with uncommitted changes.
+
+`--yolo` skips confirmations for a session; the denylist and path containment still apply.
+In `--print` mode without `--yolo`, mutating calls are refused rather than auto-approved, so a
+scripted invocation cannot become an unattended agent with write access.
+
+### Configuration
+
+`~/.config/dev-setup/agent.yaml` (all fields optional):
+
+```yaml
+version: 1
+model: gemma4:latest
+host: http://localhost:11434     # a remote daemon works; the local binary is then not required
+temperature: 0.2
+num_ctx: 16384
+think: false                     # true renders the model's reasoning, dimmed
+max_iterations: 12               # tool calls per turn before the loop gives up
+request_timeout: 120
+command_timeout: 120
+max_tool_output_bytes: 8000      # tool output is truncated to this before going back to the model
+auto_approve: []                 # tool keys that never ask, e.g. ["write_file"]
+deny_patterns: []                # extra regexes refused on top of the built-in denylist
+```
+
+### Tools
+
+| Tool | Mutating | Purpose |
+|------|----------|---------|
+| `read_file` | | Read a UTF-8 file in the workspace |
+| `write_file` | ! | Create or overwrite a file (shows a diff) |
+| `list_dir` | | List a directory |
+| `cd` | | Move the working directory used by later calls |
+| `run_command` | ! | Run a shell command in the workspace |
+| `list_tools` | | List the devstuff catalog with install state |
+| `search_catalog` | | Find a catalog tool by name or description |
+| `tool_info` | | Details for one catalog tool |
+| `install_tool` | ! | Install a catalog tool (handles sudo itself) |
+| `fn_<key>` | ! | Every `type: script` entry in `functions.yaml`, exposed automatically |
+
+`cd` is a tool rather than a shell command because each `run_command` is its own subprocess — a
+shell `cd` would evaporate when it exits. `shell-eval` functions are deliberately excluded: they
+exist to mutate the calling shell, which a subprocess cannot do.
+
+### agent_tools.yaml
+
+The toolbox is a catalog, like everything else. Bundled at `src/dev_setup/agent_tools.yaml`,
+user overrides at `~/.config/dev-setup/agent_tools.yaml`, same merge precedence as `tools.yaml`.
+
+```yaml
+version: 1
+expose_functions: true
+tools:
+  count_lines:
+    name: Count Lines
+    description: Count the lines in a file. Use this instead of reading a large file.
+    impl: primitive          # primitive | catalog | function
+    mutating: false
+    params:
+      - name: path
+        type: string
+        description: Path to the file, relative to the current directory.
+        required: true
+```
+
+`impl: primitive` dispatches to a callable in `agent/primitives.py` keyed by the tool key (adding
+a new one is a code change). `impl: catalog` and `impl: function` bridge to the tool registry and
+`functions.yaml` respectively via `target`, and need no code. `src/dev_setup/agent_tools.schema.json`
+documents every field for editor autocomplete; it is not enforced at runtime.
+
+### Session state
+
+- Prompt history: `~/.local/share/dev-setup/agent/history`
+- Transcripts: `~/.local/share/dev-setup/agent/transcripts/<timestamp>.json`, written after every
+  turn so a session that ends in a crash is still readable. `/history` shows the current session
+  and the transcript path.
+
+In-session commands: `/tools`, `/history`, `/cwd`, `/model`, `/reset`, `/help`, `/exit`.
+
+---
+
 ## Functions/Scripts
 
 Reusable shell functions/snippets, tracked in a separate catalog from installable tools
@@ -559,6 +692,20 @@ dev-setup-py/
         ├── functions_registry.py # Loads bundled + user YAML into the live function registry
         ├── function_runner.py    # Param resolution + script/eval/bashrc rendering & execution
         ├── functions.yaml        # Bundled built-in function catalog
+        ├── agent_tools.yaml       # Bundled agent tool catalog
+        ├── agent/                 # Local-model agent (see "Agent" above)
+        │   ├── config.py          # agent.yaml load/validate
+        │   ├── ollama.py          # stdlib-urllib client for /api/chat, /api/tags, /api/show
+        │   ├── preflight.py       # installed / reachable / pulled / tool-capable checks
+        │   ├── sandbox.py         # Workspace containment + command denylist + launch guard
+        │   ├── catalog.py         # agent_tools.yaml load/validate/merge
+        │   ├── registry.py        # AgentTool -> Ollama tool schema; function auto-exposure
+        │   ├── primitives.py      # _PRIMITIVES dispatch: read_file/write_file/list_dir/cd/run_command
+        │   ├── bridges.py         # catalog + functions.yaml bridges
+        │   ├── approval.py        # confirmation prompts, unified diffs
+        │   ├── loop.py            # tool-calling loop
+        │   ├── transcript.py      # per-session JSON transcript
+        │   └── session.py         # REPL, slash commands
         ├── ui.py          # Rich console helpers, questionary wrappers, styled prompts
         ├── commands/
         │   ├── list_cmd.py
@@ -569,7 +716,9 @@ dev-setup-py/
         │   ├── delete_cmd.py
         │   ├── catalog_cmd.py
         │   ├── run_cmd.py
-        │   └── functions_cmd.py
+        │   ├── functions_cmd.py
+        │   ├── skills_cmd.py
+        │   └── agent_cmd.py
 ```
 
 ### Adding a new built-in tool
