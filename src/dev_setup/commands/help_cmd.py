@@ -20,7 +20,7 @@ def print_help() -> None:
         ("run",     "<function> [args...]",                   "Run a function/script"),
         ("functions", "<list|enable|disable|path>",           "Manage functions/scripts"),
         ("skills",  "add",                                    "Append GitHub skills to claude/codex/pi"),
-        ("agent",   "[--dir] [--model] [--print]",            "Chat with a local tool-using model"),
+        ("agent",   "[--setup] [--dir] [--model]",             "Chat with a local tool-using model"),
         ("version", "",                                        "Show version"),
     ]
     for cmd, args, desc in rows:
@@ -46,6 +46,7 @@ def print_help() -> None:
         "devstuff functions list",
         "devstuff functions enable ssh-agent-key",
         "devstuff agent",
+        "devstuff agent --setup",
         'devstuff agent --print "what node tools are available?"',
         "ssh-agent-key ~/.ssh/id_ed25519",
     ]

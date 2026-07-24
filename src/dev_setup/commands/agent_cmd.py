@@ -7,7 +7,7 @@ import click
 
 from dev_setup import ui
 from dev_setup.agent import config as agent_config
-from dev_setup.agent import preflight, registry, sandbox, session
+from dev_setup.agent import preflight, registry, sandbox, session, wizard
 from dev_setup.agent.approval import ApprovalPolicy
 from dev_setup.agent.ollama import OllamaClient
 from dev_setup.agent.sandbox import SandboxError, Workspace
@@ -52,14 +52,46 @@ def _select_workspace(dir_opt: str | None, *, interactive: bool) -> Workspace:
     is_flag=True,
     help="Run mutating tools without confirmation (the denylist still applies).",
 )
+@click.option("--setup", is_flag=True, help="Run the configuration wizard, then continue.")
 def agent_cmd(
     workspace_dir: str | None,
     model: str | None,
     host: str | None,
     one_shot: str | None,
     yolo: bool,
+    setup: bool,
 ) -> None:
     """Chat with a local model. See: devstuff agent --help"""
+    interactive = sys.stdin.isatty()
+    if one_shot is None and not interactive:
+        ui.error("devstuff agent needs a terminal.")
+        ui.dim('Use --print "your prompt" for non-interactive use.')
+        sys.exit(1)
+
+    # --setup forces the wizard even when a config exists. Otherwise it runs only on
+    # first run with a terminal, offering to build a config rather than silently
+    # falling back to defaults. Explicit --model/--host means the user is already
+    # steering, so don't interrupt them; --print stays scriptable on defaults.
+    if setup and not interactive:
+        ui.error("--setup needs a terminal.")
+        sys.exit(1)
+    if setup or (wizard.should_run(interactive=interactive and one_shot is None) and not (model or host)):
+        try:
+            # A broken existing config is exactly why someone re-runs --setup, so
+            # fall back to fresh defaults rather than letting the load error abort it.
+            try:
+                existing = agent_config.load() if agent_config.exists() else None
+            except CatalogError:
+                existing = None
+            wizard.run(existing)
+        except (KeyboardInterrupt, EOFError):
+            if not agent_config.exists():
+                ui.dim("Skipped setup — using defaults. Run again to configure.")
+                ui.console.print()
+            else:
+                ui.dim("Setup cancelled — keeping the existing configuration.")
+                ui.console.print()
+
     try:
         cfg = agent_config.load()
     except CatalogError as exc:
@@ -77,12 +109,6 @@ def agent_cmd(
         ui.error(str(exc))
         for remedy in exc.remedies:
             ui.dim(f"  {remedy}")
-        sys.exit(1)
-
-    interactive = sys.stdin.isatty()
-    if one_shot is None and not interactive:
-        ui.error("devstuff agent needs a terminal.")
-        ui.dim('Use --print "your prompt" for non-interactive use.')
         sys.exit(1)
 
     workspace = _select_workspace(workspace_dir, interactive=interactive and one_shot is None)
