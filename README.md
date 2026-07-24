@@ -719,6 +719,9 @@ dev-setup-py/
         │   ├── functions_cmd.py
         │   ├── skills_cmd.py
         │   └── agent_cmd.py
+└── docs/
+    └── specs/             # Design docs per feature (see docs/specs/README.md)
+        └── agent/
 ```
 
 ### Adding a new built-in tool

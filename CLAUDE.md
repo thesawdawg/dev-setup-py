@@ -167,6 +167,19 @@ non-interactive `bash <tmpfile>`, so `~/.bashrc`/nvm's shell init never runs on 
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have.
 
+## Specs (`docs/specs/`)
+
+Design documents live in `docs/specs/<feature>/` — `specifications.md` (numbered, testable
+requirements), `stack-decisions.md` (choices *and* rejected alternatives with reasons), and
+`development-plan.md` (milestones, testing strategy, risks). See `docs/specs/README.md` for the
+conventions.
+
+When working on a feature that has a spec, read it first and **keep it current in the same PR** —
+a spec that no longer matches the code is worse than no spec. Record resolved open questions with
+a date and the answer rather than deleting them, and when a live finding contradicts a
+requirement, update the requirement and note what was learned. New features of any size should
+get a spec directory before implementation starts.
+
 ## The agent (`devstuff agent`) — a third catalog subsystem
 
 `src/dev_setup/agent/` + `agent_tools.yaml` is an interactive session where a local Ollama model
