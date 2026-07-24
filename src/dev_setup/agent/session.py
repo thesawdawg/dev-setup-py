@@ -6,26 +6,38 @@ from typing import Any
 from rich.markdown import Markdown
 
 from dev_setup import ui
+from dev_setup.agent import loop, registry
+from dev_setup.agent.approval import ApprovalPolicy
 from dev_setup.agent.config import AgentConfig
 from dev_setup.agent.ollama import Message, OllamaClient, OllamaError
+from dev_setup.agent.registry import AgentTool
 from dev_setup.agent.sandbox import Workspace
 
 STATE_DIR = Path.home() / ".local" / "share" / "dev-setup" / "agent"
 HISTORY_PATH = STATE_DIR / "history"
 
-SYSTEM_PROMPT = """You are the devstuff agent, a concise assistant running inside a \
-terminal on a Linux developer machine.
+SYSTEM_PROMPT = """You are the devstuff agent, working in a terminal on a Linux \
+developer machine. You complete tasks by calling tools.
 
-Answer briefly and concretely. Prefer short paragraphs and code blocks over long prose. \
-When you are unsure, say so rather than guessing.
+Rules:
+- Use tools to do real work. Do not describe what you would do -- do it.
+- Call one tool at a time and read its result before the next call.
+- Read a file before overwriting it. write_file replaces the whole file.
+- To install developer tools, use install_tool. Never use sudo or a package \
+manager through run_command; it will be refused.
+- All work happens inside the workspace directory. Paths outside it are refused.
+- When the task is done, reply with a short plain-text summary and no further \
+tool calls.
 
-You do not currently have any tools available, so you cannot read files, run commands, \
-or change anything on this machine. If the user asks you to perform an action, explain \
-what they should run instead."""
+Workspace: {root}
+Current directory: {cwd}"""
 
 _SLASH_HELP = [
-    ("/help", "Show this help"),
+    ("/tools", "List the tools available to the agent"),
+    ("/cwd", "Show the workspace root and current directory"),
+    ("/model", "Show the model in use"),
     ("/reset", "Clear the conversation history"),
+    ("/help", "Show this help"),
     ("/exit", "End the session (also Ctrl-D)"),
 ]
 
@@ -35,61 +47,54 @@ class AgentSession:
         self,
         client: OllamaClient,
         config: AgentConfig,
+        workspace: Workspace,
         *,
         model: str | None = None,
-        workspace: Workspace | None = None,
-        system_prompt: str = SYSTEM_PROMPT,
+        tools: dict[str, AgentTool] | None = None,
+        policy: ApprovalPolicy | None = None,
     ) -> None:
         self.client = client
         self.config = config
-        self.model = model or config.model
         self.workspace = workspace
-        self.system_prompt = system_prompt
+        self.model = model or config.model
+        self.tools = tools if tools is not None else registry.build()
+        self.schemas = registry.to_schemas(self.tools)
+        self.policy = policy or ApprovalPolicy(auto_approve=config.auto_approve)
         self.messages: list[dict[str, Any]] = []
         self.reset()
 
-    def reset(self) -> None:
-        self.messages = [{"role": "system", "content": self.system_prompt}]
-
-    def send(self, prompt: str) -> Message:
-        """One turn: append the user message, call the model, append the reply."""
-        self.messages.append({"role": "user", "content": prompt})
-        reply = self.client.chat(
-            self.messages,
-            model=self.model,
-            temperature=self.config.temperature,
-            num_ctx=self.config.num_ctx,
-            think=self.config.think,
+    def system_prompt(self) -> str:
+        return SYSTEM_PROMPT.format(
+            root=self.workspace.root, cwd=self.workspace.display(self.workspace.cwd)
         )
-        self.messages.append({"role": "assistant", "content": reply.content})
-        return reply
+
+    def reset(self) -> None:
+        self.messages = [{"role": "system", "content": self.system_prompt()}]
+
+    def send(self, prompt: str) -> Message | None:
+        return loop.run_turn(self, prompt)
 
 
-def render(reply: Message, *, show_thinking: bool) -> None:
-    if show_thinking and reply.thinking:
-        ui.console.print(f"  [dim italic]{reply.thinking.strip()}[/]")
+def render(reply: Message | None) -> None:
+    if reply is None:
         ui.console.print()
-
+        return
     if reply.content.strip():
+        ui.console.print()
         ui.console.print(Markdown(reply.content.strip()))
-    elif reply.tool_calls:
-        # Nothing is wired up to execute these yet; say so rather than printing a blank.
-        names = ", ".join(c.name for c in reply.tool_calls)
-        ui.warn(f"The model tried to call a tool ({names}), but tools are not enabled yet.")
-    else:
-        ui.dim("(empty response)")
     ui.console.print()
 
 
 def _print_banner(session: AgentSession) -> None:
     ui.section("devstuff agent")
-    ui.dim(f"model    {session.model}")
-    ui.dim(f"host     {session.client.host}")
-    ui.dim(f"context  {session.config.num_ctx} tokens")
-    if session.workspace:
-        ui.dim(f"workspace {session.workspace.root}")
+    ui.dim(f"model      {session.model}")
+    ui.dim(f"host       {session.client.host}")
+    ui.dim(f"workspace  {session.workspace.root}")
+    ui.dim(f"tools      {len(session.tools)} available")
+    if session.policy.yolo:
+        ui.console.print()
+        ui.warn("--yolo: mutating tools run without confirmation (the denylist still applies).")
     ui.console.print()
-    ui.dim("Tools are not enabled yet — this is a chat-only preview.")
     ui.dim("/help for commands, /exit or Ctrl-D to quit.")
     ui.console.print()
 
@@ -100,6 +105,15 @@ def _print_slash_help() -> None:
     ui.console.print()
 
 
+def _print_tools(session: AgentSession) -> None:
+    for key, tool in sorted(session.tools.items()):
+        marker = "[yellow]![/]" if tool.mutating else " "
+        ui.console.print(f"  {marker} [bold cyan]{key:<18}[/] [dim]{tool.description[:70]}[/]")
+    ui.console.print()
+    ui.dim("! = mutating, asks for confirmation before running")
+    ui.console.print()
+
+
 def _handle_slash(session: AgentSession, line: str) -> bool:
     """Returns True if the session should end."""
     cmd = line.split()[0].lower()
@@ -107,6 +121,15 @@ def _handle_slash(session: AgentSession, line: str) -> bool:
         return True
     if cmd == "/help":
         _print_slash_help()
+    elif cmd == "/tools":
+        _print_tools(session)
+    elif cmd == "/cwd":
+        ui.dim(f"workspace  {session.workspace.root}")
+        ui.dim(f"current    {session.workspace.display(session.workspace.cwd)}")
+        ui.console.print()
+    elif cmd == "/model":
+        ui.dim(f"{session.model} @ {session.client.host}")
+        ui.console.print()
     elif cmd == "/reset":
         session.reset()
         ui.success("Conversation cleared.")
@@ -119,24 +142,26 @@ def _handle_slash(session: AgentSession, line: str) -> bool:
 
 def _turn(session: AgentSession, line: str) -> None:
     try:
-        with ui.spinner("thinking…"):
-            reply = session.send(line)
+        reply = session.send(line)
     except KeyboardInterrupt:
-        # Drop the user message we optimistically appended so the history stays a
-        # clean alternating transcript for the next turn.
-        if session.messages and session.messages[-1]["role"] == "user":
-            session.messages.pop()
+        # Roll back to the last completed turn: a half-finished tool exchange left
+        # in the history would confuse the next request.
+        _rollback(session)
         ui.console.print()
         ui.dim("(cancelled)")
         ui.console.print()
         return
     except OllamaError as exc:
-        if session.messages and session.messages[-1]["role"] == "user":
-            session.messages.pop()
+        _rollback(session)
         ui.error(str(exc))
         ui.console.print()
         return
-    render(reply, show_thinking=session.config.think)
+    render(reply)
+
+
+def _rollback(session: AgentSession) -> None:
+    while session.messages and session.messages[-1]["role"] != "assistant":
+        session.messages.pop()
 
 
 def run_repl(session: AgentSession) -> None:
@@ -170,6 +195,4 @@ def run_repl(session: AgentSession) -> None:
 
 
 def run_once(session: AgentSession, prompt: str) -> None:
-    with ui.spinner("thinking…"):
-        reply = session.send(prompt)
-    render(reply, show_thinking=session.config.think)
+    render(session.send(prompt))

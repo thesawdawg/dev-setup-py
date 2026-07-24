@@ -46,7 +46,7 @@ def client_for(responses: dict[str, Any], **kwargs) -> OllamaClient:
 
 def test_config_defaults_when_file_absent(tmp_path):
     cfg = agent_config.load(tmp_path / "nope.yaml")
-    assert cfg.model == "lfm2.5:latest"
+    assert cfg.model == "gemma4:latest"
     assert cfg.num_ctx == 16384
     assert cfg.think is False
 
@@ -337,12 +337,12 @@ def test_preflight_skips_binary_check_for_remote_host(monkeypatch):
     monkeypatch.setattr(preflight.shutil, "which", lambda _: None)
     client = client_for(
         {
-            "/api/tags": {"models": [{"model": "lfm2.5:latest"}]},
+            "/api/tags": {"models": [{"model": agent_config.DEFAULT_MODEL}]},
             "/api/show": {"capabilities": ["tools"]},
         }
     )
     cfg = AgentConfig(host="http://gpubox:11434")
-    assert preflight.check(cfg, client) == "lfm2.5:latest"
+    assert preflight.check(cfg, client) == agent_config.DEFAULT_MODEL
 
 
 def test_preflight_reports_unreachable_daemon(ollama_on_path):

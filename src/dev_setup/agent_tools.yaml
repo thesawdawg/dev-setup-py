@@ -1,0 +1,145 @@
+# Agent tool catalog.
+#
+# Bundled definitions; a user catalog at ~/.config/dev-setup/agent_tools.yaml
+# overrides matching keys in place and appends new ones, exactly like tools.yaml
+# and functions.yaml.
+#
+#   impl: primitive  -> dispatches to a callable in agent/primitives.py
+#   impl: catalog    -> bridges to the tool registry (target = the bridge name)
+#   impl: function   -> bridges to a functions.yaml entry (target = its key)
+#
+# `mutating: true` makes a tool require confirmation before it runs.
+
+version: 1
+
+# Every `type: script` entry in functions.yaml becomes an agent tool automatically,
+# so adding a function makes it callable by the agent with no code change.
+# shell-eval functions are always excluded -- they exist to mutate the calling
+# shell, which is meaningless in a subprocess.
+expose_functions: true
+exclude_functions: []
+
+tools:
+  read_file:
+    name: Read File
+    description: >-
+      Read a UTF-8 text file from the workspace. Use this before editing a file so
+      you know its current contents.
+    impl: primitive
+    mutating: false
+    params:
+      - name: path
+        type: string
+        description: Path to the file, relative to the current directory.
+        required: true
+
+  write_file:
+    name: Write File
+    description: >-
+      Create a file or overwrite it completely. You must supply the entire final
+      contents, not a patch. Read the file first if it already exists.
+    impl: primitive
+    mutating: true
+    params:
+      - name: path
+        type: string
+        description: Path to the file, relative to the current directory.
+        required: true
+      - name: content
+        type: string
+        description: The complete contents to write.
+        required: true
+
+  list_dir:
+    name: List Directory
+    description: List the files and directories at a path in the workspace.
+    impl: primitive
+    mutating: false
+    params:
+      - name: path
+        type: string
+        description: Directory to list, relative to the current directory. Defaults to ".".
+        required: false
+        default: "."
+
+  cd:
+    name: Change Directory
+    description: >-
+      Change the working directory used by later tool calls. Must stay inside the
+      workspace. Use this after creating a project directory.
+    impl: primitive
+    mutating: false
+    params:
+      - name: path
+        type: string
+        description: Directory to change into, relative to the current directory.
+        required: true
+
+  run_command:
+    name: Run Command
+    description: >-
+      Run a shell command in the current directory and return its output. Use this
+      for build tools such as git, uv, npm and mkdir. Do not use it to install
+      developer tools -- use install_tool instead. Never use sudo.
+    impl: primitive
+    mutating: true
+    params:
+      - name: command
+        type: string
+        description: The command line to run, e.g. "uv init" or "mkdir -p src".
+        required: true
+
+  list_tools:
+    name: List Devstuff Tools
+    description: >-
+      List developer tools in the devstuff catalog and whether each is installed.
+    impl: catalog
+    target: list_tools
+    mutating: false
+    params:
+      - name: installed_only
+        type: boolean
+        description: Only return tools that are already installed.
+        required: false
+        default: false
+
+  search_catalog:
+    name: Search Devstuff Catalog
+    description: >-
+      Search the devstuff catalog for a developer tool by name or description, e.g.
+      "node", "python" or "container".
+    impl: catalog
+    target: search_catalog
+    mutating: false
+    params:
+      - name: query
+        type: string
+        description: Search term.
+        required: true
+
+  tool_info:
+    name: Devstuff Tool Info
+    description: Show details for one devstuff catalog tool, including how it installs.
+    impl: catalog
+    target: tool_info
+    mutating: false
+    params:
+      - name: key
+        type: string
+        description: Catalog key, e.g. "uv" or "nvm".
+        required: true
+
+  install_tool:
+    name: Install Devstuff Tool
+    description: >-
+      Install a developer tool from the devstuff catalog. This is the correct way to
+      install tooling -- it handles privilege escalation itself, so never run a
+      package manager or sudo through run_command.
+    impl: catalog
+    target: install_tool
+    mutating: true
+    params:
+      - name: key
+        type: string
+        description: Catalog key, e.g. "uv" or "nvm".
+        required: true
