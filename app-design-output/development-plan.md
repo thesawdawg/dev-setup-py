@@ -51,7 +51,7 @@ we find out in Milestone 2 rather than after building the full toolbox.
 
 ## Milestones
 
-### Milestone 1 — Transport + config + preflight
+### Milestone 1 — Transport + config + preflight ✅ *(complete — `79eb2e2`, branch `feat/agent-milestone-1`)*
 **Goal:** `devstuff agent` opens a REPL that chats with a local model. No tools yet.
 **Definition of done:** you can hold a conversation; every failure mode (Ollama absent, daemon
 down, model not pulled, timeout) prints a one-line actionable message; `--model`/`--host` work.
@@ -64,6 +64,21 @@ down, model not pulled, timeout) prints a one-line actionable message; `--model`
 | Preflight checks (FR-3) incl. `tools` capability via `/api/show` | ollama | Reuse `registry.get("ollama").is_installed()`; on failure list local models that *do* have `tools` |
 | Bare REPL loop, `/exit`, `/help`, Ctrl-C/Ctrl-D | — | prompt_toolkit `PromptSession` |
 | Unit tests: config precedence, error mapping, `_parse_message` incl. thinking + fallback | all | Fake transport, no daemon |
+
+**As-built notes (deviations from the plan above):**
+- `agent/preflight.py` was split out of `agent_cmd.py` to keep the command thin.
+- `--dir` and `--yolo` were **not** implemented — both are sandbox concepts with nothing
+  behind them until M2, and dead flags are worse than absent ones. They land in M2.
+- `--print` and `/reset` were pulled forward from M4; `--print` is what makes the milestone
+  testable from a non-TTY shell.
+- **Live-run finding:** the daemon ignores `think: false` for lfm2.5 and emits raw `<think>`
+  tags in `content`. `parse_message` now strips them (FR-3a). Caught only by running against
+  a real daemon — the reason this milestone ends in a live checkpoint.
+- Remote hosts verified working (FR-3b); `~/.config/dev-setup/agent.yaml` pins
+  `http://192.168.1.69:11434`.
+- Model spot-check: `gemma4:latest` gave the only fully correct answer to a factual probe;
+  `lfm2.5` was wrong and the most verbose reasoner. Default **stays** `lfm2.5` pending the
+  M2 tool-calling checkpoint, which measures the skill that actually matters here.
 
 ### Milestone 2 — Sandbox + primitives + confirmation *(the vertical slice)*
 **Goal:** the agent can create dirs, run commands, and write files inside a workspace root.
@@ -81,7 +96,7 @@ passing unit tests.
 | Confirmation UX: command preview, unified diff for `write_file`, yes/no/always | loop | `difflib.unified_diff` + Rich |
 | Output truncation cap (FR-17) | loop | Mark truncation in the tool result |
 | Tests: path escape, symlink escape, denylist, decline-continues-session, iteration cap | all | Scripted fake model responses |
-| **Checkpoint: measure real tool-call reliability** on 5–10 prompts | all | Run against `lfm2.5`; `gemma4`, `granite4.1:8b`, `ornith` are the fallbacks if it disappoints |
+| **Checkpoint: measure real tool-call reliability** on 5–10 prompts | all | Run the same prompt set against `lfm2.5` **and** `gemma4:latest` and compare — this is the decision point for the default model (see M1 as-built notes). `granite4.1:8b` and `ornith` are further fallbacks. |
 
 ### Milestone 3 — Catalog & function bridges
 **Goal:** the agent can use devstuff itself; new `functions.yaml` entries become tools for free.
