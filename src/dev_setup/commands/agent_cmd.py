@@ -7,7 +7,8 @@ import click
 
 from dev_setup import ui
 from dev_setup.agent import config as agent_config
-from dev_setup.agent import preflight, sandbox, session
+from dev_setup.agent import preflight, registry, sandbox, session
+from dev_setup.agent.approval import ApprovalPolicy
 from dev_setup.agent.ollama import OllamaClient
 from dev_setup.agent.sandbox import SandboxError, Workspace
 from dev_setup.catalog import CatalogError
@@ -45,8 +46,17 @@ def _select_workspace(dir_opt: str | None, *, interactive: bool) -> Workspace:
 @click.option("--model", default=None, help="Ollama model to use (overrides agent.yaml).")
 @click.option("--host", default=None, help="Ollama host URL (overrides agent.yaml).")
 @click.option("--print", "one_shot", default=None, help="Run a single prompt and exit.")
+@click.option(
+    "--yolo",
+    is_flag=True,
+    help="Run mutating tools without confirmation (the denylist still applies).",
+)
 def agent_cmd(
-    workspace_dir: str | None, model: str | None, host: str | None, one_shot: str | None
+    workspace_dir: str | None,
+    model: str | None,
+    host: str | None,
+    one_shot: str | None,
+    yolo: bool,
 ) -> None:
     """Chat with a local model. See: devstuff agent --help"""
     try:
@@ -75,7 +85,21 @@ def agent_cmd(
         sys.exit(1)
 
     workspace = _select_workspace(workspace_dir, interactive=interactive and one_shot is None)
-    sess = session.AgentSession(client, cfg, model=resolved, workspace=workspace)
+
+    try:
+        tools = registry.build()
+    except CatalogError as exc:
+        ui.error(str(exc))
+        sys.exit(1)
+
+    policy = ApprovalPolicy(
+        yolo=yolo,
+        auto_approve=cfg.auto_approve,
+        can_prompt=interactive and one_shot is None,
+    )
+    sess = session.AgentSession(
+        client, cfg, workspace, model=resolved, tools=tools, policy=policy
+    )
 
     if one_shot is not None:
         session.run_once(sess, one_shot)

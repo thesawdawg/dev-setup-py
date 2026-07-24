@@ -12,7 +12,7 @@
 | Language/runtime | Python ≥3.11, existing `src/dev_setup` package, `uv` |
 | Frontend | Terminal REPL — prompt_toolkit input, Rich output, questionary confirms |
 | Backend / API | Local Ollama daemon, `POST /api/chat` via stdlib `urllib.request` |
-| Default model | `lfm2.5:latest` — 8.5B MoE, 128k ctx, `tools` + `thinking` (verified locally) |
+| Default model | `gemma4:latest` — chosen at the M2 checkpoint by measurement |
 | Datastore | YAML catalogs (`agent_tools.yaml`, `agent.yaml`); JSON transcripts on disk |
 | Auth | None — local only |
 | Hosting / CI | PyPI via existing `publish.yml`; unit tests in existing pytest suite |
@@ -80,7 +80,7 @@ down, model not pulled, timeout) prints a one-line actionable message; `--model`
   `lfm2.5` was wrong and the most verbose reasoner. Default **stays** `lfm2.5` pending the
   M2 tool-calling checkpoint, which measures the skill that actually matters here.
 
-### Milestone 2 — Sandbox + primitives + confirmation *(the vertical slice)*
+### Milestone 2 — Sandbox + primitives + confirmation ✅ *(complete)*
 **Goal:** the agent can create dirs, run commands, and write files inside a workspace root.
 **Definition of done:** Flow A of the spec works end to end; Flow C and Flow D are covered by
 passing unit tests.
@@ -89,15 +89,29 @@ passing unit tests.
 |------|-----------|-------|
 | ✅ `agent/sandbox.py` — `Workspace.resolve()`, `SandboxError`, protected paths | M1 | Done. 29 tests: traversal, symlink escape, credential dirs, catalog write-block (FR-14a) |
 | ✅ Workspace prompt at launch + `--dir` + risk guard (FR-2, FR-7b) | sandbox | Done. Warns on `$HOME`, system dirs, dirty git repos |
-| `agent/sandbox.py` — command denylist matcher | sandbox | Still to do (FR-10) |
-| `agent/catalog.py` + `agent_tools.yaml` with the five primitives | M1 | Mirror `functions_catalog.py` validation |
-| `agent/registry.py` — `AgentTool`, `to_schema()` | catalog | Emits Ollama `tools[]` JSON Schema |
-| `agent/primitives.py` — `_PRIMITIVES` dispatch dict | sandbox, registry | Mirrors `_INSTALLERS` in `generic.py` |
-| `agent/loop.py` — tool-call loop, `max_iterations`, structured tool errors (FR-20) | registry | The retry-safety core |
-| Confirmation UX: command preview, unified diff for `write_file`, yes/no/always | loop | `difflib.unified_diff` + Rich |
-| Output truncation cap (FR-17) | loop | Mark truncation in the tool result |
-| Tests: path escape, symlink escape, denylist, decline-continues-session, iteration cap | all | Scripted fake model responses |
-| **Checkpoint: measure real tool-call reliability** on 5–10 prompts | all | Run the same prompt set against `lfm2.5` **and** `gemma4:latest` and compare — this is the decision point for the default model (see M1 as-built notes). `granite4.1:8b` and `ornith` are further fallbacks. |
+| ✅ `agent/sandbox.py` — command denylist matcher | sandbox | sudo/su, pipe-to-shell, catastrophic rm, system binaries, dd-to-device, fork bomb, redirects out of the workspace |
+| ✅ `agent/catalog.py` + `agent_tools.yaml` | M1 | Bundled + user catalog, precedence and fail-loud validation |
+| ✅ `agent/registry.py` — `AgentTool`, `to_schema()`, `bind()` | catalog | 13 tools built: 9 catalog + 4 auto-exposed functions |
+| ✅ `agent/primitives.py` — `_PRIMITIVES` dispatch dict | sandbox, registry | Mirrors `_INSTALLERS` in `generic.py` |
+| ✅ `agent/loop.py` — tool-call loop, `max_iterations`, structured tool errors (FR-20) | registry | Every failure returns to the model; nothing raises out of a turn |
+| ✅ `agent/approval.py` — preview, unified diff, yes/no/always | loop | `--yolo` and `auto_approve` both honoured; denylist unaffected by either |
+| ✅ Output truncation cap (FR-17) | loop | UTF-8 safe; marks dropped byte count |
+| ✅ Tests: 125 across sandbox/tools/loop | all | Scripted fake model client; no daemon needed |
+| ✅ **Checkpoint: real tool-call reliability** | all | **Resolved: default switched to `gemma4:latest`.** See below. |
+
+**Checkpoint result (2026-07-24).** Same prompt — *"Create a new python project named
+xyz-project… write xyz-project/main.py containing a hello world program"* — run against both
+candidates:
+
+| Model | Behaviour | Output valid? |
+|---|---|---|
+| `gemma4:latest` | `run_command(mkdir)` → `write_file(main.py, 'print("Hello, World!")')` | **Yes** — runs |
+| `lfm2.5:latest` | `run_command(mkdir)` → `run_command(echo … > main.py)` → `read_file` | **No** — emitted `print(\\Hello, World!\)`, a syntax error |
+
+The failure is instructive: lfm2.5 *had* `write_file` and chose to shell out instead, then lost
+the content to shell-quoting. Two further probes on gemma4: asked to install a package it went
+straight to `install_tool` without attempting `sudo`, and asked for `/etc/passwd` and
+`~/.ssh/id_ed25519` it was refused by the sandbox under `--yolo` and reported both cleanly.
 
 ### Milestone 3 — Catalog & function bridges
 **Goal:** the agent can use devstuff itself; new `functions.yaml` entries become tools for free.

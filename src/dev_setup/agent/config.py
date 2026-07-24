@@ -12,10 +12,11 @@ USER_CONFIG_PATH = CONFIG_DIR / "agent.yaml"
 
 VERSION = 1
 
-# lfm2.5 is the default because it advertises the `tools` capability, carries a
-# 128k context, and is small enough for an edge device. Nothing in the agent
-# depends on it — preflight verifies capabilities at run time instead.
-DEFAULT_MODEL = "lfm2.5:latest"
+# Chosen by measurement, not spec sheet: on the milestone-2 tool-calling
+# checkpoint gemma4 used write_file with correct content, while lfm2.5 shelled out
+# to `echo >` and mangled the quoting into invalid Python. Nothing in the agent
+# depends on this model -- preflight verifies capabilities at run time instead.
+DEFAULT_MODEL = "gemma4:latest"
 DEFAULT_HOST = "http://localhost:11434"
 
 SUPPORTED_FIELDS = {
@@ -27,6 +28,7 @@ SUPPORTED_FIELDS = {
     "think",
     "max_iterations",
     "request_timeout",
+    "command_timeout",
     "auto_approve",
     "deny_patterns",
     "max_tool_output_bytes",
@@ -46,12 +48,19 @@ class AgentConfig:
     think: bool = False
     max_iterations: int = 12
     request_timeout: int = 120
+    command_timeout: int = 120
     auto_approve: list[str] = field(default_factory=list)
     deny_patterns: list[str] = field(default_factory=list)
     max_tool_output_bytes: int = 8000
 
 
-_INT_FIELDS = ("num_ctx", "max_iterations", "request_timeout", "max_tool_output_bytes")
+_INT_FIELDS = (
+    "num_ctx",
+    "max_iterations",
+    "request_timeout",
+    "command_timeout",
+    "max_tool_output_bytes",
+)
 _STR_LIST_FIELDS = ("auto_approve", "deny_patterns")
 
 
