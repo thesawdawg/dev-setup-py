@@ -118,8 +118,18 @@ def run_script_function(
     args: tuple[str, ...],
     *,
     prompt: Callable[[FunctionParam], str] | None = None,
-) -> None:
-    """Execute a `script`-type function as a subprocess. Raises on nonzero exit."""
+    capture: bool = False,
+) -> str | None:
+    """Execute a `script`-type function as a subprocess. Raises on nonzero exit.
+
+    `capture=False` (the `devstuff run` path) inherits stdio so output streams live
+    and interactive prompts inside the script still reach the terminal.
+
+    `capture=True` (the agent path) returns the combined output instead, and attaches
+    it to the CalledProcessError on failure. The agent has no terminal to stream to,
+    and without this a function's own diagnostics -- "yq is required, install it
+    first" -- are lost, leaving the caller to guess at a bare exit code.
+    """
     values = resolve_params(fn.params, args, prompt=prompt)
     prelude = _positional_prelude(fn.params)
     content = f"{prelude}\n{fn.script}" if prelude else fn.script
@@ -128,6 +138,12 @@ def run_script_function(
         f.write(content)
         tmp = f.name
     try:
+        if capture:
+            proc = subprocess.run(
+                ["bash", tmp, *values], check=True, capture_output=True, text=True
+            )
+            return ((proc.stdout or "") + (proc.stderr or "")).strip()
         subprocess.run(["bash", tmp, *values], check=True)
+        return None
     finally:
         os.unlink(tmp)

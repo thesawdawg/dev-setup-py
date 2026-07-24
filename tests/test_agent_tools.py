@@ -276,3 +276,142 @@ def test_run_command_times_out(ws):
     config = AgentConfig(command_timeout=1)
     with pytest.raises(SandboxError, match="timed out"):
         primitives.run_command(ws, config, {"command": "sleep 5"})
+
+
+# -- function bridge -------------------------------------------------------------
+
+
+def _fake_function(monkeypatch, params):
+    """Register a throwaway script function and capture the argv it receives."""
+    from dev_setup import function_runner, functions_registry
+    from dev_setup.functions_registry import FunctionDef, FunctionParam
+
+    fn = FunctionDef(
+        key="probe",
+        name="Probe",
+        description="probe",
+        type="script",
+        script="echo hi",
+        params=[FunctionParam(**p) for p in params],
+    )
+    monkeypatch.setattr(functions_registry, "get", lambda key: fn if key == "probe" else None)
+    monkeypatch.setattr(functions_registry, "init", lambda: None)
+
+    captured = {}
+
+    def fake_run(f, args, prompt=None, capture=False):
+        captured["args"] = args
+        return ""
+
+    monkeypatch.setattr(function_runner, "run_script_function", fake_run)
+    return captured
+
+
+def test_function_bridge_passes_arguments_in_declared_order(ws, cfg, monkeypatch):
+    from dev_setup.agent import bridges
+
+    captured = _fake_function(
+        monkeypatch, [{"name": "url"}, {"name": "instruction"}]
+    )
+    bridges.run_function(ws, cfg, "probe", {"url": "http://x", "instruction": "go"})
+    assert captured["args"] == ("http://x", "go")
+
+
+def test_function_bridge_keeps_positions_when_an_argument_is_omitted(ws, cfg, monkeypatch):
+    """function_runner maps values to params by position, so a missing early
+    argument must hold its slot rather than shifting later ones left."""
+    from dev_setup.agent import bridges
+
+    captured = _fake_function(
+        monkeypatch, [{"name": "url"}, {"name": "instruction"}]
+    )
+    bridges.run_function(ws, cfg, "probe", {"instruction": "go"})
+    assert captured["args"] == ("", "go")
+
+
+def test_function_bridge_reports_unknown_function(ws, cfg, monkeypatch):
+    from dev_setup.agent import bridges
+
+    _fake_function(monkeypatch, [])
+    with pytest.raises(SandboxError, match="unknown function"):
+        bridges.run_function(ws, cfg, "nope", {})
+
+
+def test_function_bridge_surfaces_missing_required_param(ws, cfg, monkeypatch):
+    """Raised as a tool error the model can correct, not a crash."""
+    from dev_setup import function_runner, functions_registry
+    from dev_setup.agent import bridges
+    from dev_setup.functions_registry import FunctionDef, FunctionParam
+
+    fn = FunctionDef(
+        key="probe", name="Probe", description="probe", type="script", script="echo hi",
+        params=[FunctionParam(name="file", required=True)],
+    )
+    monkeypatch.setattr(functions_registry, "get", lambda key: fn)
+    monkeypatch.setattr(functions_registry, "init", lambda: None)
+
+    def fake_run(f, args, prompt=None, capture=False):
+        function_runner.resolve_params(f.params, args, prompt=prompt)
+        return ""
+
+    monkeypatch.setattr(function_runner, "run_script_function", fake_run)
+
+    with pytest.raises(SandboxError, match="Missing required parameter"):
+        bridges.run_function(ws, cfg, "probe", {})
+
+
+def test_exposed_function_schema_carries_its_params():
+    tools = registry.build()
+    acc = tools["fn_acc_check"]
+    props = acc.to_schema()["function"]["parameters"]["properties"]
+    assert set(props) == {"url", "instruction"}
+
+
+def test_excluded_functions_are_withheld(tmp_path, monkeypatch):
+    user = tmp_path / "agent_tools.yaml"
+    user.write_text("version: 1\nexclude_functions: [validate-yaml]\ntools: {}\n")
+    monkeypatch.setattr(agent_catalog, "USER_CATALOG_PATH", user)
+    tools = registry.build()
+    assert "fn_validate_yaml" not in tools
+    assert "fn_acc_check" in tools
+
+
+def test_expose_functions_can_be_turned_off(tmp_path, monkeypatch):
+    user = tmp_path / "agent_tools.yaml"
+    user.write_text("version: 1\nexpose_functions: false\ntools: {}\n")
+    monkeypatch.setattr(agent_catalog, "USER_CATALOG_PATH", user)
+    tools = registry.build()
+    assert not [k for k in tools if k.startswith("fn_")]
+    assert "read_file" in tools
+
+
+def test_function_bridge_returns_script_output_to_the_model(ws, cfg, monkeypatch):
+    from dev_setup import functions_registry
+    from dev_setup.agent import bridges
+    from dev_setup.functions_registry import FunctionDef
+
+    fn = FunctionDef(
+        key="probe", name="Probe", description="d", type="script",
+        script="echo 'the actual output'", params=[],
+    )
+    monkeypatch.setattr(functions_registry, "get", lambda key: fn)
+    monkeypatch.setattr(functions_registry, "init", lambda: None)
+    assert "the actual output" in bridges.run_function(ws, cfg, "probe", {})
+
+
+def test_function_bridge_includes_diagnostics_on_failure(ws, cfg, monkeypatch):
+    """A guard message like "yq is required" must survive into the tool error,
+    or the model invents a cause for the bare exit code."""
+    from dev_setup import functions_registry
+    from dev_setup.agent import bridges
+    from dev_setup.functions_registry import FunctionDef
+
+    fn = FunctionDef(
+        key="probe", name="Probe", description="d", type="script",
+        script="echo 'yq is required. Install it first.'; exit 1", params=[],
+    )
+    monkeypatch.setattr(functions_registry, "get", lambda key: fn)
+    monkeypatch.setattr(functions_registry, "init", lambda: None)
+
+    with pytest.raises(SandboxError, match="yq is required"):
+        bridges.run_function(ws, cfg, "probe", {})

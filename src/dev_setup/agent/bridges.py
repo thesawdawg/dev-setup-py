@@ -91,14 +91,24 @@ def run_function(ws: Workspace, config: AgentConfig, target: str, args: dict[str
     if fn is None:
         raise SandboxError(f"unknown function '{target}'")
 
-    ordered = tuple(str(args[p.name]) for p in fn.params if p.name in args)
+    # A full-width positional tuple, empty string for anything the model omitted.
+    # function_runner maps values to params *by position*, so filtering absent ones
+    # out would shift every later argument into the wrong variable. An empty string
+    # is what resolve_params already treats as "not provided", so it falls through
+    # to the catalog default or a missing-required error.
+    ordered = tuple(str(args.get(p.name, "")) for p in fn.params)
     try:
-        function_runner.run_script_function(fn, ordered, prompt=None)
+        output = function_runner.run_script_function(fn, ordered, prompt=None, capture=True)
     except function_runner.ParamResolutionError as exc:
         raise SandboxError(str(exc)) from exc
     except subprocess.CalledProcessError as exc:
-        raise SandboxError(f"{target} failed with exit code {exc.returncode}") from exc
-    return f"{fn.name} completed."
+        # Hand the script's own diagnostics back, not just the exit code -- functions
+        # guard on their dependencies with messages like "yq is required, install it
+        # first", and dropping those leaves the model to invent a cause.
+        detail = ((exc.stdout or "") + (exc.stderr or "")).strip()
+        suffix = f": {detail}" if detail else ""
+        raise SandboxError(f"{target} failed with exit code {exc.returncode}{suffix}") from exc
+    return output or f"{fn.name} completed."
 
 
 Bridge = Callable[[Workspace, AgentConfig, dict[str, Any]], str]
