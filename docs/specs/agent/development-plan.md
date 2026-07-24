@@ -152,6 +152,10 @@ speculating about a dispatch shape twice.
 - **Integration** — `@pytest.mark.integration`, opt-in, requires a running Ollama with a pulled
   model. Asserts Flow A produces the expected files. Excluded from the default suite and from
   the CI canary (no GPU/model in CI).
+- **TUI keystrokes** (`tests/integration/test_agent_tui.py`, `make -C dev tui-tests`) — drives the
+  real prompt through a PTY. prompt_toolkit resolves completions in a background task, so
+  pipe-fed input is consumed before the completer runs and cannot test Tab; a PTY with realistic
+  pauses can. Timing-dependent and slow, hence integration-marked. Needs no daemon.
 - **Smoke** (`tests/integration/test_agent_smoke.py`, `make -C dev smoke-agent`) — runs the real
   CLI against a live daemon: preflight, `--print` round trip, the think-tag regression, and the
   two first-run error paths. Runs on the **host**, not in the Docker CI image, which has no

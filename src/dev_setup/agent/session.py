@@ -105,13 +105,17 @@ def _print_banner(session: AgentSession) -> None:
         ui.console.print()
         ui.warn("--yolo: mutating tools run without confirmation (the denylist still applies).")
     ui.console.print()
-    ui.dim("/help for commands, /exit or Ctrl-D to quit.")
+    ui.dim("/ for commands and tools · Alt+Enter for a newline · Ctrl-D to quit")
     ui.console.print()
 
 
 def _print_slash_help() -> None:
     for cmd, desc in _SLASH_HELP:
-        ui.console.print(f"  [bold cyan]{cmd:<8}[/]  {desc}")
+        ui.console.print(f"  [bold cyan]{cmd:<9}[/]  {desc}")
+    ui.console.print(f"  [bold cyan]{'/<tool>':<9}[/]  Describe one tool, e.g. /write_file")
+    ui.console.print()
+    ui.dim("  Type / for a completion menu of commands and tools.")
+    ui.dim("  Enter sends · Alt+Enter (or Ctrl-J) inserts a newline")
     ui.console.print()
 
 
@@ -121,6 +125,24 @@ def _print_tools(session: AgentSession) -> None:
         ui.console.print(f"  {marker} [bold cyan]{key:<18}[/] [dim]{tool.description[:70]}[/]")
     ui.console.print()
     ui.dim("! = mutating, asks for confirmation before running")
+    ui.console.print()
+
+
+def _print_tool_detail(tool: AgentTool) -> None:
+    ui.console.print()
+    ui.console.print(f"  [bold cyan]{tool.key}[/]  [dim]{tool.name}[/]")
+    ui.console.print(f"  {tool.description}")
+    ui.console.print()
+    if tool.mutating:
+        ui.warn("Mutating — asks for confirmation before it runs.")
+    if not tool.params:
+        ui.dim("  (no parameters)")
+    for param in tool.params:
+        flag = "required" if param.required else "optional"
+        default = f", default {param.default!r}" if param.default is not None else ""
+        ui.console.print(f"  [cyan]{param.name}[/] [dim]({param.type}, {flag}{default})[/]")
+        if param.description:
+            ui.console.print(f"      [dim]{param.description}[/]")
     ui.console.print()
 
 
@@ -174,6 +196,11 @@ def _handle_slash(session: AgentSession, line: str) -> bool:
         session.reset()
         ui.success("Conversation cleared.")
         ui.console.print()
+    elif cmd.lstrip("/") in session.tools:
+        # `/<tool>` is completable, so it has to do something sensible. It describes
+        # the tool rather than running it -- the agent decides when tools run, and a
+        # REPL back door around the confirmation flow is not worth the ambiguity.
+        _print_tool_detail(session.tools[cmd.lstrip("/")])
     else:
         ui.error(f"Unknown command: {cmd}")
         _print_slash_help()
@@ -204,12 +231,80 @@ def _rollback(session: AgentSession) -> None:
         session.messages.pop()
 
 
-def run_repl(session: AgentSession) -> None:
+def _key_bindings():
+    """Enter submits, Alt+Enter (or Ctrl-J) inserts a newline.
+
+    prompt_toolkit's `multiline=True` defaults to the opposite -- Enter inserts and
+    Meta+Enter submits -- which is wrong for a chat prompt where most turns are one
+    line. Ctrl-J is bound too because many terminals cannot distinguish Shift+Enter
+    and send it instead.
+    """
+    from prompt_toolkit.filters import completion_is_selected
+    from prompt_toolkit.key_binding import KeyBindings
+
+    kb = KeyBindings()
+
+    @kb.add("enter")
+    def _submit(event):
+        event.current_buffer.validate_and_handle()
+
+    @kb.add("escape", "enter")
+    @kb.add("c-j")
+    def _newline(event):
+        event.current_buffer.insert_text("\n")
+
+    # Bound explicitly: under multiline=True, Tab is not wired to completion by
+    # default, so relying on prompt_toolkit's defaults silently gives no menu.
+    @kb.add("tab")
+    def _complete(event):
+        buffer = event.current_buffer
+        if buffer.complete_state:
+            buffer.complete_next()
+        else:
+            buffer.start_completion(select_first=True)
+
+    @kb.add("s-tab")
+    def _complete_backwards(event):
+        buffer = event.current_buffer
+        if buffer.complete_state:
+            buffer.complete_previous()
+
+    # Registered after the plain binding so it wins while the menu is open: Enter
+    # then takes the highlighted completion instead of sending a half-typed line.
+    @kb.add("enter", filter=completion_is_selected)
+    def _accept_completion(event):
+        event.current_buffer.complete_state = None
+
+    return kb
+
+
+def _continuation(width: int, line_number: int, is_soft_wrap: bool) -> str:
+    return " " * max(0, width - 2) + "› "
+
+
+def build_prompt_session(session: AgentSession, **overrides):
+    """Split out from run_repl so the input behaviour can be driven by tests with a
+    pipe input rather than only exercised by hand."""
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import FileHistory
 
+    from dev_setup.agent.completion import SlashCompleter
+
+    kwargs = {
+        "history": FileHistory(str(HISTORY_PATH)),
+        "completer": SlashCompleter(_SLASH_HELP, session.tools),
+        "complete_while_typing": True,
+        "multiline": True,
+        "key_bindings": _key_bindings(),
+        "prompt_continuation": _continuation,
+    }
+    kwargs.update(overrides)
+    return PromptSession(**kwargs)
+
+
+def run_repl(session: AgentSession) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    prompt_session: PromptSession = PromptSession(history=FileHistory(str(HISTORY_PATH)))
+    prompt_session = build_prompt_session(session)
 
     _print_banner(session)
 
@@ -223,7 +318,8 @@ def run_repl(session: AgentSession) -> None:
 
         if not line:
             continue
-        if line.startswith("/"):
+        # A multi-line message that happens to open with "/" is prose, not a command.
+        if line.startswith("/") and "\n" not in line:
             if _handle_slash(session, line):
                 break
             continue
