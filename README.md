@@ -393,6 +393,15 @@ documents every field for editor autocomplete; it is not enforced at runtime.
   turn so a session that ends in a crash is still readable. `/history` shows the current session
   and the transcript path.
 
+### Using the prompt
+
+- **Enter** sends. **Alt+Enter** (or **Ctrl-J**) inserts a newline, for pasting or writing
+  multi-line instructions.
+- **Type `/`** for a completion menu of session commands *and* every available tool, mutating
+  ones flagged with `!`. **Tab** cycles, **Enter** takes the highlighted entry.
+- `/<tool>` describes a tool and its parameters, e.g. `/write_file`. It does not run it — the
+  agent decides when tools run, so there is no back door around the confirmation flow.
+
 In-session commands: `/tools`, `/history`, `/cwd`, `/model`, `/reset`, `/help`, `/exit`.
 
 ---
