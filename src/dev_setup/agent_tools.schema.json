@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/thesawdawg/dev-setup-py/agent_tools.schema.json",
+  "title": "devstuff agent tool catalog",
+  "description": "Schema for agent_tools.yaml (bundled at src/dev_setup/agent_tools.yaml, user overrides at ~/.config/dev-setup/agent_tools.yaml). Defines the tools exposed to the local model by `devstuff agent`. Mirrors the validation in agent/catalog.py — keep both in sync; this file is documentation for editor tooling and is NOT enforced at runtime.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "tools"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Catalog schema version. Currently always 1."
+    },
+    "expose_functions": {
+      "type": "boolean",
+      "default": true,
+      "description": "Auto-expose every `type: script` entry in functions.yaml as an agent tool named fn_<key>. shell-eval functions are always excluded: they exist to mutate the calling shell, which a subprocess tool call cannot do."
+    },
+    "exclude_functions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "functions.yaml keys to withhold from the agent even when expose_functions is true."
+    },
+    "tools": {
+      "type": "object",
+      "description": "Map of tool key -> tool definition. The key is the function name the model calls.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*$",
+        "description": "Lowercase letters, digits and underscores; must start with a letter. No hyphens — the key is used verbatim as a JSON-Schema function name."
+      },
+      "additionalProperties": { "$ref": "#/definitions/tool" }
+    }
+  },
+  "definitions": {
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "impl"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable name shown in `/tools`. Defaults to the catalog key."
+        },
+        "description": {
+          "type": "string",
+          "description": "REQUIRED. Sent to the model verbatim — this is how it decides whether to call the tool. Say what the tool does and when to prefer it over another one."
+        },
+        "impl": {
+          "enum": ["primitive", "catalog", "function"],
+          "description": "primitive: dispatches to a callable in agent/primitives.py, keyed by the tool key. catalog: bridges to the devstuff tool registry via `target`. function: runs a functions.yaml script entry via `target`."
+        },
+        "target": {
+          "type": "string",
+          "description": "Required for impl catalog (one of: list_tools, search_catalog, tool_info, install_tool) and impl function (a functions.yaml key). Must be omitted for impl primitive, where dispatch is by tool key."
+        },
+        "mutating": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if the tool changes something. Mutating tools require confirmation before each call, showing the exact command or a unified diff. Read-only tools run silently."
+        },
+        "params": {
+          "type": "array",
+          "description": "Named parameters, converted into the JSON Schema sent to the model.",
+          "items": { "$ref": "#/definitions/param" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "impl": { "enum": ["catalog", "function"] } }, "required": ["impl"] },
+          "then": { "required": ["target"] }
+        },
+        {
+          "if": { "properties": { "impl": { "const": "primitive" } }, "required": ["impl"] },
+          "then": { "not": { "required": ["target"] } }
+        }
+      ]
+    },
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Parameter name. Passed to the implementation as a dict key."
+        },
+        "type": {
+          "enum": ["string", "integer", "number", "boolean"],
+          "default": "string",
+          "description": "JSON Schema type advertised to the model."
+        },
+        "description": {
+          "type": "string",
+          "description": "Sent to the model. Say what a valid value looks like — small models take the example literally."
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, a call omitting this parameter is rejected and the error is returned to the model so it can retry."
+        },
+        "default": {
+          "description": "Used when the model omits the parameter or sends null. Any JSON value."
+        },
+        "enum": {
+          "type": "array",
+          "description": "Restrict the parameter to a fixed set of values."
+        }
+      }
+    }
+  }
+}

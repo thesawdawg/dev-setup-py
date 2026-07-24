@@ -12,6 +12,7 @@ from dev_setup.agent.config import AgentConfig
 from dev_setup.agent.ollama import Message, OllamaClient, OllamaError
 from dev_setup.agent.registry import AgentTool
 from dev_setup.agent.sandbox import Workspace
+from dev_setup.agent.transcript import Transcript
 
 STATE_DIR = Path.home() / ".local" / "share" / "dev-setup" / "agent"
 HISTORY_PATH = STATE_DIR / "history"
@@ -34,6 +35,7 @@ Current directory: {cwd}"""
 
 _SLASH_HELP = [
     ("/tools", "List the tools available to the agent"),
+    ("/history", "Show this session's turns, and where the transcript is saved"),
     ("/cwd", "Show the workspace root and current directory"),
     ("/model", "Show the model in use"),
     ("/reset", "Clear the conversation history"),
@@ -52,6 +54,7 @@ class AgentSession:
         model: str | None = None,
         tools: dict[str, AgentTool] | None = None,
         policy: ApprovalPolicy | None = None,
+        transcript: Transcript | None = None,
     ) -> None:
         self.client = client
         self.config = config
@@ -60,6 +63,7 @@ class AgentSession:
         self.tools = tools if tools is not None else registry.build()
         self.schemas = registry.to_schemas(self.tools)
         self.policy = policy or ApprovalPolicy(auto_approve=config.auto_approve)
+        self.transcript = transcript
         self.messages: list[dict[str, Any]] = []
         self.reset()
 
@@ -72,7 +76,13 @@ class AgentSession:
         self.messages = [{"role": "system", "content": self.system_prompt()}]
 
     def send(self, prompt: str) -> Message | None:
-        return loop.run_turn(self, prompt)
+        try:
+            return loop.run_turn(self, prompt)
+        finally:
+            # In `finally` so a cancelled or failed turn is still recorded -- those
+            # are the ones worth reading back.
+            if self.transcript:
+                self.transcript.record(self.messages)
 
 
 def render(reply: Message | None) -> None:
@@ -114,6 +124,34 @@ def _print_tools(session: AgentSession) -> None:
     ui.console.print()
 
 
+def _summarise(message: dict[str, Any]) -> str | None:
+    role = message.get("role")
+    if role == "system":
+        return None
+    if role == "user":
+        return f"[bold]you[/]       {str(message.get('content', ''))[:80]}"
+    if role == "tool":
+        first = str(message.get("content", "")).splitlines()[:1]
+        return f"[dim]tool[/]      {message.get('tool_name', '?')} → {(first[0] if first else '')[:60]}"
+    calls = message.get("tool_calls") or []
+    if calls:
+        names = ", ".join(c["function"]["name"] for c in calls)
+        return f"[cyan]agent[/]     calls {names}"
+    return f"[cyan]agent[/]     {str(message.get('content', ''))[:80]}"
+
+
+def _print_history(session: AgentSession) -> None:
+    lines = [s for s in (_summarise(m) for m in session.messages) if s]
+    if not lines:
+        ui.dim("Nothing yet this session.")
+    for line in lines:
+        ui.console.print(f"  {line}")
+    ui.console.print()
+    if session.transcript:
+        ui.dim(f"Full transcript: {session.transcript.path}")
+        ui.console.print()
+
+
 def _handle_slash(session: AgentSession, line: str) -> bool:
     """Returns True if the session should end."""
     cmd = line.split()[0].lower()
@@ -130,6 +168,8 @@ def _handle_slash(session: AgentSession, line: str) -> bool:
     elif cmd == "/model":
         ui.dim(f"{session.model} @ {session.client.host}")
         ui.console.print()
+    elif cmd == "/history":
+        _print_history(session)
     elif cmd == "/reset":
         session.reset()
         ui.success("Conversation cleared.")

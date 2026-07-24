@@ -300,3 +300,69 @@ def test_schemas_are_generated_for_every_tool(ws):
     tools = {"t": AgentTool("t", "T", "d", "primitive", params=[AgentParam(name="p")])}
     session = make_session(ws, [], tools=tools)
     assert session.schemas[0]["function"]["name"] == "t"
+
+
+# -- transcript ------------------------------------------------------------------
+
+
+def test_transcript_is_written_after_each_turn(ws, tmp_path):
+    from dev_setup.agent.transcript import Transcript
+
+    path = tmp_path / "t.json"
+    transcript = Transcript(path, model="m", host="h", workspace=str(ws.root))
+    client = ScriptedClient([text("hi"), text("again")])
+    session = AgentSession(
+        client, AgentConfig(), ws, model="m", tools={}, policy=AlwaysApprove(),
+        transcript=transcript,
+    )
+
+    session.send("first")
+    import json
+
+    after_one = json.loads(path.read_text())
+    assert after_one["model"] == "m"
+    assert [m["content"] for m in after_one["messages"] if m["role"] == "user"] == ["first"]
+
+    session.send("second")
+    after_two = json.loads(path.read_text())
+    assert len([m for m in after_two["messages"] if m["role"] == "user"]) == 2
+
+
+def test_transcript_records_a_failed_turn(ws, tmp_path):
+    """A session that blew up is the one most worth reading back."""
+    from dev_setup.agent.ollama import OllamaError
+    from dev_setup.agent.transcript import Transcript
+
+    class ExplodingClient:
+        host = "x"
+
+        def chat(self, messages, **kwargs):
+            raise OllamaError("daemon died")
+
+    path = tmp_path / "t.json"
+    session = AgentSession(
+        ExplodingClient(), AgentConfig(), ws, model="m", tools={}, policy=AlwaysApprove(),
+        transcript=Transcript(path, model="m", host="h", workspace=str(ws.root)),
+    )
+    with pytest.raises(OllamaError):
+        session.send("hello")
+
+    import json
+
+    assert json.loads(path.read_text())["messages"][-1]["content"] == "hello"
+
+
+def test_transcript_failure_does_not_break_the_session(ws, tmp_path):
+    """Losing a debugging aid must never take the session down."""
+    from dev_setup.agent.transcript import Transcript
+
+    unwritable = tmp_path / "nope" / "deep"
+    transcript = Transcript(unwritable / "t.json", model="m", host="h", workspace=".")
+    transcript.path = tmp_path / "a-file" / "t.json"
+    (tmp_path / "a-file").write_text("not a directory")
+
+    session = AgentSession(
+        ScriptedClient([text("fine")]), AgentConfig(), ws, model="m", tools={},
+        policy=AlwaysApprove(), transcript=transcript,
+    )
+    assert session.send("hi").content == "fine"

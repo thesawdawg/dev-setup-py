@@ -167,6 +167,59 @@ non-interactive `bash <tmpfile>`, so `~/.bashrc`/nvm's shell init never runs on 
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have.
 
+## The agent (`devstuff agent`) — a third catalog subsystem
+
+`src/dev_setup/agent/` + `agent_tools.yaml` is an interactive session where a local Ollama model
+calls devstuff's tools plus a workspace-scoped filesystem/shell kit. It follows the same
+catalog-driven shape as tools and functions: `agent/catalog.py` validates `agent_tools.yaml`
+(bundled → user override), `agent/registry.py` turns it into `AgentTool` objects, and
+`agent/primitives.py` dispatches by `impl` through a `_PRIMITIVES` dict — the same
+strategy-dispatch pattern as `_INSTALLERS` in `generic.py`.
+
+**Adding an agent tool**: if it bridges to something that already exists (a catalog tool, a
+`functions.yaml` entry), it is a pure YAML edit — `impl: catalog` or `impl: function` plus a
+`target`. Only a genuinely new mechanism needs a new `impl: primitive` callable registered in
+`_PRIMITIVES`. `type: script` functions are auto-exposed as `fn_<key>` tools with no edit at all.
+
+**Security invariants — do not weaken these without deliberate thought:**
+- `Workspace.resolve()` in `agent/sandbox.py` is the *only* thing standing between the model and
+  the filesystem. It resolves symlinks and `..` **before** the containment check; reordering that
+  reintroduces a symlink escape. Prompt instructions are not a control and never will be.
+- The command denylist (`check_command`) runs **before** any confirmation prompt and is
+  deliberately not disabled by `--yolo`. The prompt is a human attention filter; attention
+  degrades over a session, the denylist does not.
+- Credential dirs are blocked for **read** as well as write — exfiltrating an SSH key into a model
+  context is as bad as overwriting one. `~/.config/dev-setup` is readable but not writable, so
+  the agent cannot author catalogs (FR-14a).
+- `assess()` (the launch guard) is advisory UX, not a control. Keep that distinction in comments;
+  the risk is a future reader mistaking a warning for enforcement.
+
+**Everything in the loop returns errors to the model rather than raising.** Unknown tool, bad
+arguments, sandbox refusal, a crashing tool — all become `role: tool` messages so the agent can
+re-plan. A malformed tool call must never end a session. `max_iterations` is what stops a runaway.
+
+**`cd` is a tool, not a shell command**, for the same reason `shell-eval` functions exist: each
+`run_command` is its own subprocess, so a shell `cd` evaporates on exit. And `shell-eval`
+functions are excluded from the toolbox entirely — they exist to mutate the calling shell, which
+an agent subprocess has no way to do (mirroring the guard in `run_cmd.py`).
+
+**Ollama response-shape handling all lives in `ollama.parse_message()`.** Builds differ on
+whether reasoning arrives in `message.thinking` or as inline `<think>` tags in `content`, and
+whether tool calls arrive in `tool_calls` or as JSON inside `content`. Think-stripping must stay
+*ahead* of the content-JSON fallback, or a reasoning preamble hides the tool call. Keep new
+quirks in that one function.
+
+**Model choice is measured, not assumed.** `ollama show` reports a `capabilities` array;
+preflight requires `tools` in it. The default (`gemma4:latest`) was picked by running the same
+scaffolding prompt across local models — lfm2.5 had `write_file` available and still shelled out
+to `echo >`, corrupting the content through shell quoting. If you change the default, re-run that
+comparison rather than reasoning from parameter counts.
+
+`agent_tools.schema.json` is hand-maintained for editor tooling and **not** enforced at runtime —
+same arrangement, and same drift hazard, as `functions.schema.json`.
+
+Not yet built: an `add` wizard for agent tools, and `catalog import`/`export` for them.
+
 ## Key design decisions (don't relitigate these)
 
 - **uv owns Python provisioning.** The bash wrapper only guarantees `uv` is present; Python
@@ -179,6 +232,13 @@ ones tools already have.
   fields, bad `requires` all raise `CatalogError` immediately rather than silently degrading.
 - **Custom install/remove scripts are plain strings**, written to a temp file at run time, so
   `bash` gets full script-parsing fidelity instead of `bash -c "..."` string quoting problems.
+- **The agent's safety boundary is the workspace root, enforced in code.** Not a sandbox
+  technology (bubblewrap/firejail) and not model instructions — `Path.resolve()` containment plus
+  a command denylist, both unit-tested. Chosen so it works with zero new dependencies and fails
+  closed; if you want stronger isolation, add it *around* this, not instead of it.
+- **No new runtime dependencies for the agent.** The Ollama transport is stdlib `urllib` against
+  `/api/chat`; the REPL uses `prompt_toolkit`, already vendored via questionary. devstuff is a
+  globally installed CLI, so every dependency is a cost paid by users who never run `agent`.
 - **Functions get a parallel catalog/registry instead of extending `GenericTool`.** The
   schemas diverge enough (no `requires` inference, a `params` list, no install/remove
   lifecycle) that folding them into the tool catalog would be lossy; some duplication with
