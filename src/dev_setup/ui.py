@@ -99,8 +99,10 @@ def text_input(prompt: str, default: str = "", required: bool = False) -> str:
         error("This field is required.")
 
 
-def select(prompt: str, choices: list[str]) -> str:
-    result = _ask(questionary.select(prompt, choices=choices, style=_STYLE))
+def select(prompt: str, choices: list, default: object | None = None) -> str:
+    """Single-choice prompt. `choices` may be plain strings or questionary.Choice
+    objects; `default` is the choice (or value) the cursor starts on."""
+    result = _ask(questionary.select(prompt, choices=choices, default=default, style=_STYLE))
     return result or ""
 
 

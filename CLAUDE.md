@@ -21,8 +21,10 @@ uv run pytest tests/test_catalog.py::test_user_catalog_overrides_bundled_tool_in
 ```
 
 `pip` is not available in this dev environment — `uv pip install -e .` / `uv run` are the way in.
-Interactive commands (`install`, `add`, `remove`, `delete`) open questionary/click prompts and
-hang in non-TTY shells; don't try to drive them from a piped/non-interactive shell.
+Interactive commands (`install`, `add`, `remove`, `delete`, `configure`) open questionary/click
+prompts and hang in non-TTY shells; don't try to drive them from a piped/non-interactive shell.
+To exercise one end-to-end anyway, fork a pty (`pty.fork()`) and write keystrokes to the fd —
+that is how the starship wizard's full flow was verified.
 
 ### Integration tests (real installs, Docker-isolated)
 
@@ -60,6 +62,7 @@ src/dev_setup/
 ├── generic.py       # GenericTool — the ONE engine that implements every install type
 ├── tools.yaml       # Bundled built-in catalog (core/tools/languages categories)
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
+├── configure/       # Per-tool setup wizards (see "Configurators" below)
 └── commands/        # One Click command per file: list, install, remove, add, delete, docs, catalog
 ```
 
@@ -167,6 +170,59 @@ non-interactive `bash <tmpfile>`, so `~/.bashrc`/nvm's shell init never runs on 
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have.
 
+## Configurators (`configure/`) — tool-specific wizards, deliberately *not* catalog-driven
+
+`src/dev_setup/configure/` holds per-tool setup wizards (`devstuff configure <tool>`), registered
+in a `CONFIGURATORS` dict keyed by catalog tool key. `starship` is the first one:
+`configure/starship/{model,render,preview,wizard}.py`.
+
+**Why this one breaks the YAML-catalog rule.** Installation generalises into ~7 mechanisms, which
+is what makes `GenericTool` possible. Configuration does not: starship's config is a TOML file of
+format strings, palette tables and powerline transition glyphs; another tool's would be shell
+exports or `git config` calls. Expressing this wizard in YAML would need conditional questions, an
+ordered section model with colour roles, and a template language — a programming language spelled
+in YAML. So configurators are Python, dispatched from a dict, the same shape as `_INSTALLERS` in
+`generic.py`. Full reasoning in `docs/specs/starship-config/stack-decisions.md` (SD-1).
+
+**Adding a configurator** — a new module plus one dict entry. The module must expose
+`run(*, target: Path | None = None)` (returns `None` if the user cancelled; writes nothing until
+they confirm) and `config_path() -> Path`. Everything generic — the picker, install-state check,
+`--list`/`--path`/`--output`, and the post-install offer in `install_cmd.py` — reads the registry,
+so none of it needs touching. There is deliberately **no `configure:` field in `tools.yaml`**: user
+catalogs are strictly validated, so a catalog naming a nonexistent configurator would add a
+load-time failure mode for nothing.
+
+**Within the starship configurator, `model.py` is the data and everything else reads it.**
+`SECTIONS` (ordered — declaration order *is* prompt order), `PALETTES` and `PRESETS` drive both the
+TOML emitter and the offline preview, which is what stops those two from drifting. Adding a section
+or palette is one entry; no other file changes.
+
+**Things learned from the real binary — don't "simplify" these away:**
+- `symbol` is emitted for every section whose body contains `$symbol`, *including as an empty
+  string*. Omit it and starship's built-in Nerd Font glyph leaks into the `plain` preset. The
+  converse is unit-tested: a section carrying an icon its body can't render is a bug (that's why
+  `directory`, which has no `symbol` key at all, has no icon).
+- Not every module spells the colour key `style` — hence `Section.style_key` (`username` wants
+  `style_user`). `battery` is deliberately absent: it accepts neither `style` nor `symbol` (both
+  live in its `[[battery.display]]` array), so it would cost three quirk fields for one section.
+- `kubernetes` and `time` ship *disabled*; listing them in `format` isn't enough, they need
+  `disabled = false`.
+- Format strings are emitted as TOML **literal** strings (`'…'`) so starship's `$`, `[`, and `\[`
+  grammar needs no escaping. The multi-line top-level `format` is the one basic string, and it
+  contains no backslashes of its own beyond the line continuations.
+- Powerline transitions are emitted per **run of consecutive sections sharing a palette role**, not
+  per section — otherwise two adjacent language segments draw an arrow between two identical
+  backgrounds.
+- The live preview runs `starship prompt` with `STARSHIP_SHELL=nu`, not `bash`: for bash, starship
+  wraps escapes in readline's `\[`/`\]` markers, which are invisible inside a `PS1` and print
+  literally anywhere else. It also overrides `PWD` (starship prefers it over the real cwd) and
+  makes a second `--right` call, since `right_format` is not part of the left prompt.
+- Every preview failure path returns `None` and degrades to the offline renderer. A preview must
+  never be able to end the wizard.
+
+Not yet built: configurators for anything other than starship, and round-tripping an existing
+hand-edited config back into wizard state (the timestamped backup is the safety net instead).
+
 ## Specs (`docs/specs/`)
 
 Design documents live in `docs/specs/<feature>/` — `specifications.md` (numbered, testable
@@ -258,6 +314,12 @@ Not yet built: an `add` wizard for agent tools, and `catalog import`/`export` fo
 - **No new runtime dependencies for the agent.** The Ollama transport is stdlib `urllib` against
   `/api/chat`; the REPL uses `prompt_toolkit`, already vendored via questionary. devstuff is a
   globally installed CLI, so every dependency is a cost paid by users who never run `agent`.
+- **Configuration is Python, installation is YAML.** The no-per-tool-code rule covers *install
+  mechanisms*, which generalise; per-tool config formats don't. `configure/` is a registry of
+  Python wizards on purpose — see the section above before trying to fold it into `tools.yaml`.
+- **A config wizard previews with the real binary, not an approximation.** `starship prompt`
+  against a temp config in a throwaway project is the source of truth; the offline renderer is a
+  labelled fallback for when the tool isn't installed (and is what unit tests exercise).
 - **Functions get a parallel catalog/registry instead of extending `GenericTool`.** The
   schemas diverge enough (no `requires` inference, a `params` list, no install/remove
   lifecycle) that folding them into the tool catalog would be lossy; some duplication with
