@@ -39,3 +39,4 @@ They are most useful when they capture:
 | Feature | Status |
 |---------|--------|
 | [`agent/`](agent/) — `devstuff agent`, the local-model agent | Complete (v1) |
+| [`starship-config/`](starship-config/) — `devstuff configure starship`, the prompt wizard | Complete (v1) |

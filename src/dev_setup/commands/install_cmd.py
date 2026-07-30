@@ -49,10 +49,14 @@ def _install_one(tool: Tool) -> bool:
         if version:
             msg += f": {version}"
         ui.success(msg)
-        return True
     except Exception as exc:
         ui.error(f"Failed to install {tool.name}: {exc}")
         return False
+
+    # A freshly installed tool with a setup wizard is the moment to mention it.
+    from dev_setup.commands.configure_cmd import offer_after_install
+    offer_after_install(tool.key)
+    return True
 
 
 def _install_interactive() -> None:
