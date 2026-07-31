@@ -173,8 +173,9 @@ ones tools already have.
 ## Configurators (`configure/`) — tool-specific wizards, deliberately *not* catalog-driven
 
 `src/dev_setup/configure/` holds per-tool setup wizards (`devstuff configure <tool>`), registered
-in a `CONFIGURATORS` dict keyed by catalog tool key. `starship` is the first one:
-`configure/starship/{model,render,preview,wizard}.py`.
+in a `CONFIGURATORS` dict keyed by catalog tool key. There are two:
+`configure/starship/{model,render,preview,wizard}.py` and
+`configure/commitizen/{model,render,detect,validate,wizard}.py`.
 
 **Why this one breaks the YAML-catalog rule.** Installation generalises into ~7 mechanisms, which
 is what makes `GenericTool` possible. Configuration does not: starship's config is a TOML file of
@@ -244,8 +245,46 @@ or palette is one entry; no other file changes.
   the ordinary catalog path (`nerd-font` in `tools.yaml` → `install_cmd.install_by_key`), never a
   private download (SD-10).
 
-Not yet built: configurators for anything other than starship, and round-tripping an existing
-hand-edited config back into wizard state (the timestamped backup is the safety net instead).
+**Within the commitizen configurator, the object being configured is a list of commit types, not
+a settings sheet.** `TYPES` in `model.py` is ordered (declaration order *is* prompt order, changelog
+order and regex-alternation order), and `render.py` derives all nine `cz_customize` settings from
+it — so adding a type is one `ChangeType` record and it reaches `bump_pattern`, `bump_map`,
+`schema_pattern`, `change_type_map`, `change_type_order`, `commit_parser` and `questions` with no
+other edit. Full reasoning in `docs/specs/commitizen-config/`.
+
+**Things learned from the real binary — don't "simplify" these away:**
+- `bump_map` is an **ordered** map and commitizen `break`s at the first key that `re.match`es, so
+  the two breaking-change rules (`^.+!$`, `^BREAKING[\-\ ]CHANGE`) must be emitted first. Reorder
+  them and `feat(api)!:` silently ships as a MINOR.
+- What `bump_map`'s keys are matched against is **group 1 of `bump_pattern`** (`feat(api)!`), not
+  the commit message. That is why `^.+!$` works at all, and why every selected type belongs in the
+  pattern even when it has no map entry.
+- `schema_pattern` must always accept the `bump:` prefix (`ALWAYS_ACCEPTED` in `model.py`):
+  `cz bump` writes its own commit with that prefix, and `cz check --rev-range` over a release
+  otherwise rejects commitizen's own commit. `cz_conventional_commits` accepts `bump` for exactly
+  this reason without ever offering it in the picker.
+- `commit_parser`'s trailing `|\w+!` alternative is load-bearing: it is what keeps `docs!: …` (a
+  breaking change on a type with no changelog section) in the release notes at all. Verified — it
+  lands in an unlabelled group rather than vanishing.
+- The `BREAKING CHANGE` changelog heading only collects commits with a **footer**. A `feat!:` still
+  bumps the major but is written up under Features, because that is the type it declared.
+- Regexes are emitted as TOML **literal** strings (`'…'`) so no backslash needs doubling;
+  `message_template` and `schema` are the exceptions (they carry real newlines, so they are basic
+  strings). A user-supplied value containing a quote falls back to a basic string automatically.
+- `config_path()` mirrors `commitizen.config.read_cfg`: search order *and* the rule that a file
+  without a `commitizen` section doesn't count — otherwise every Python project on disk looks
+  already-configured because it has a `pyproject.toml`.
+- The `pyproject.toml` splice is line-based, so it verifies itself by parsing the result back and
+  comparing the settings; a mismatch returns `None` and the caller writes `.cz.toml` instead. Don't
+  replace that check with reasoning about which files it can handle.
+- `validate.py` is the "measured, not assumed" half: it replays commits through the real
+  `cz bump --dry-run` in a throwaway repo. It runs on an explicit menu action plus once at save
+  time — not on every redraw (~3s, unlike starship's millisecond preview) — and a disagreement
+  *warns*, it never vetoes a save. Keep that distinction in the comments.
+
+Not yet built: configurators for anything other than starship and commitizen, and round-tripping an
+existing hand-edited config back into wizard state (the timestamped backup is the safety net
+instead).
 
 ## Specs (`docs/specs/`)
 

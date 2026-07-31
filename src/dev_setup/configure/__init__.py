@@ -39,6 +39,12 @@ class Configurator:
 
 
 CONFIGURATORS: dict[str, Configurator] = {
+    "commitizen": Configurator(
+        key="commitizen",
+        label="Commitizen",
+        description="Commit types, what each one bumps, tags and changelog sections",
+        module="dev_setup.configure.commitizen.wizard",
+    ),
     "starship": Configurator(
         key="starship",
         label="Starship",
