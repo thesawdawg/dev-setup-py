@@ -40,3 +40,4 @@ They are most useful when they capture:
 |---------|--------|
 | [`agent/`](agent/) — `devstuff agent`, the local-model agent | Complete (v1) |
 | [`starship-config/`](starship-config/) — `devstuff configure starship`, the prompt wizard | Complete (v1) |
+| [`commitizen-config/`](commitizen-config/) — `devstuff configure commitizen`, the commit-convention and bump-rule wizard | Complete (v1) |

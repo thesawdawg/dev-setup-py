@@ -52,6 +52,7 @@ jobs:
       matrix:
         tool:
           - aws
+          - commitizen  # uvx tool, requires uv
           - eza
           - gh
           - git-lfs
