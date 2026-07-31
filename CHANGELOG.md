@@ -1,3 +1,10 @@
+## v1.17.0 (2026-07-31)
+
+### Feat
+
+- starship config font validation and install
+- **configure**: add a starship prompt setup wizard with live preview
+
 ## v1.16.0 (2026-07-24)
 
 ### Feat
