@@ -1,7 +1,7 @@
 # Development Plan: `devstuff configure starship`
 
 **Date:** 2026-07-30
-**Status:** Milestones 1–5 complete
+**Status:** Milestones 1–6 complete
 
 ---
 
@@ -14,6 +14,7 @@
 | 3 | Preview | `configure/starship/preview.py` (live, via `starship prompt` in a sample project) + `render.sample_markup()` (offline fallback) | Live path prints ANSI for a real config; offline path renders every selected section with starship absent |
 | 4 | Wizard + command | `configure/starship/wizard.py`, `commands/configure_cmd.py`, registry in `configure/__init__.py`, CLI wiring | `devstuff configure starship` walks the steps, previews after each, saves with a backup |
 | 5 | Integration + docs | post-install offer in `install_cmd.py`, help text, README, CLAUDE.md, this spec | `devstuff install starship` offers the wizard; docs describe how to add a configurator |
+| 6 | Preset + section expansion (v2) | `POWERLINES` glyph sets, bracketed presets, three more palettes, `show_versions`, custom modules (`custom.compose`) and 10 further sections | Every preset × palette × layout × versions combination is accepted by the real binary with **no stderr output**, and the compose command resolves the same name Compose would |
 
 ## Testing Strategy
 
@@ -39,9 +40,27 @@
   drive a full run and assert the written file reflects every choice; a cancel writes nothing.
 - **Registry:** `configure.get()` / `keys()` resolve starship and reject unknown keys.
 
-Manual verification (documented, not automated — CI has no starship):
-`starship print-config` against a generated file for each preset, and a visual check of the live
-preview for `plain` / `icons` / `powerline`.
+- **Presets as data:** every preset's `powerline` is one of the declared glyph sets; a preset with
+  no bars emits none of those glyphs anywhere in the file; each powerline preset's own four glyphs
+  appear in the expected counts (one cap, one transition per role change, one closing separator).
+- **Brackets / versions:** bracketed presets wrap every body except the one that brackets itself;
+  hiding versions drops `$version` and the symbol's trailing space, and is recorded in the header.
+- **Custom modules:** `${custom.compose}` is braced in `format`, the table is nested under
+  `custom`, and the shell script round-trips byte for byte through the multi-line literal string.
+- **Prompt symbol escaping:** the plain presets emit `[\$]`, not `[$]` (FR-20).
+
+Verification against the real binary (not in CI, which has no starship — run from the repo when
+touching the emitter):
+
+```python
+# for every preset × palette × layout × show_versions, with every section selected:
+#   starship print-config, starship prompt, starship prompt --right
+#   assert returncode == 0 and stderr == ""     # a *warning* is a failure here
+```
+
+That sweep is 1008 invocations and is how the `character`-module bug in §6a was found; a config
+that merely parses is not enough, since starship degrades unknown keys and bad format strings to
+a stderr warning and an empty render. Plus a visual check of the live preview per preset.
 
 ## Risks
 

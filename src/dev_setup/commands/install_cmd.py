@@ -33,6 +33,20 @@ def install_cmd(packages: tuple[str, ...], verbose: bool) -> None:
             sys.exit(1)
 
 
+def install_by_key(key: str) -> bool:
+    """Install one tool by catalog key, reporting through the normal install output.
+
+    For callers outside the command layer — a configurator that offers to install a
+    prerequisite it has found missing, rather than telling the user to run a second
+    command and come back.
+    """
+    tool = registry.get(key)
+    if tool is None:
+        ui.error(f"Unknown package: '{key}'")
+        return False
+    return _install_one(tool)
+
+
 def _install_one(tool: Tool) -> bool:
     ui.section(tool.name)
     if tool.is_installed():

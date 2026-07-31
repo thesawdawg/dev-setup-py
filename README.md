@@ -184,10 +184,36 @@ Four questions, with the prompt re-rendered after each one:
 
 | Step | Options |
 |------|---------|
-| **Style** | `Plain text` (ASCII, any font) · `Icons` (Nerd Font glyphs) · `Powerline` (solid colour bars) |
-| **Palette** | `Terminal colours` (inherits your terminal theme) · Catppuccin Mocha · Nord · Gruvbox Dark · Tokyo Night |
-| **Sections** | Grouped checkbox over ~22 modules: directory, git branch/status/state, 8 language runtimes, package version, Docker/Kubernetes/AWS/Terraform/Nix, command duration, jobs, clock, username/hostname |
+| **Style** | `Plain text` · `Bracketed segments` (both ASCII, any font) · `Icons` · `Icons, bracketed` (Nerd Font glyphs) · `Powerline`, `Powerline, rounded`, `Powerline, slanted` (solid colour bars) |
+| **Palette** | `Terminal colours` (inherits your terminal theme) · Catppuccin Mocha · Nord · Gruvbox Dark · Tokyo Night · Dracula · Rosé Pine · Catppuccin Latte (light) |
+| **Sections** | Grouped checkbox over ~35 modules — see the table below |
 | **Layout** | Single line · Two lines · Two lines with shell info right-aligned (needs zsh/fish/nushell — bash has no right prompt) |
+
+| Group | Sections |
+|-------|----------|
+| **Context** | username, hostname (over SSH), container (Docker/toolbox/distrobox) |
+| **Location** | current directory |
+| **Git** | branch, commit hash (when detached), status (dirty/ahead/behind), operation in progress |
+| **Languages** | Node.js, Deno, Bun, Python, Rust, Go, Java, PHP, Ruby, Elixir, .NET, package version |
+| **Infrastructure** | Docker context, **Docker Compose project**, Kubernetes context, AWS profile, Google Cloud project, Azure subscription, Terraform workspace, Nix shell |
+| **Shell** | command duration, exit code of the last command, background jobs, nested shell depth, clock |
+
+The review menu adds two content toggles: the blank line between prompts, and whether language
+sections show **version numbers** or just the runtime's symbol.
+
+If you pick a style that needs a Nerd Font and there isn't one on the machine, the wizard says
+so in the style list itself (`Needs a Nerd Font — none installed here.`) and offers to install
+`nerd-font` right there — once per run, whether you say yes or no. Two cases it handles rather
+than pretending otherwise: over SSH it points you at [nerdfonts.com](https://www.nerdfonts.com/)
+instead, because the glyphs are drawn by the terminal on *your* machine, not the one you're
+configuring; and after installing it reminds you to actually select the font in your terminal's
+settings, which is a preference no shell can change for you. Without `fontconfig` there is no way
+to enumerate fonts, so the wizard says nothing rather than guessing.
+
+The Compose section is a starship [custom module](https://starship.rs/config/#custom-commands)
+rather than a built-in one — it reports the project name `docker compose` in that directory would
+actually use (`$COMPOSE_PROJECT_NAME`, else a top-level `name:` in the compose file, else the
+lowercased directory name), and it only runs at all when there is a compose file next to you.
 
 The preview is the real thing: the candidate config is written to a temp file and rendered by
 your installed `starship` binary inside a throwaway sample project (a git repo with language
@@ -636,6 +662,7 @@ Optional utilities you may want on some machines.
 | `gh` | GitHub CLI | GitHub's official CLI | `gh --help` |
 | `htop` | htop | Interactive process and resource monitor | `man htop` |
 | `mkcert` | mkcert | Zero-config local HTTPS certificates | `mkcert --help` |
+| `nerd-font` | JetBrainsMono Nerd Font | Patched font supplying the icons Starship and other CLI tools draw | `fc-list \| grep -i "nerd font"` |
 | `ollama` | Ollama | Run large language models locally | `ollama --help` |
 | `php` | PHP 8.4 | PHP 8.4 + common extensions via ondrej/php PPA | `php --help` |
 | `pi` | Pi Coding Agent | AI coding agent npm package | `pi --help` |

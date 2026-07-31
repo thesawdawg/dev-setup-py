@@ -18,6 +18,7 @@ from rich.table import Table
 from rich.text import Text
 
 from dev_setup import base, ui
+from dev_setup.configure.starship import fonts
 from dev_setup.configure.starship import preview as live
 from dev_setup.configure.starship.model import (
     GROUPS,
@@ -49,18 +50,91 @@ def config_path() -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _ask_preset(cfg: StarshipConfig) -> str:
+class _FontGate:
+    """Notices that an icon preset has been chosen on a machine with no Nerd Font.
+
+    One probe and at most one offer per wizard run: the style question can be revisited
+    from the review menu, and being asked about fonts every time would be a punishment
+    for browsing. Declining is remembered too — the answer was "no", not "ask again".
+    """
+
+    def __init__(self) -> None:
+        self._detected: bool | None = fonts.detect()
+        self._offered = False
+
+    def note(self) -> str:
+        """The suffix appended to the description of every Nerd Font preset."""
+        if self._detected is True:
+            return " Needs a Nerd Font — you have one."
+        if self._detected is False:
+            return " Needs a Nerd Font — none installed here."
+        return " Needs a Nerd Font."
+
+    def offer(self) -> None:
+        if self._offered or self._detected is not False:
+            # None means fontconfig could not tell us. Nagging on a guess would be
+            # worse than the icons simply rendering, so stay quiet.
+            return
+        self._offered = True
+        ui.console.print()
+        ui.warn("No Nerd Font found — the icons in this style will show as blank boxes.")
+
+        if fonts.is_remote_session():
+            # The glyphs are drawn by the terminal emulator, which is on the other end
+            # of this connection; a font installed here would never be used.
+            ui.dim("  You are over SSH, so the font has to go on the machine your")
+            ui.dim(f"  terminal is running on: {fonts.NERD_FONT_URL}")
+            return
+
+        from dev_setup import registry
+        from dev_setup.commands.install_cmd import install_by_key
+
+        tool = registry.get(fonts.NERD_FONT_KEY)
+        if tool is None:  # pragma: no cover — the key is built in
+            ui.dim(f"  Install one from {fonts.NERD_FONT_URL}")
+            return
+
+        if tool.is_installed():
+            # The files are there but fontconfig does not see them, or the terminal is
+            # simply pointed at a different font — either way there is nothing to install.
+            ui.dim(f"  {tool.name} is already installed.")
+            self._remind_to_select(tool.name)
+            return
+
+        if not ui.confirm(f"Install {tool.name} now?", default=True):
+            ui.dim(f"  You can install one later:  devstuff install {fonts.NERD_FONT_KEY}")
+            return
+
+        if install_by_key(fonts.NERD_FONT_KEY):
+            self._detected = fonts.detect()
+            self._remind_to_select(tool.name)
+
+    def _remind_to_select(self, name: str) -> None:
+        """Installing a font does not switch the terminal to it — that is a setting in
+        the terminal emulator, and nothing devstuff can do from inside the shell."""
+        ui.console.print()
+        ui.info(f"Set your terminal's font to '{name}' to see the icons.")
+        ui.dim("  It is a terminal preference, not a shell setting — the preview below")
+        ui.dim("  will keep showing boxes until you change it.")
+        ui.console.print()
+
+
+def _ask_preset(cfg: StarshipConfig, font: _FontGate | None = None) -> str:
     # Descriptions go in `description` rather than the title: questionary shows them
     # for the highlighted row only, so a long explanation cannot wrap the whole list.
+    note = font.note() if font else " Needs a Nerd Font."
     choices = [
         questionary.Choice(
             title=p.label,
             value=p.key,
-            description=p.description + (" Needs a Nerd Font." if p.nerd_font else ""),
+            description=p.description + (note if p.nerd_font else ""),
         )
         for p in PRESETS.values()
     ]
-    return _select("Prompt style:", choices, cfg.preset)
+    chosen = _select("Prompt style:", choices, cfg.preset)
+    if font and PRESETS[chosen].nerd_font:
+        font.offer()
+    return chosen
 
 
 def _ask_palette(cfg: StarshipConfig) -> str:
@@ -221,6 +295,7 @@ _MENU = {
     "palette": "Change the colour palette",
     "sections": "Change which sections show",
     "layout": "Change the layout",
+    "versions": "Toggle language version numbers",
     "spacing": "Toggle the blank line between prompts",
     "toml": "Show the generated TOML",
     "cancel": "Cancel without saving",
@@ -234,6 +309,7 @@ def run(*, target: Path | None = None) -> StarshipConfig | None:
     config out without touching the live one.
     """
     cfg = StarshipConfig()
+    font = _FontGate()
 
     ui.section("Set up your Starship prompt")
     ui.dim("Pick a look, choose what shows up, and watch the prompt change as you go.")
@@ -245,7 +321,7 @@ def run(*, target: Path | None = None) -> StarshipConfig | None:
             ui.warn("starship is not installed — previews will be approximate.")
             ui.dim("  Install it with:  devstuff install starship")
 
-        cfg.preset = _ask_preset(cfg)
+        cfg.preset = _ask_preset(cfg, font)
         _show_preview(cfg, box)
         cfg.palette = _ask_palette(cfg)
         _show_preview(cfg, box)
@@ -270,13 +346,15 @@ def run(*, target: Path | None = None) -> StarshipConfig | None:
                 ui.code_block(to_toml(cfg), language="toml")
                 continue
             if action == "style":
-                cfg.preset = _ask_preset(cfg)
+                cfg.preset = _ask_preset(cfg, font)
             elif action == "palette":
                 cfg.palette = _ask_palette(cfg)
             elif action == "sections":
                 cfg.sections = _ask_sections(cfg)
             elif action == "layout":
                 cfg.layout = _ask_layout(cfg)
+            elif action == "versions":
+                cfg.show_versions = not cfg.show_versions
             elif action == "spacing":
                 cfg.blank_line = not cfg.blank_line
 

@@ -35,6 +35,14 @@ MARKER_FILES = {
     "composer.json": '{\n  "name": "example/api"\n}\n',
     "Gemfile": "source 'https://rubygems.org'\n",
     "pom.xml": "<project><artifactId>api</artifactId></project>\n",
+    "mix.exs": 'defmodule Api.MixProject do\n  use Mix.Project\nend\n',
+    "deno.json": '{\n  "name": "api"\n}\n',
+    "global.json": '{\n  "sdk": { "version": "8.0.0" }\n}\n',
+    # The Compose section is a custom command rather than a language module, so this
+    # is the one marker that makes a section render without a toolchain installed.
+    "compose.yaml": "name: api\nservices:\n  web:\n    image: nginx\n",
+    # No `bun.lock`: starship's nodejs module lists it as a negative detector, so a
+    # bun marker here would silently switch the Node section off in the preview.
 }
 
 

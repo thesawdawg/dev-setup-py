@@ -184,6 +184,10 @@ ordered section model with colour roles, and a template language — a programmi
 in YAML. So configurators are Python, dispatched from a dict, the same shape as `_INSTALLERS` in
 `generic.py`. Full reasoning in `docs/specs/starship-config/stack-decisions.md` (SD-1).
 
+A configurator that finds a missing *prerequisite* should offer to install it through
+`install_cmd.install_by_key(key)` rather than telling the user to run a second command — that is
+what the starship wizard does for `nerd-font`.
+
 **Adding a configurator** — a new module plus one dict entry. The module must expose
 `run(*, target: Path | None = None)` (returns `None` if the user cancelled; writes nothing until
 they confirm) and `config_path() -> Path`. Everything generic — the picker, install-state check,
@@ -205,20 +209,40 @@ or palette is one entry; no other file changes.
 - Not every module spells the colour key `style` — hence `Section.style_key` (`username` wants
   `style_user`). `battery` is deliberately absent: it accepts neither `style` nor `symbol` (both
   live in its `[[battery.display]]` array), so it would cost three quirk fields for one section.
-- `kubernetes` and `time` ship *disabled*; listing them in `format` isn't enough, they need
-  `disabled = false`.
+- `kubernetes`, `time`, `azure`, `status` and `shlvl` ship *disabled*; listing them in `format`
+  isn't enough, they need `disabled = false`. `os` and `git_metrics` are absent for the same
+  reason `battery` is: `os` takes its symbol from an `[os.symbols]` distro table, `git_metrics`
+  has `added_style`/`deleted_style` instead of `style`.
 - Format strings are emitted as TOML **literal** strings (`'…'`) so starship's `$`, `[`, and `\[`
   grammar needs no escaping. The multi-line top-level `format` is the one basic string, and it
   contains no backslashes of its own beyond the line continuations.
 - Powerline transitions are emitted per **run of consecutive sections sharing a palette role**, not
   per section — otherwise two adjacent language segments draw an arrow between two identical
-  backgrounds.
+  backgrounds. The three powerline presets differ *only* in the four glyphs in their `Powerline`
+  record (`POWERLINES` in `model.py`); nothing in the emitter knows which variant it is drawing.
+- Any literal text the emitter writes into a format string is escaped with `_escape_format()`.
+  This is not theoretical: `success_symbol = '[$](bold fg:ok)'` made starship read `$` as the start
+  of a variable name, so the `plain` preset shipped with *no prompt symbol at all* until it was
+  caught by sweeping every combination and asserting empty stderr.
+- A custom module (`custom.compose`) is a normal `Section`, but its dotted key has to be written
+  `${custom.compose}` in `format` — hence `Section.ref`. It also runs a shell command on **every**
+  prompt, so it carries a `when` guard, and anything needing the network is disqualified.
+- Symbols for new sections come from `starship print-config --default` — the module's own shipped
+  glyph — rather than being picked from a Nerd Font chart that can't be verified without the font.
+- The sample project must never gain a `bun.lock`: starship's `nodejs` module lists it as a
+  *negative* detector, so it silently switches the Node section off in previews.
 - The live preview runs `starship prompt` with `STARSHIP_SHELL=nu`, not `bash`: for bash, starship
   wraps escapes in readline's `\[`/`\]` markers, which are invisible inside a `PS1` and print
   literally anywhere else. It also overrides `PWD` (starship prefers it over the real cwd) and
   makes a second `--right` call, since `right_format` is not part of the left prompt.
 - Every preview failure path returns `None` and degrades to the offline renderer. A preview must
   never be able to end the wizard.
+- The Nerd Font gate (`configure/starship/fonts.py`) is allowed to answer "don't know": without
+  fontconfig there is nothing to enumerate, and `None` means *stay silent* rather than warn. It
+  also refuses to install over SSH — the glyphs are drawn by the client's terminal — and always
+  says that installing a font does not repoint the terminal at it. The install itself goes through
+  the ordinary catalog path (`nerd-font` in `tools.yaml` → `install_cmd.install_by_key`), never a
+  private download (SD-10).
 
 Not yet built: configurators for anything other than starship, and round-tripping an existing
 hand-edited config back into wizard state (the timestamped backup is the safety net instead).
