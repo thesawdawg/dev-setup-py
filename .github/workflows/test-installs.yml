@@ -61,6 +61,7 @@ jobs:
           - java
           - lazygit
           - mkcert
+          - nerd-font
           - nvm
           - php
           - pi          # installs nvm first via its declared `requires`

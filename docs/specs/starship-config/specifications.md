@@ -1,7 +1,7 @@
 # Specification: `devstuff configure starship`
 
 **Date:** 2026-07-30
-**Status:** Implemented (v1)
+**Status:** Implemented (v2 — preset/section expansion, 2026-07-30)
 **Authors:** Sawyer + Claude
 
 ---
@@ -52,9 +52,9 @@ after every change, before anything is written to disk.
 | FR-0 | Every generated config is accepted by `starship print-config` with no warnings, for every style × palette × layout combination. | Must |
 | FR-1 | `devstuff configure` lists tools that have a configurator and their install state; with no argument in a terminal it offers a picker. | Must |
 | FR-2 | `devstuff configure starship` runs a wizard covering: style preset, colour palette, sections, layout, and blank-line spacing. | Must |
-| FR-3 | Three style presets — `plain` (ASCII, no icons), `icons` (Nerd Font glyphs), `powerline` (solid colour bars). Presets that need a Nerd Font say so at the point of choosing. | Must |
+| FR-3 | Seven style presets — `plain` and `bracketed` (no Nerd Font needed), `icons` and `icons_bracketed` (Nerd Font glyphs), and `powerline`, `powerline_round`, `powerline_slant` (solid colour bars, differing only in their four separator glyphs). Presets that need a Nerd Font say so at the point of choosing. | Must |
 | FR-4 | Sections are a curated, grouped list (Context / Location / Git / Languages / Infrastructure / Shell) presented as a checkbox with sensible defaults pre-checked. | Must |
-| FR-5 | Five palettes — `terminal` (inherits the terminal's ANSI theme) plus `catppuccin_mocha`, `nord`, `gruvbox_dark`, `tokyo_night`. Every palette defines the same semantic roles (`dir`, `git`, `lang`, `infra`, `shell`, `ok`, `err`, `muted`, `bar_text`). | Must |
+| FR-5 | Eight palettes — `terminal` (inherits the terminal's ANSI theme) plus `catppuccin_mocha`, `nord`, `gruvbox_dark`, `tokyo_night`, `dracula`, `rose_pine` and `catppuccin_latte` (the one for light terminals). Every palette defines the same semantic roles (`dir`, `git`, `lang`, `infra`, `shell`, `ok`, `err`, `muted`, `bar_text`). | Must |
 | FR-6 | Three layouts — single line, two lines, two lines with the Shell-group sections right-aligned in `right_format`. | Must |
 | FR-7 | After every change the wizard re-renders a **live preview** by writing the candidate TOML to a temp file and running `starship prompt` with `STARSHIP_CONFIG` pointed at it, inside a throwaway sample project (git repo + language marker files). | Must |
 | FR-8 | When `starship` is not on `PATH`, or `starship prompt` fails, the wizard falls back to an offline approximation rendered from the same section/palette data, and says which one is being shown. | Must |
@@ -65,7 +65,12 @@ after every change, before anything is written to disk.
 | FR-13 | After saving, if `~/.bashrc` has no starship init hook, the wizard offers to add one using the same `# Starship prompt` marker the installer uses, so `devstuff remove starship` still cleans it up. | Should |
 | FR-14 | After a successful `devstuff install <tool>` for a tool that has a configurator, an interactive run offers to launch it. | Should |
 | FR-15 | The generated TOML parses as valid TOML and every emitted format string is a TOML *literal* string, so starship's `$`/`[`/`\` grammar needs no escaping. | Must |
-| FR-16 | Modules that starship disables by default (`kubernetes`, `time`) get an explicit `disabled = false` when selected. | Must |
+| FR-16 | Modules that starship disables by default (`kubernetes`, `time`, `azure`, `status`, `shlvl`) get an explicit `disabled = false` when selected. | Must |
+| FR-18 | Sections may be starship **custom modules** (`[custom.<name>]`, a shell command starship runs). `custom.compose` reports the Docker Compose project name the current directory resolves to — `$COMPOSE_PROJECT_NAME`, else a top-level `name:` in the compose file, else the lowercased directory name. Every custom module carries a `when` guard so nothing runs outside the project it describes. | Should |
+| FR-19 | A review-menu toggle hides language **version numbers**, keeping the runtime's symbol (starship's own "no runtime versions" look). It is recorded in the generated file's header comment. | Should |
+| FR-20 | Text the wizard emits as a *literal* (today: the prompt symbol) is escaped against starship's format grammar. Verified: an unescaped `$` makes the `character` module fail to parse and render nothing at all. | Must |
+| FR-21 | Choosing a style that needs a Nerd Font on a machine where none is installed warns, and offers to install the `nerd-font` catalog tool in place. At most one offer per wizard run, whichever way it is answered. The Nerd Font presets' descriptions carry the detection result, so it is visible *before* choosing. | Should |
+| FR-22 | Font detection may be inconclusive (no `fontconfig`), and says so rather than guessing: an unknown result produces no warning and no offer. Over SSH the wizard installs nothing and points at nerdfonts.com, since the glyphs are drawn by the client's terminal. After a successful install it states that the terminal's font still has to be changed by hand. | Should |
 | FR-17 | Cancelling — at any prompt (Ctrl-C) or via the menu — writes nothing and exits 0 with a note. | Must |
 
 ## 4. Non-Functional Requirements
@@ -89,6 +94,7 @@ after every change, before anything is written to disk.
 | `sections` | `list[str]` | selected starship module names |
 | `layout` | `single` \| `two_line` \| `two_line_right` | where `$character` goes, and whether Shell sections move right |
 | `blank_line` | `bool` | starship's `add_newline` |
+| `show_versions` | `bool` | whether language sections keep `$version` (FR-19) |
 
 `SECTIONS` is an ordered tuple of `Section` records — the canonical prompt order. Each carries
 the starship module name, its wizard label and group, a palette role, the module `format` body
@@ -102,9 +108,18 @@ Adding a section is one entry in that tuple — no other file changes.
 - **Non-powerline:** module `style = 'fg:<role>'`, `format = '[<body>]($style) '`. The trailing
   space lives inside the module format so it disappears with the module.
 - **Powerline:** module `style = 'fg:bar_text bg:<role>'`, `format = '[ <body> ]($style)'`. The
-  top-level format opens with a `` cap, joins **runs of consecutive sections sharing a role**
-  with `` transitions, and closes with a trailing ``. Grouping by run is what stops two
-  adjacent language segments from drawing an arrow between two identical backgrounds.
+  top-level format opens with the preset's `cap_left`, joins **runs of consecutive sections
+  sharing a role** with its `sep`, and closes with a trailing `sep`; the right prompt is the
+  mirror (`sep_left` … `cap_right`). Grouping by run is what stops two adjacent language segments
+  from drawing an arrow between two identical backgrounds. The four glyphs are the *only*
+  difference between the three powerline presets (SD-8).
+- **Bracketed presets** wrap each body in literal `\[`/`\]`, except for a section whose body
+  already brackets itself (`git_status`), which would otherwise render `[[+2 ?1]]`.
+- **Hiding versions** removes `$version` from every body that has one and trims the symbol's
+  trailing space, since those bodies are all exactly `$symbol$version`.
+- **Custom modules** (`custom.compose`) are referenced as `${custom.compose}`; the braces are
+  required, and their `command`/`shell` values are emitted as a multi-line literal string and a
+  TOML array respectively.
 - **Symbols are always emitted** for any section whose body references `$symbol`, including the
   empty string — otherwise starship's built-in glyph would leak into the `plain` preset. The
   converse is under test: a section carrying an icon its body cannot render is a bug, which is why
@@ -125,6 +140,12 @@ Each of these was found by running the real binary, and each is covered by a tes
 | starship takes the logical path from `PWD` when set, so the preview showed the user's real directory instead of the sample project. | The preview overrides `PWD`. |
 | `right_format` is only rendered by `starship prompt --right`, so the right-prompt layout previewed as if the sections had vanished. | The preview makes a second call and Rich's grid right-aligns it on the cursor line. |
 | starship's `right_format` needs a shell with a right-prompt mechanism; plain bash has none (ble.sh only). | The layout's description says "needs zsh, fish or nushell" at the point of choosing. |
+| **The `plain` preset had no prompt symbol at all.** `success_symbol = '[$](bold fg:ok)'` makes starship read `$` as the start of a variable name: `Error in module 'character' … expected variable_name`, and the module renders empty. Found by diffing `starship prompt` stderr across every preset. | FR-20 — `_escape_format()` escapes `$[]()\\` in any literal the emitter writes. Under test for both plain presets. |
+| A dotted module name in `format` must be braced: `$custom.compose` parses as `$custom` followed by the text `.compose`. | `Section.ref` (SD-9). |
+| `os` cannot join the section list: its `$symbol` comes from an `[os.symbols]` per-distro table, so the `symbol` key every other section sets is not one it accepts. | Dropped, like `battery` — the same "one module, three quirk fields" test. |
+| `git_metrics` has no `style` key at all (`added_style` + `deleted_style`), and its format needs two different styles in one body. | Dropped: the emitter's one-body-one-style shape would have to fork. |
+| Adding `bun.lock` to the sample project silently switched the **Node** section off in previews — starship's `nodejs` module lists it as a negative detector (`!bun.lock`). | The sample project gains `deno.json`, `mix.exs`, `global.json` and `compose.yaml`, but deliberately no bun marker (comment in `preview.py`). |
+| Symbols chosen by hand for new modules are a guess about Nerd Font codepoints that cannot be verified without the font installed. | Every symbol added in v2 was read out of `starship print-config --default` — the module's own shipped glyph. |
 
 ## 7. Open Questions
 
@@ -136,3 +157,8 @@ Each of these was found by running the real binary, and each is covered by a tes
 | Support fish/zsh in the FR-13 init-hook check? | Open. `base.patch_bashrc` is bash-only today; the check is skipped rather than guessed for other shells. |
 | Offer `battery`? | **Resolved 2026-07-30 — no.** See §6a. It is the only module taking neither `style` nor `symbol`; supporting it means a `[[battery.display]]` array-of-tables emitter no other section would use. |
 | Should the wizard offer starship's own official presets (`gruvbox-rainbow`, `pure`, …) as a starting point? | Open. `starship preset <name>` already does this, and the two would compete over the same file. Worth revisiting only if the section list stops being enough. |
+| Offer `os` or `git_metrics`? | **Resolved 2026-07-30 — no.** See §6a: neither accepts the `symbol`/`style` keys every other section sets. |
+| A custom module for the current GitHub PR (`gh pr view`)? | **Resolved 2026-07-30 — no.** A custom module runs on *every* prompt; a network round-trip there stalls the shell. Only local, sub-millisecond commands qualify — which is why `custom.compose` reads a file instead of calling `docker compose`. |
+| The section checkbox is now ~35 entries. Does it need search or per-group collapsing? | Open. questionary's checkbox scrolls and the list is grouped by separators, but a third round of additions probably needs more than that. |
+| Should the font offer cover fonts other than JetBrainsMono? | Open. One catalog entry keeps the offer a yes/no rather than a second picker inside a picker; other Nerd Fonts differ only in the release asset name, so a `nerd-font-<name>` entry is a copy-paste when someone wants one. Detection already accepts *any* Nerd Font, so nobody is nagged for having chosen differently. |
+| Should the wizard *ask* about hiding versions rather than only offering it in the review menu? | Open. It is deliberately not a sixth walk-through question — that walk-through has to stay under a minute — but it is discoverable only from the menu. |

@@ -380,6 +380,54 @@ tools:
       set -euo pipefail
       sudo rm -f /usr/local/bin/mkcert
 
+  nerd-font:
+    name: JetBrainsMono Nerd Font
+    description: Patched monospace font supplying the icons Starship and other CLI tools draw
+    category: customization
+    type: bash
+    # Files first, fontconfig second: the check has to work on a machine with no
+    # fontconfig (a container), and still notice a font installed by other means.
+    check_cmd: ls "$HOME/.local/share/fonts/JetBrainsMonoNerdFont"/*.ttf >/dev/null 2>&1 || fc-list 2>/dev/null | grep -qi "JetBrainsMono Nerd Font"
+    help_cmd: fc-list | grep -i "nerd font"
+    docs_url: https://www.nerdfonts.com/
+    install_script: |
+      set -euo pipefail
+      dest="$HOME/.local/share/fonts/JetBrainsMonoNerdFont"
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl -fsSL -o "$tmpdir/font.zip" \
+        "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
+      mkdir -p "$dest"
+      # python3 rather than unzip: it is already a hard requirement of this repo, and
+      # unzip is not installed on a minimal Ubuntu.
+      python3 - "$tmpdir/font.zip" "$dest" <<'PY'
+      import os
+      import sys
+      import zipfile
+
+      archive, dest = sys.argv[1:3]
+      with zipfile.ZipFile(archive) as zf:
+          for info in zf.infolist():
+              name = os.path.basename(info.filename)
+              if name.lower().endswith((".ttf", ".otf")):
+                  with zf.open(info) as src, open(os.path.join(dest, name), "wb") as out:
+                      out.write(src.read())
+      PY
+      if command -v fc-cache >/dev/null 2>&1; then
+        fc-cache -f "$dest" >/dev/null
+      else
+        echo "fontconfig is not installed, so the font cache was not refreshed."
+        echo "The font files are in $dest."
+      fi
+      echo "Now select 'JetBrainsMono Nerd Font' as your terminal's font — installing it"
+      echo "does not change which font your terminal is configured to use."
+    remove_script: |
+      set -euo pipefail
+      rm -rf "$HOME/.local/share/fonts/JetBrainsMonoNerdFont"
+      if command -v fc-cache >/dev/null 2>&1; then
+        fc-cache -f >/dev/null || true
+      fi
+
   nvm:
     name: NVM + Node LTS
     description: Node Version Manager + latest Node LTS

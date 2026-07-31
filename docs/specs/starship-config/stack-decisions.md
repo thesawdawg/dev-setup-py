@@ -113,3 +113,75 @@ render truthfully. `truncate_to_repo` keeps the preview showing `api` rather tha
   binary, so a selected language shows in the live preview only where that toolchain exists.
   Shimming fake `node`/`python` executables onto `PATH` to fix a *preview* was rejected as
   disproportionate.
+
+## SD-8 — Powerline shape is data; bracketing and version-hiding are flags
+
+**Date: 2026-07-30 (v2 — preset expansion).**
+
+**Decision: a `Powerline` record of four glyphs, and two orthogonal booleans on `Preset`.**
+
+Expanding the style list surfaced the question of what a "preset" actually is. The three
+powerline variants (`arrows`, `round`, `slant`) differ *only* in the four characters that open,
+join and close a run of bars, so they became a `POWERLINES` table that both the emitter and the
+offline preview read — the same "one table, two consumers" arrangement as `SECTIONS`. `Preset`
+now carries a `Powerline | None` instead of a bool: `None` means "no bars", so every existing
+`if preset.powerline` test still reads correctly.
+
+- **Rejected — a preset per combination of look × bracketing × versions.** Bracketing crosses
+  with glyph set and version-hiding crosses with both; enumerating them is 28 presets and a
+  select list nobody can read. Bracketing is a `Preset.brackets` flag (it is part of the *look*
+  the user picks); `show_versions` is a `StarshipConfig` field toggled from the review menu (it
+  is a content decision, orthogonal to every style).
+- **Rejected — a per-section `compact_body`.** Every versioned body in `SECTIONS` is exactly
+  `$symbol$version`, so hiding versions is `body.replace("$version", "")` plus an `rstrip()` of
+  the symbol's trailing space. A second body per section would be data that can disagree with the
+  first.
+
+## SD-9 — A custom module is a section like any other
+
+**Decision: model starship `[custom.*]` modules as ordinary `Section` records.**
+
+`custom.compose` (the Docker Compose project name) is the first section with no starship module
+behind it — it is a shell command starship runs. It needed exactly two things the model did not
+already have: a `ref` property (a dotted module name must be written `${custom.compose}`, since
+`$custom.compose` parses as the `custom` module followed by a literal `.compose`), and multi-line
+literal strings plus TOML arrays in the emitter, for `command` and `shell`.
+
+- **Rejected — a separate `CustomSection` type.** Everything else about it — group, role, symbol,
+  brackets, powerline runs, preview sample — is identical to a real module. A second type would
+  fork every loop in the emitter and both previews to gain one property.
+- **Consequence:** other "not a module, but the shell knows it" sections are now cheap to add. The
+  cost that must stay visible is runtime: a custom module runs a command on **every** prompt, so
+  each one carries a `when` guard whose failure path is a couple of `test -f` calls.
+
+## SD-10 — The font is a catalog tool the wizard *offers*, not something it installs itself
+
+**Date: 2026-07-30 (v2).**
+
+**Decision: `nerd-font` is an ordinary `bash`-type entry in `tools.yaml`; the wizard detects the
+gap and calls the normal install path (`install_cmd.install_by_key`).**
+
+An icon preset on a machine with no Nerd Font produces a prompt full of blank boxes, and the
+wizard is the exact moment that becomes knowable. But installing a font is an *installation*, and
+this repo already has one mechanism for that — with a check, a remove script, a `devstuff list`
+row and an integration test that installs it for real in CI.
+
+- **Rejected — download the font from inside the wizard.** A second, invisible install path with
+  no `remove`, no version reporting and no CI coverage, reachable only by walking a wizard.
+- **Rejected — print "install a Nerd Font" and move on.** That is the loop this whole feature
+  exists to remove; the user is already in a terminal we are allowed to install from.
+- **Rejected — a font picker inside the style question.** One entry keeps the offer a yes/no.
+  Detection matches *any* Nerd Font, so a user who already has FiraCode is never asked at all.
+
+**Three things the honest version has to do**, all of which are in `fonts.py` rather than
+prompt text:
+
+1. **Say "I don't know".** Without `fontconfig` there is no way to enumerate fonts. `detect()`
+   returns `None` and the wizard stays silent — a wrong `False` nags someone whose terminal
+   renders the glyphs perfectly well.
+2. **Not install a font the terminal will never use.** Over SSH the glyphs are drawn by the
+   client's terminal emulator. Installing on the far end would be theatre, so the wizard says
+   where the font actually has to go instead.
+3. **Admit what the install does not do.** Adding font files does not repoint the terminal at
+   them; that is a setting in the emulator. The wizard says so, because the alternative is a user
+   who installs, sees boxes, and concludes the tool is broken.
