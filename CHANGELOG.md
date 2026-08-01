@@ -1,3 +1,9 @@
+## v1.18.0 (2026-08-01)
+
+### Features
+
+- **configure**: add commitizen tool and configuration wizard
+
 ## v1.17.0 (2026-07-31)
 
 ### Feat
