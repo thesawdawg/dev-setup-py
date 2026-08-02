@@ -39,11 +39,42 @@ class Configurator:
 
 
 CONFIGURATORS: dict[str, Configurator] = {
+    "ansible": Configurator(
+        key="ansible",
+        label="Ansible",
+        description="ansible.cfg — inventory paths, forks, pipelining, become and vault",
+        module="dev_setup.configure.ansible.wizard",
+    ),
+    "bat": Configurator(
+        key="bat",
+        label="bat",
+        description="Theme, decorations, paging and the man-page/cat shell integration",
+        module="dev_setup.configure.bat.wizard",
+    ),
     "commitizen": Configurator(
         key="commitizen",
         label="Commitizen",
         description="Commit types, what each one bumps, tags and changelog sections",
         module="dev_setup.configure.commitizen.wizard",
+    ),
+    "docker": Configurator(
+        key="docker",
+        label="Docker",
+        description="Log rotation, address pools and daemon behaviour in daemon.json",
+        module="dev_setup.configure.docker.wizard",
+    ),
+    "lazygit": Configurator(
+        key="lazygit",
+        label="lazygit",
+        description="Icons, diff pager, panels and git behaviour in config.yml",
+        module="dev_setup.configure.lazygit.wizard",
+    ),
+    # The catalog key is hyphenated; the package cannot be, hence `precommit`.
+    "pre-commit": Configurator(
+        key="pre-commit",
+        label="pre-commit",
+        description="Which git hooks run, when they run, and what they are allowed to rewrite",
+        module="dev_setup.configure.precommit.wizard",
     ),
     "starship": Configurator(
         key="starship",

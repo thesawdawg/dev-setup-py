@@ -41,3 +41,8 @@ They are most useful when they capture:
 | [`agent/`](agent/) — `devstuff agent`, the local-model agent | Complete (v1) |
 | [`starship-config/`](starship-config/) — `devstuff configure starship`, the prompt wizard | Complete (v1) |
 | [`commitizen-config/`](commitizen-config/) — `devstuff configure commitizen`, the commit-convention and bump-rule wizard | Complete (v1) |
+| [`precommit-config/`](precommit-config/) — `devstuff configure pre-commit`, the git-hook wizard | Complete (v1) |
+| [`docker-config/`](docker-config/) — `devstuff configure docker`, the daemon.json wizard | Complete (v1) |
+| [`bat-config/`](bat-config/) — `devstuff configure bat`, the theme and decoration wizard | Complete (v1) |
+| [`ansible-config/`](ansible-config/) — `devstuff configure ansible`, the ansible.cfg wizard | Complete (v1) |
+| [`lazygit-config/`](lazygit-config/) — `devstuff configure lazygit`, the icons/pager/panels wizard | Complete (v1) |

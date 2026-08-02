@@ -173,9 +173,27 @@ ones tools already have.
 ## Configurators (`configure/`) — tool-specific wizards, deliberately *not* catalog-driven
 
 `src/dev_setup/configure/` holds per-tool setup wizards (`devstuff configure <tool>`), registered
-in a `CONFIGURATORS` dict keyed by catalog tool key. There are two:
-`configure/starship/{model,render,preview,wizard}.py` and
-`configure/commitizen/{model,render,detect,validate,wizard}.py`.
+in a `CONFIGURATORS` dict keyed by catalog tool key. There are seven:
+`configure/starship/{model,render,preview,fonts,wizard}.py`,
+`configure/commitizen/{model,render,detect,validate,wizard}.py`,
+`configure/precommit/{model,render,detect,validate,wizard}.py` (the package can't be named
+`pre-commit`, so the hyphenated catalog key maps to the `precommit` package in `CONFIGURATORS`),
+`configure/docker/{model,render,detect,validate,wizard}.py`,
+`configure/bat/{model,render,detect,preview,wizard}.py`,
+`configure/ansible/{model,render,detect,validate,wizard}.py` and
+`configure/lazygit/{model,render,detect,validate,wizard}.py`.
+
+**The pattern they all share, and the one thing that matters most when adding another:**
+*measure the tool, don't recall it.* Every configurator's `model.py` was built by interrogating
+the installed binary, and in every single case that turned up something a plausible-sounding
+memory would have got wrong — see each one's "things learned" block below. If you are adding a
+configurator and you have not run the tool, you are guessing.
+
+**The second shared pattern: work out what the tool's own validator does *not* check.** All four
+of the newer wizards found their reason to exist there. `dockerd --validate`, `pre-commit
+validate-config`, `ansible-config validate` and lazygit's startup check each accept configs that
+are silently broken, and each in a different way. Establishing that boundary — by writing a
+deliberately broken config and seeing what happens — is the first thing to do, not the last.
 
 **Why this one breaks the YAML-catalog rule.** Installation generalises into ~7 mechanisms, which
 is what makes `GenericTool` possible. Configuration does not: starship's config is a TOML file of
@@ -282,9 +300,157 @@ other edit. Full reasoning in `docs/specs/commitizen-config/`.
   time — not on every redraw (~3s, unlike starship's millisecond preview) — and a disagreement
   *warns*, it never vetoes a save. Keep that distinction in the comments.
 
-Not yet built: configurators for anything other than starship and commitizen, and round-tripping an
-existing hand-edited config back into wizard state (the timestamped backup is the safety net
-instead).
+**Within the pre-commit configurator, the object being configured is a curated catalog of hooks,
+not arbitrary YAML.** `REPOS`/`HOOKS`/`PRESETS` in `model.py` are ordered and everything else reads
+them — adding a hook is one `Hook` record and it reaches the picker, any preset naming it, the
+language detector, the emitter and the preview with no other edit. Full reasoning in
+`docs/specs/precommit-config/`.
+
+**Things learned from the real binary — don't "simplify" these away:**
+- **`default_install_hook_types` is derived from the selected hooks' stages, never asked.**
+  `pre-commit install` installs *only* the `pre-commit` git hook unless given `--install-hook-types`,
+  so a `commit-msg` hook (commitizen's) without this yields a config that validates, an install
+  that reports success, and a hook that never fires. `install_hook_types()` feeds three places: the
+  emitted key, the `pre-commit install --hook-type` flags, and a check in `verify()`. Verified end
+  to end — with it, `git commit -m "oops no convention"` is rejected.
+- **`pre-commit validate-config` does not check hook ids.** It reads the file's shape and never
+  opens a repository, so a mistyped id passes and fails on the user's next commit. That is why
+  `validate.resolve()` (`pre-commit install-hooks`, network, minutes) exists as a separate level
+  from `verify()` (offline, milliseconds, runs before every save). Don't collapse them.
+- **Quoting asks the YAML parser rather than a rules table** (`render._str`): a scalar is written
+  bare only if `yaml.safe_load(value) == value`. This is what keeps shfmt's indent width `'2'` a
+  string, which pre-commit's schema requires, and a rev like `1.0` from becoming a float.
+- **`repos:` with nothing under it parses as null, not `[]`,** and pre-commit rejects it — the
+  emitter special-cases `repos: []`. Found by the round-trip assertion, not by reasoning.
+- **The emitter writes YAML by hand for the comments, and `render.matches()` parses it back and
+  compares against `render.data()`.** Those two representations must stay in sync; the round-trip
+  test over every preset is what enforces it. Don't swap in `yaml.safe_dump` (loses the comments)
+  or ruamel (a new runtime dependency for one wizard).
+- **`pre-commit autoupdate` can move a pin to a prerelease** (observed: isort `8.0.1` → `9.0.0b1`),
+  so "refresh the revs" shows a diff and confirms rather than applying silently. The GitHub tags
+  API is *not* version-ordered and disagreed with autoupdate in both directions — every rev in
+  `REPOS` is what autoupdate itself resolved.
+- **`ruff-check` carries `--exit-non-zero-on-fix` deliberately.** Without it the hook exits 0
+  having rewritten files, and the fixes silently miss the commit that triggered them.
+- **`Hook.needs` is load-bearing, not documentation.** It surfaces prerequisites on the review
+  screen *and* derives the pre-commit.ci `skip` list — pre-commit.ci has no Docker daemon, so
+  every `language: docker` hook must be skipped there or the whole CI run fails.
+- **Language detection goes through `git ls-files`** so gitignored content can't decide the
+  answer, and needs two files before a language counts — one stray `.sh` in a Python repo must not
+  pull in two Docker-backed hooks.
+- **The commitizen hook is only suggested when a commitizen config exists.** It runs `cz check`,
+  which fails *every* commit without one.
+- Conflicting hook pairs (`ruff-format` + `black`) are **warned about, not refused** — but no
+  shipped preset may contain one, which is a test.
+
+**Within the docker configurator, the object being configured is a daemon that has to be
+restarted before anything takes effect.** Full reasoning in `docs/specs/docker-config/`.
+
+**Things learned from the real binary — don't "simplify" these away:**
+- **`dockerd --validate` accepts five configs that break every container.** Measured: an
+  unloadable log driver, an unknown log option for the chosen driver, `compress: "true"` with
+  `max-file: "1"`, an address pool `size` below its base prefix, and `hosts` alongside a systemd
+  unit passing `-H`. The daemon starts healthy and every `docker run` then fails with an error
+  that never mentions daemon.json. `validate.py` runs `--validate` *and* those checks; do not
+  collapse it into "the tool already validates this".
+- **Per-driver `log-opts` are measured, and two contradict the obvious guess.** `local` *does*
+  take `tag`/`labels`/`env`; `journald` does *not* take `max-size`/`max-file`/`compress`. So
+  `log_opts()` filters by driver rather than emitting whatever was set.
+- **`none` is not in `docker info`'s `Plugins.Log`** — it is built into the daemon. The plugin
+  list is "drivers that certainly exist", not "all valid drivers", hence `BUILTIN_DRIVERS`.
+- **Only non-default values are written.** A config restating a default freezes it across
+  daemon upgrades. This makes `Setting.default` and the `DockerConfig` field default a pair that
+  must agree — which is a test, not a convention.
+- **daemon.json has no comment syntax**, so it cannot carry a "generated by" marker (an unknown
+  key is rejected — measured). The overwrite path shows a unified diff instead, which answers a
+  better question anyway.
+- **The restart is a separate confirmation and reads the daemon's *current* live-restore state**,
+  not the new config's: turning live-restore on protects the *next* restart, not the one applying
+  it.
+- Writes go through `sudo install` staged via a temp file, never a redirect — a truncating
+  redirect that fails leaves the daemon with half a config.
+
+**Within the bat configurator, the preview is the deliverable** — it is the closest sibling to
+starship's. Full reasoning in `docs/specs/bat-config/`.
+
+**Things learned from the real binary — don't "simplify" these away:**
+- **A bad theme is a warning and exit 0.** bat prints `[bat warning]: Unknown theme` to stderr —
+  which a pager swallows — and carries on with the default forever. Every theme named is checked
+  against `bat --list-themes`. A bad `--style` component, by contrast, is a hard error and needs
+  no help; the checks are asymmetric on purpose.
+- **The theme list is read at run time, not tabled.** `bat cache --build` lets users add their
+  own. The shipped table is the offline fallback plus the light/dark metadata bat does not
+  expose — and a test asserts every shipped name still exists, so the fallback can't rot.
+- **Classifying themes by foreground luminance is wrong for Solarized.** Both variants share one
+  palette by design and measure identically; three more (`ansi`, `base16`, `base16-256`) emit no
+  true colour at all. Hence three modes, hand-corrected against the measurement.
+- **Unquoted values containing spaces are split into arguments** — `--theme=Solarized (dark)`
+  makes bat try to open a file called `(dark)`. Every value is quoted.
+- **`rule` is a subset of `grid`** and bat says so. Found when the live check rejected a
+  "turn everything on" preset; all 21 component pairs were then swept and this is the only one.
+- The preview clears every `BAT_*` variable, because they beat the config file — otherwise it
+  would render the environment's theme while claiming to show the candidate's.
+
+**Within the ansible configurator, the check that matters is "did ansible *read* this",
+not "is this valid".** Full reasoning in `docs/specs/ansible-config/`.
+
+**Things learned from the real binary — don't "simplify" these away:**
+- **`[ssh_connection]` is not a section ansible-core reads.** `pipelining` moved to `[defaults]`.
+  Verified both ways: under `[ssh_connection]` nothing appears in `ansible-config dump
+  --only-changed`; under `[defaults]` it appears as `ANSIBLE_PIPELINING`. That stanza is the most
+  copy-pasted three lines in Ansible and it is inert.
+- **So the load-bearing check is the dump comparison**, not `ansible-config validate`. Every
+  setting written must appear in `ansible-config dump --only-changed` sourced from our file. A
+  test proves the check can *fail* by moving `pipelining` back into `[ssh_connection]`.
+- **The `yaml` stdout callback was removed** — superseded by `callback_result_format`. Setting
+  `stdout_callback = yaml` passes every check and produces JSON. The first draft of the `project`
+  preset did exactly this.
+- **`ansible-config validate` rejects a working setting.** `callback_result_format` is a
+  callback-*plugin* option and the validator only knows core settings. So it is unreliable in
+  both directions. Hence `Setting.dump_type`, the discounted complaint (stated in the check's own
+  detail, never silent), and the warning telling the user what they will see.
+- **Plugin options dump under `-t <type>` and in lowercase**, unlike core settings' SHOUTING_CASE.
+- **Values are never quoted.** `inventory = "./inv"` becomes a path containing quotes, and
+  `pipelining = "True"` is read as **False** — quoting a boolean inverts it. The reader coerces
+  the way ansible does, not the way `configparser` would.
+- **A retired section is preserved and reported, never migrated.** The wizard cannot know whether
+  an older ansible elsewhere still reads it.
+- **ansible ignores `./ansible.cfg` in a world-writable directory** — warned about before the
+  questions and again after the save.
+
+**Within the lazygit configurator, the tool provides no usable way to check a config's keys.**
+Full reasoning in `docs/specs/lazygit-config/`.
+
+**Things learned from the real binary — don't "simplify" these away:**
+- **lazygit rejects wrong *types* and silently ignores unknown *keys* and invalid enum values.**
+  Everything in the package follows from that split. Two live tests assert both halves, so a
+  future lazygit changing either is caught.
+- **`lazygit --config` is not a key list.** It omits every setting with no default, including
+  `git.paging.pager` — the delta integration everyone wants. Treating it as authoritative would
+  have made the wizard refuse to write the most-wanted setting there is.
+- **Keys were verified with a type probe**: set the key to a value of obviously the wrong type
+  and start lazygit; a real key errors, an unknown one is ignored. The method is recorded in
+  `model.py` so the table can be re-derived. It is what found `git.paging.useConfig` dead.
+- **The defaults dump *is* used for values**, and `default_drift()` compares it against the
+  model — which caught `gui.sidePanelWidth` being modelled as a string when it is a float. A
+  setting absent from the dump is explicitly *not* drift.
+- **PyYAML cannot load lazygit's own default config.** `expandAll: =` hits YAML's
+  `tag:yaml.org,2002:value` and `safe_load` raises. All parsing goes through `render.load()`, and
+  `=` is quoted on the way out.
+- **A list of mappings must not be hand-emitted.** The first emitter stringified
+  `customCommands` — the user data this wizard most promises not to damage. Carried-over
+  structures go through `yaml.safe_dump` and are re-indented; only settings the wizard authors
+  are hand-emitted, because only those need comments.
+- **Icons reuse `configure/starship/fonts.detect()`**, including its `None` — "cannot tell" is
+  not "no", and inverting that would nag every user without fontconfig.
+
+Not yet built: configurators for anything other than starship, commitizen, pre-commit, docker,
+bat, ansible and lazygit; `repo: local` pre-commit hook authoring and hooks outside the curated
+catalog; lazygit keybindings and `customCommands` authoring (both preserved, never edited);
+ansible fact-caching backends; and — for pre-commit and commitizen only — round-tripping an
+existing hand-edited config back into wizard state. The four newer configurators *do* round-trip,
+because JSON, INI, bat's flag list and lazygit's YAML are all flat enough to preserve faithfully;
+pre-commit's is not, and that asymmetry is deliberate (see each spec's stack-decisions).
 
 ## Specs (`docs/specs/`)
 

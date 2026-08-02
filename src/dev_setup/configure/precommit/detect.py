@@ -1,0 +1,292 @@
+"""What the wizard can work out about the project before asking anything.
+
+Every answer here is a *default*, never a decision: the wizard shows what was found
+and lets the user override it. Nothing in this module writes.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+from dev_setup.configure.precommit.model import (
+    CONFIG_FILE,
+    LANGUAGE_HOOKS,
+    LEGACY_CONFIG_FILE,
+    PRESETS,
+    PreCommitConfig,
+)
+
+# Suffix / exact filename → the language name `LANGUAGE_HOOKS` is keyed by.
+_MARKERS: dict[str, str] = {
+    ".py": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "javascript",
+    ".tsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".vue": "javascript",
+    ".svelte": "javascript",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".zsh": "shell",
+    ".md": "markdown",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".dockerfile": "docker",
+}
+_NAME_MARKERS: dict[str, str] = {
+    "dockerfile": "docker",
+    "containerfile": "docker",
+}
+
+# Files a formatter should not be allowed near: machine-generated, and reformatting
+# one produces an enormous diff that hides the real change. Only ever *offered* as a
+# starting `exclude`, and only for the files actually present.
+_GENERATED = (
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "uv.lock",
+    "poetry.lock",
+    "Cargo.lock",
+    "composer.lock",
+)
+
+# How many hits of a suffix before it counts as a language the project is written in.
+# One stray `.sh` in a Python repo should not pull in two Docker-backed hooks.
+_LANGUAGE_THRESHOLD = 2
+
+MAX_FILES = 20_000
+
+
+def git_root(start: Path | None = None) -> Path | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=start or Path.cwd(),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip() or ".")
+
+
+def tracked_files(root: Path) -> list[str]:
+    """Repo-relative paths, from git when possible.
+
+    `git ls-files` is both faster than a walk and *correct*: it already excludes
+    everything gitignored, so a vendored `node_modules` cannot make a Python project
+    look like a JavaScript one. The walk is the fallback for a directory that is not
+    a repo yet.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    if result is not None and result.returncode == 0:
+        return [name for name in result.stdout.split("\0") if name][:MAX_FILES]
+
+    out: list[str] = []
+    skip = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".tox"}
+    for path in root.rglob("*"):
+        if len(out) >= MAX_FILES:
+            break
+        if path.is_file() and not skip & set(path.relative_to(root).parts):
+            out.append(str(path.relative_to(root)))
+    return out
+
+
+def languages(files: list[str]) -> dict[str, int]:
+    """Language → how many files of it are here, above the noise threshold."""
+    counts: dict[str, int] = {}
+    for name in files:
+        path = Path(name)
+        language = _NAME_MARKERS.get(path.name.lower()) or _MARKERS.get(path.suffix.lower())
+        if language:
+            counts[language] = counts.get(language, 0) + 1
+    return {
+        language: count
+        for language, count in counts.items()
+        if count >= _LANGUAGE_THRESHOLD
+    }
+
+
+def suggested_exclude(files: list[str]) -> str:
+    """An `exclude` regex covering the generated files this project actually has.
+
+    Built from what is present rather than from a fixed list, so the regex in the
+    config never mentions a file the repo does not contain.
+    """
+    present = sorted({Path(name).name for name in files} & set(_GENERATED))
+    if not present:
+        return ""
+    return "^(.*/)?(" + "|".join(re.escape(name) for name in present) + ")$"
+
+
+def hooks_installed(root: Path) -> list[str]:
+    """Which git hook types currently point at pre-commit.
+
+    A config file on disk means nothing on its own — until `pre-commit install` has
+    run, git never calls it. This is what lets the wizard say so.
+    """
+    hooks_dir = root / ".git" / "hooks"
+    if not hooks_dir.is_dir():
+        return []
+    out = []
+    for hook in sorted(hooks_dir.iterdir()):
+        if hook.suffix == ".sample" or not hook.is_file():
+            continue
+        try:
+            text = hook.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "pre-commit" in text and "generated by pre-commit" in text.lower():
+            out.append(hook.name)
+    return out
+
+
+def existing_hook_ids(path: Path) -> list[str]:
+    """The hook ids in an existing config, for reporting what is about to be replaced.
+
+    Never used to reconstruct wizard state: a hand-written config can carry local
+    hooks, per-hook overrides and repos this catalog has never heard of, and
+    round-tripping that badly is worse than not trying (SD-5).
+    """
+    try:
+        parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(parsed, dict):
+        return []
+    out: list[str] = []
+    for repo in parsed.get("repos") or []:
+        if not isinstance(repo, dict):
+            continue
+        for hook in repo.get("hooks") or []:
+            if isinstance(hook, dict) and isinstance(hook.get("id"), str):
+                out.append(hook["id"])
+    return out
+
+
+@dataclass
+class Project:
+    """What was found next to the user."""
+
+    root: Path
+    is_git: bool = False
+    config: Path | None = None
+    legacy_config: Path | None = None
+    languages: dict[str, int] = field(default_factory=dict)
+    installed_hook_types: list[str] = field(default_factory=list)
+    existing_hooks: list[str] = field(default_factory=list)
+    exclude: str = ""
+    has_commitizen: bool = False
+    file_count: int = 0
+
+    @property
+    def configured(self) -> bool:
+        return self.config is not None
+
+
+def _has_commitizen(root: Path) -> bool:
+    for name in (".cz.toml", "cz.toml", ".cz.yaml", "cz.yaml", ".cz.json", "cz.json"):
+        if (root / name).is_file():
+            return True
+    pyproject = root / "pyproject.toml"
+    if pyproject.is_file():
+        try:
+            return "[tool.commitizen" in pyproject.read_text(encoding="utf-8")
+        except OSError:
+            return False
+    return False
+
+
+def inspect(start: Path | None = None) -> Project:
+    """Look at the project around `start` (the current directory by default)."""
+    cwd = (start or Path.cwd()).resolve()
+    root = git_root(cwd) or cwd
+    files = tracked_files(root)
+    config = root / CONFIG_FILE
+    legacy = root / LEGACY_CONFIG_FILE
+
+    return Project(
+        root=root,
+        is_git=(root / ".git").exists(),
+        config=config if config.is_file() else None,
+        legacy_config=legacy if legacy.is_file() else None,
+        languages=languages(files),
+        installed_hook_types=hooks_installed(root),
+        existing_hooks=existing_hook_ids(config) if config.is_file() else [],
+        exclude=suggested_exclude(files),
+        has_commitizen=_has_commitizen(root),
+        file_count=len(files),
+    )
+
+
+def detected_hooks(project: Project) -> tuple[str, ...]:
+    """The `detected` preset, resolved against this project.
+
+    Essentials plus whatever the languages found here call for — and the commitizen
+    hook only when the project already has commitizen rules for it to check against,
+    since the hook fails every commit without them.
+    """
+    out = list(PRESETS["essentials"].hooks)
+    for language in project.languages:
+        for key in LANGUAGE_HOOKS.get(language, ()):
+            if key not in out:
+                out.append(key)
+    if project.has_commitizen and "commitizen" not in out:
+        out.append("commitizen")
+    return tuple(out)
+
+
+def suggest_preset(project: Project) -> str:
+    """Which preset to start the picker on."""
+    if project.languages:
+        return "detected"
+    return "essentials"
+
+
+def suggest(project: Project) -> PreCommitConfig:
+    """A starting config that already matches the project it was run in."""
+    preset = suggest_preset(project)
+    hooks = detected_hooks(project) if preset == "detected" else PRESETS[preset].hooks
+    return PreCommitConfig(
+        preset=preset,
+        hooks=list(hooks),
+        exclude=project.exclude,
+    )
+
+
+__all__ = [
+    "Project",
+    "detected_hooks",
+    "existing_hook_ids",
+    "git_root",
+    "hooks_installed",
+    "inspect",
+    "languages",
+    "suggest",
+    "suggest_preset",
+    "suggested_exclude",
+    "tracked_files",
+]

@@ -176,8 +176,24 @@ devstuff configure starship --output /tmp/try.toml   # write elsewhere, leave th
 
 | Tool | What it configures |
 |------|-------------------|
+| `ansible` | `ansible.cfg` — inventory paths, forks, pipelining, become and vault |
+| `bat` | Theme, decorations, paging, and the man-page/`cat` shell integration |
 | `commitizen` | Commit types, what each one bumps, git tags, and changelog sections |
+| `docker` | `daemon.json` — log rotation, address pools and daemon behaviour |
+| `lazygit` | Icons, diff pager, panels and git behaviour |
+| `pre-commit` | Which git hooks run, when they run, and what they're allowed to rewrite |
 | `starship` | Prompt style, colour palette, which sections appear, and layout |
+
+Each wizard checks its result against the real tool before saving. What that check can prove
+varies a lot, and the wizards say so rather than implying more than they know:
+
+| Tool | What the tool itself checks | What the wizard has to check instead |
+|------|-----------------------------|--------------------------------------|
+| `ansible` | unknown keys, unknown sections, wrong types | **whether ansible actually *read* each setting** (`ansible-config dump`) — a key in a retired section validates and does nothing |
+| `bat` | a bad `--style` component (hard error) | **theme names** — a bad theme is a stderr warning and exit 0, so a typo silently gives you the default forever |
+| `docker` | key typos, malformed CIDRs, numeric log options | **five configs `dockerd --validate` accepts that stop every container from starting** |
+| `lazygit` | wrong types (refuses to start) | **unknown keys and invalid enum values** — both silently ignored |
+| `pre-commit` | the file's shape | **hook ids** — `validate-config` never opens a repository |
 
 #### Commitizen wizard
 
@@ -274,6 +290,114 @@ update_changelog_on_bump = true
 Design notes, including why this one isn't catalog-driven and why the checks warn rather than
 veto: [`docs/specs/commitizen-config/`](docs/specs/commitizen-config/).
 
+#### pre-commit wizard
+
+pre-commit does nothing until **two** separate things are true: a `.pre-commit-config.yaml`
+exists, *and* `pre-commit install` has written the git hooks. Neither implies the other, and a
+repo with the first but not the second looks configured, validates cleanly, and never runs a
+single check. Writing the file means knowing, per hook, which repo publishes it, its exact id,
+what tag to pin, and which arguments are actually decisions — none of which is discoverable from
+`--help`, so the usual workflow is copying someone else's config and hoping.
+
+The wizard starts from a preset that already matches the project:
+
+| Preset | What you get |
+|--------|--------------|
+| `Minimal` | Four hooks right for any repo, all of which fix rather than nag |
+| `Essentials` | File hygiene, YAML/JSON/TOML parse checks, a private-key guard. No language tools |
+| `Python (ruff)` | Essentials + `ruff-check` and `ruff-format` — the modern default |
+| `Python, strict` | …plus `mypy`, `yamllint` and `gitleaks` |
+| `Python (black + isort + flake8)` | The pre-ruff toolchain, for a project already on it |
+| `JavaScript / TypeScript` | Essentials + `prettier` and `eslint` |
+| `Shell scripts` | Essentials + `shellcheck`, `shfmt` and shebang checks |
+| `Security first` | Essentials + `gitleaks`, AWS-key detection, no-commits-to-main |
+| `Documentation` | Essentials + `markdownlint` and `yamllint` |
+| `Match this project` | Essentials + the hooks for the languages actually found here |
+| `Start from nothing` | Pick all ~38 hooks yourself |
+
+Then a grouped checkbox over the full catalog (file hygiene · config files · Python · JavaScript ·
+shell · Docker · docs · secrets · commit messages), each hook labelled with what it does and
+whether it **rewrites files** or only reports.
+
+Before it asks anything the wizard reads the project: git root, the languages present (via
+`git ls-files`, so a vendored `node_modules` can't make a Python repo look like a JS one, and a
+language needs two files to count), an existing config and the hook ids in it, **which git hook
+types are currently installed**, and whether a commitizen config exists.
+
+Several things are derived rather than asked:
+
+- **`default_install_hook_types`** comes from the stages of the hooks you picked. `pre-commit
+  install` installs *only* the `pre-commit` hook unless told otherwise — so adding commitizen's
+  `commit-msg` hook without this gives you a config that validates, an install that reports
+  success, and a hook that never fires. Nothing in pre-commit's output mentions it.
+- **The pre-commit.ci `skip` list** is exactly the Docker-backed hooks. pre-commit.ci runs no
+  Docker daemon, so those fail there with a container error rather than a lint result.
+- **The suggested `exclude`** is built from the lockfiles actually in the repo, never a fixed list.
+- **The commitizen hook** is only suggested when a commitizen config exists — it runs `cz check`
+  and fails every commit without one.
+
+The review screen lists every hook with its source repo, stage and effect, the prerequisites
+anything needs (Docker, Node, a commitizen config), and warns about conflicting pairs — two
+formatters over the same files don't error, they reformat each other's output on alternate
+commits, forever.
+
+**Checked against the real binary, at three levels split by what they cost:**
+
+| Action | What it proves | Cost |
+|--------|----------------|------|
+| automatic, before every save | `pre-commit validate-config` passes, the emitted YAML parses back to what the model meant, and no selected stage is missing from `default_install_hook_types` | offline, milliseconds |
+| *Clone the repos and prove every hook id exists* | Runs `pre-commit install-hooks`. **The only check that verifies hook ids** — `validate-config` reads the file's shape and never opens a repo, so a typo passes it and fails on your next commit | network, minutes |
+| *Refresh every repository to its latest tag* | Runs the real `pre-commit autoupdate` and shows the diff | network, seconds |
+
+A disagreement at save time is reported and asks for confirmation — it never blocks the save.
+Without `pre-commit` installed the wizard still works; the checks say so rather than failing.
+
+On save the config is written (any existing file copied to `<name>.bak.<timestamp>` first, and a
+config not written by this wizard asks before being replaced, listing the ids it currently runs),
+and then `pre-commit install` runs with the derived `--hook-type` flags. Opt out and you get the
+exact command to run later.
+
+```yaml
+# pre-commit configuration
+# Generated by `devstuff configure pre-commit` — edit freely, or re-run the wizard.
+# Preset: Match this project · 14 hooks
+#
+# Install the git hooks:   pre-commit install --install-hook-types pre-commit,commit-msg
+# Run against everything:  pre-commit run --all-files
+
+# `pre-commit install` only installs the pre-commit hook unless it is told
+# otherwise, so the hooks below that run at another stage need this to run at all.
+default_install_hook_types: [pre-commit, commit-msg]
+
+# Paths no hook ever looks at.
+exclude: '^(.*/)?(uv\.lock)$'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # File hygiene
+      - id: trailing-whitespace
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      # Config files
+      - id: check-yaml
+      # Secrets and safety
+      - id: detect-private-key
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+        args: ['--fix', '--exit-non-zero-on-fix']
+      - id: ruff-format
+```
+
+Every repo, rev and hook id in the catalog was read from the real repository rather than recalled
+— the revs are what `pre-commit autoupdate` resolves to, and the ids came from each repo's own
+`.pre-commit-hooks.yaml` at that rev. Design notes, including why the verification is split by
+cost and why quoting is decided by asking the YAML parser instead of a lookup table:
+[`docs/specs/precommit-config/`](docs/specs/precommit-config/).
+
 #### Starship prompt wizard
 
 Four questions, with the prompt re-rendered after each one:
@@ -353,6 +477,144 @@ dir = '#81a1c1'
 git = '#a3be8c'
 # …
 ```
+
+#### Docker daemon wizard
+
+Docker's default log driver writes **uncapped** JSON files under `/var/lib/docker`. A chatty
+container grows them until the partition is full, at which point the daemon and usually the
+host stop working. Nothing warns about it, and it is the most common way a Docker host dies.
+
+`daemon.json` has its own trap: `dockerd --validate` accepts five configurations that let the
+daemon start healthy and then make **every `docker run` fail** with an error that never
+mentions the config file. All measured against Docker 29.6:
+
+| config | `dockerd --validate` | what actually happens |
+|--------|----------------------|------------------------|
+| a key typo, a malformed CIDR, a numeric `max-size` | **rejected** | — |
+| `"log-driver": "nosuchdriver"` | accepted | every container fails to start |
+| an unknown log option for the chosen driver | accepted | every container fails to start |
+| `max-file: "1"` with `compress: "true"` | accepted | every container fails to start |
+| an address pool `size` below its base prefix | accepted | no usable networks |
+| `"hosts"` alongside a systemd unit passing `-H` | accepted | daemon refuses to start |
+
+The wizard runs `--validate` *and* every check in that table it does not do.
+
+| Preset | What it sets |
+|--------|--------------|
+| **Log rotation only** | A size cap and nothing else — the safe minimum |
+| **Workstation** | Rotation, live-restore, faster parallel pulls |
+| **Server** | Bigger log budget, compression, metrics on loopback, `no-new-privileges` |
+| **CI runner** | Small logs, fast pulls, no live restore |
+| **Hand logs to systemd** | journald owns container output and its own rotation |
+| **Behind a corporate network** | Rotation plus address pools that avoid the usual VPN collisions |
+| **Whatever is on this machine now** · **Start from nothing** | |
+
+Three things are derived rather than asked: the `log-opts` are filtered to what the chosen
+driver accepts (`journald` rejects `max-size`, and would otherwise break every container),
+only non-default values are written (so a future Docker changing a default still reaches you),
+and any key in an existing `daemon.json` the wizard doesn't model is carried through untouched.
+
+Saving writes through `sudo install` — shown before it runs, staged via a temp file so a failed
+`sudo` can't truncate the existing config. The **restart is a separate question**, because it
+stops running containers unless `live-restore` was already on *before* it, and it reports how
+many containers that is.
+
+```json
+{
+  "log-driver": "local",
+  "log-opts": { "max-size": "10m", "max-file": "3", "compress": "true" }
+}
+```
+
+#### bat wizard
+
+bat ships 28 themes and no way to see one without typing its name, so the wizard renders a
+sample file **through the real `bat`** on every pass — choosing a theme is looking at it.
+
+It also catches bat's one quiet failure: a theme name bat doesn't have produces a warning on
+stderr (which a pager swallows) and **exit 0**, so a typo silently gives you the default theme
+forever. Every theme named is checked against `bat --list-themes`, which is read at run time
+so themes you built yourself are offered too.
+
+| Preset | What it sets |
+|--------|--------------|
+| **Balanced** | bat's defaults, with a light/dark theme pair that follows your terminal |
+| **Minimal** | No decorations, no pager — closest to plain `cat` |
+| **Line numbers only** | Numbers and nothing else, so output stays copy-pasteable |
+| **Code review** | Numbers, git changes, grid, both headers, italics |
+| **Friendly to pipes** | No pager, no wrapping, no decorations |
+| **Whatever is configured now** · **Start from nothing** | |
+
+The shell integration is offered too, since the best thing bat does isn't in its config file
+at all: syntax-highlighted man pages (`MANPAGER` + `MANROFFOPT`), a `bathelp` function, and the
+`cat` alias — which carries the caveat that scripts still get the real `cat`, because aliases
+are interactive-only.
+
+```ini
+# Generated by devstuff — devstuff configure bat
+--theme-dark="Monokai Extended Origin"
+--theme-light="GitHub"
+--style="numbers,grid,header-filename,header-filesize,changes,snip"
+--italic-text="always"
+```
+
+#### Ansible wizard
+
+`ansible.cfg` is the config file most likely to be copied from a tutorial that's years out of
+date, because ansible-core keeps moving settings and never tells you when one stops working.
+Measured against ansible-core 2.20:
+
+| what you write | `ansible-config validate` | does it work? |
+|----------------|---------------------------|---------------|
+| `[ssh_connection]` + `pipelining` | unknown section | **no** — absent from `dump` entirely |
+| `stdout_callback = yaml` | fine | **no** — that callback was removed |
+| `pipelining = "True"` (quoted) | fine | **inverted** — read as False |
+| `inventory = "./inv"` (quoted) | fine | **no** — a path containing quotes |
+| `callback_result_format = yaml` | **unknown key** | **yes** — the validator is wrong |
+| any of the above, in a world-writable directory | fine | **no** — the file is ignored wholesale |
+
+So validation isn't authoritative in *either* direction. The wizard's real check is
+`ansible-config dump --only-changed`, which lists what ansible actually **read** from the file
+— every setting written has to appear there.
+
+| Preset | What it sets |
+|--------|--------------|
+| **Project defaults** | Readable output, sensible paths, and the speed settings that matter |
+| **Fast** | Many forks, pipelining, cached facts — for large inventories |
+| **CI runner** | No host-key prompts, terse output, no cows |
+| **With vault** | Project defaults plus a vault password file |
+| **Escalating by default** | Project defaults plus `become` |
+| **Whatever is configured now** · **Start from nothing** | |
+
+Values are written **unquoted**, deliberately: a quoted path becomes a path containing quote
+characters, and a quoted boolean is read as `False`. A retired section in an existing file is
+*preserved and reported*, never silently migrated — the wizard can't know whether an older
+ansible elsewhere is still reading it.
+
+#### lazygit wizard
+
+lazygit refuses to start on a value of the wrong **type**, and silently ignores an unknown
+**key** or an invalid enum value. So a config assembled from blog posts starts perfectly and
+does a fraction of what it says — `git.paging.useConfig` appears in most delta guides and no
+longer exists; `nerdFontsVersion: "9"` is accepted and draws no icons.
+
+Every key the wizard writes was verified real by turning that asymmetry into a probe: set the
+key to a value of obviously the wrong type and start lazygit — a real key errors, an unknown
+one is ignored. (`lazygit --config` looks like a key list and isn't: it omits every setting
+with no default, including `git.paging.pager`, the delta integration everyone wants.)
+
+| Preset | What it sets |
+|--------|--------------|
+| **Recommended** | Icons, a readable graph, startup popups off |
+| **No icons** | The same, minus the Nerd Font glyphs |
+| **With delta** | Recommended plus delta as the diff pager |
+| **Minimal interface** | No command log, bottom line or tips |
+| **Careful** | Confirm on quit, no force pushing, no background fetching |
+| **Whatever is configured now** · **Start from nothing** | |
+
+Icons are gated on the Nerd Font check the starship wizard already uses — including its
+"can't tell" answer, which means stay silent rather than nag. Your `customCommands` and
+`keybinding` trees are preserved untouched; the wizard models neither.
 
 ---
 
@@ -743,7 +1005,7 @@ These are the foundation tools — install them on every machine.
 
 | Key | Name | Description | Help |
 |-----|------|-------------|------|
-| `docker` | Docker | Container runtime + docker compose plugin | `docker --help` |
+| `docker` | Docker | Container runtime + docker compose plugin (`devstuff configure docker`) | `docker --help` |
 | `nvm` | NVM + Node LTS | Node Version Manager + latest Node LTS | `nvm help` |
 | `uv` | uv | Astral Python package and project manager | `uv --help` |
 
@@ -753,17 +1015,20 @@ Optional utilities you may want on some machines.
 
 | Key | Name | Description | Help |
 |-----|------|-------------|------|
+| `ansible` | Ansible | Automation engine for configuration management and app deployment (`devstuff configure ansible`) | `ansible --help` |
 | `aws` | AWS CLI | Amazon Web Services CLI v2 | `aws help` |
+| `bat` | bat | cat replacement with syntax highlighting and git integration (`devstuff configure bat`) | `bat --help` |
 | `commitizen` | Commitizen | Conventional-commit prompt, semantic version bumping, and changelog generation (`devstuff configure commitizen`) | `cz --help` |
 | `eza` | eza | Modern ls replacement with git status, icons, and tree view | `eza --help` |
 | `gh` | GitHub CLI | GitHub's official CLI | `gh --help` |
 | `htop` | htop | Interactive process and resource monitor | `man htop` |
+| `lazygit` | lazygit | TUI git client for fast, keyboard-driven git workflows (`devstuff configure lazygit`) | `lazygit --help` |
 | `mkcert` | mkcert | Zero-config local HTTPS certificates | `mkcert --help` |
 | `nerd-font` | JetBrainsMono Nerd Font | Patched font supplying the icons Starship and other CLI tools draw | `fc-list \| grep -i "nerd font"` |
 | `ollama` | Ollama | Run large language models locally | `ollama --help` |
 | `php` | PHP 8.4 | PHP 8.4 + common extensions via ondrej/php PPA | `php --help` |
 | `pi` | Pi Coding Agent | AI coding agent npm package | `pi --help` |
-| `pre-commit` | pre-commit | Git hook manager for automated code quality checks | `pre-commit --help` |
+| `pre-commit` | pre-commit | Git hook manager for automated code quality checks (`devstuff configure pre-commit`) | `pre-commit --help` |
 | `saml2aws` | saml2aws | SAML → AWS STS credentials CLI (Versent) | `saml2aws --help` |
 | `starship` | Starship | Fast, cross-shell customizable prompt (`devstuff configure starship`) | `starship --help` |
 | `yq` | yq | Portable command-line YAML/JSON/XML processor | `yq --help` |
