@@ -165,7 +165,14 @@ another CLI should guard on `command -v <tool>` and point at `devstuff install <
 error rather than let a raw "command not found" surface — see `validate-yaml`/`aws-saml-reauth`
 in `functions.yaml`. If that CLI is only reachable via nvm (like `pi`), source
 `"$HOME/.nvm/nvm.sh"` first (see `acc-check`) — `script`-type functions run via a non-login,
-non-interactive `bash <tmpfile>`, so `~/.bashrc`/nvm's shell init never runs on their own.
+non-interactive `bash <tmpfile>`, so `~/.bashrc`/nvm's shell init never runs on their own. When
+the CLI isn't a catalog tool at all, name the distro package instead (`whats-on-port` points at
+`apt-get install iproute2`) — pointing at `devstuff install ss` would be a lie.
+
+**`run_cmd` flattens every non-zero exit to 1**, so a `script` function cannot signal a *result*
+through its exit code — only whether it ran. A "found nothing" answer should therefore exit 0 and
+say so, or the user gets a red "command failed" banner under a correct result; keep non-zero for
+"could not perform the lookup" (see `whats-on-port`'s comment on this).
 
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have.

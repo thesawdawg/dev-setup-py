@@ -88,6 +88,135 @@ functions:
       pi -p "/dogfood $url $instruction"
     docs_url: https://pi.dev/docs/latest
 
+  whats-on-port:
+    name: What's On This Port
+    description: Find which process is listening on a port (and whether you can see it)
+    category: network
+    type: script
+    params:
+      - name: port
+        description: Port number to look up (1-65535)
+        required: true
+      - name: protocol
+        description: tcp, udp, or all (default all)
+        required: false
+        default: all
+    script: |
+      # Deliberately no `set -e`: this script's whole job is to tell "in use" from
+      # "free" from "cannot tell", which is exit-code work that -e would abort.
+      set -uo pipefail
+
+      case "$port" in
+        ''|*[!0-9]*)
+          echo "Port must be a number between 1 and 65535, got: ${port:-<empty>}" >&2
+          exit 2
+          ;;
+      esac
+      if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        echo "Port must be between 1 and 65535, got: $port" >&2
+        exit 2
+      fi
+
+      case "${protocol:-all}" in
+        tcp) flags="-tlpnH" ;;
+        udp) flags="-ulpnH" ;;
+        all|"") flags="-tulpnH"; protocol="all" ;;
+        *) echo "Protocol must be tcp, udp or all, got: $protocol" >&2; exit 2 ;;
+      esac
+
+      # ss ships in iproute2, which is not in the devstuff catalog and is not on every
+      # minimal image (this repo's own CI container has lsof but no ss), so say what to
+      # install rather than letting "command not found" surface.
+      if ! command -v ss >/dev/null 2>&1; then
+        echo "ss is required to look up sockets (it is part of iproute2)." >&2
+        echo "Install it with:  sudo apt-get install -y iproute2" >&2
+        exit 1
+      fi
+
+      # `ss` exits 0 whether or not the filter matched anything, so an empty result is
+      # the only signal that the port is free.
+      sockets="$(ss $flags "sport = :$port" 2>/dev/null || true)"
+
+      # Unprivileged `ss` still lists a socket owned by another user but silently drops
+      # the users:((...)) field, so the port reads as taken with nothing named. Retry
+      # under sudo only when it needs no password — a diagnostic should not stop to ask
+      # for one. (lsof and fuser are worse here: both report *nothing* and exit as if
+      # the port were free, which is why this uses ss.)
+      escalated=""
+      if [ -n "$sockets" ] && ! printf '%s' "$sockets" | grep -q 'pid='; then
+        if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+          sockets="$(sudo -n ss $flags "sport = :$port" 2>/dev/null || printf '%s' "$sockets")"
+          escalated="yes"
+        fi
+      fi
+
+      # "Nothing found" is an answer, not a failure: `devstuff run` flattens every
+      # non-zero code to 1, so exiting non-zero here would only buy a scary "command
+      # failed" banner under a correct result. Non-zero is kept for the cases where
+      # the lookup could not be performed at all (bad input, no ss).
+      if [ -z "$sockets" ]; then
+        echo "Nothing is listening on port $port ($protocol)."
+        echo
+        echo "A bind can still fail after this: a container port published without the"
+        echo "userland proxy is forwarded by NAT with no host socket to find, and sockets"
+        echo "in another network namespace are invisible from here."
+        if [ "$(id -u)" -ne 0 ]; then
+          echo "Sockets you have no permission to see are not listed either — to rule"
+          echo "that out:  sudo devstuff run whats-on-port $port"
+        fi
+        exit 0
+      fi
+
+      echo "Port $port ($protocol) is in use:"
+      echo
+      printf '%s\n' "$sockets" | sed 's/^/  /'
+
+      # One port can have several holders (SO_REUSEPORT), so this reports every PID
+      # rather than assuming a single answer.
+      pids="$(printf '%s\n' "$sockets" | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -un)"
+      if [ -n "$pids" ]; then
+        echo
+        echo "Holding process(es):"
+        printf '  %-8s %-10s %-10s %s\n' PID USER ELAPSED COMMAND
+        for pid in $pids; do
+          # The full command line is never truncated: it is usually the thing that
+          # identifies which of five node processes this actually is.
+          ps -o pid=,user=,etime=,args= -p "$pid" 2>/dev/null \
+            | awk '{printf "  %-8s %-10s %-10s ", $1, $2, $3; $1=$2=$3=""; sub(/^ +/, ""); print}'
+        done
+        if [ -n "$escalated" ]; then
+          echo
+          echo "  (the process details above needed root — re-read via sudo)"
+        fi
+      else
+        echo
+        echo "The socket exists, but its owning process belongs to another user and is"
+        echo "not visible from here. Re-run as root to name it:"
+        echo "  sudo devstuff run whats-on-port $port"
+      fi
+
+      # Counted on the listener's side only: matching both sport and dport counts each
+      # connection twice, once per end of a loopback pair.
+      conns="$(ss -tnpH "sport = :$port" 2>/dev/null | grep -c ESTAB || true)"
+      if [ "${conns:-0}" -gt 0 ]; then
+        echo
+        echo "$conns established connection(s) to this port — list them with:"
+        echo "  ss -tnp 'sport = :$port'"
+      fi
+
+      # Best-effort: a published container port is held by docker-proxy, whose command
+      # line does not say which container it belongs to. Silent on any failure, so no
+      # daemon (or no docker at all) costs nothing.
+      if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        containers="$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null | grep -E ":$port->" || true)"
+        if [ -n "$containers" ]; then
+          echo
+          echo "Published by container(s):"
+          printf '%s\n' "$containers" | sed 's/^/  /'
+        fi
+      fi
+    docs_url: https://man7.org/linux/man-pages/man8/ss.8.html
+
   aws-saml-reauth:
     name: AWS SAML Reauth
     description: Reauthorize the AWS CLI via saml2aws

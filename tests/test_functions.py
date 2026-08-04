@@ -381,3 +381,128 @@ def test_captured_failure_carries_output_on_the_exception():
     with pytest.raises(subprocess.CalledProcessError) as exc:
         runner.run_script_function(fn, (), capture=True)
     assert "why it failed" in exc.value.stdout
+
+
+# -- whats-on-port ------------------------------------------------------------------
+
+
+def _bundled(key: str) -> FunctionDef:
+    return FunctionDef.from_dict(catalog.load_bundled_catalog()[key], key=key)
+
+
+def test_whats_on_port_is_declared_the_way_it_is_documented(isolated_catalog):
+    fns = catalog.load_bundled_catalog()
+    fn = fns["whats-on-port"]
+    assert fn["type"] == "script"
+    assert fn["category"] == "network"
+    port, protocol = fn["params"]
+    assert (port["name"], port["required"]) == ("port", True)
+    # Optional with a real default, so `devstuff run whats-on-port 8080` never prompts
+    # for a second argument.
+    assert (protocol["name"], protocol["required"], protocol["default"]) == (
+        "protocol", False, "all",
+    )
+
+
+@pytest.mark.parametrize("key", sorted(catalog.load_bundled_catalog()))
+def test_every_bundled_script_is_valid_bash(key):
+    """`bash -n` over the script exactly as the runner assembles it — prelude included,
+    since that is what defines the param variables the body reads under `set -u`."""
+    import subprocess
+
+    fn = _bundled(key)
+    prelude = runner._positional_prelude(fn.params)
+    content = f"{prelude}\n{fn.script}" if prelude else fn.script
+    result = subprocess.run(
+        ["bash", "-n"], input=content, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, f"{key}: {result.stderr}"
+
+
+# The behavioural tests below bind a real socket and shell out to `ss`. No sudo and no
+# network — but `ss` is not on every image (this repo's own CI container has lsof and
+# no ss), which is the same gap the function itself guards against.
+needs_ss = pytest.mark.skipif(
+    __import__("shutil").which("ss") is None, reason="ss (iproute2) is not installed"
+)
+
+
+@pytest.fixture()
+def listening_port():
+    """A real TCP listener owned by this process, and its port."""
+    import socket
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    try:
+        yield sock.getsockname()[1]
+    finally:
+        sock.close()
+
+
+@pytest.fixture()
+def free_port():
+    """A port nothing holds: bound to claim it from the ephemeral range, then released.
+
+    `listening_port + 1` would do almost always, which is exactly the kind of almost
+    that fails in CI once a month.
+    """
+    import socket
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+
+def _run(port, protocol="") -> str:
+    args = (str(port), protocol) if protocol else (str(port),)
+    return runner.run_script_function(_bundled("whats-on-port"), args, capture=True)
+
+
+@needs_ss
+def test_it_names_the_process_holding_the_port(listening_port):
+    import os
+
+    output = _run(listening_port)
+    assert f"Port {listening_port} (all) is in use" in output
+    # The point of the whole function: the PID, not just "something is there".
+    assert str(os.getpid()) in output
+    assert "Holding process(es):" in output
+
+
+@needs_ss
+def test_a_free_port_is_a_successful_answer_not_a_failure(free_port):
+    """`run_cmd` flattens every non-zero exit to 1, so exiting non-zero for "found
+    nothing" would only paint a red banner under a correct result."""
+    output = _run(free_port)  # capture=True raises CalledProcessError on non-zero
+    assert f"Nothing is listening on port {free_port}" in output
+    # And it does not leave the user thinking a bind will now succeed.
+    assert "NAT" in output
+
+
+@needs_ss
+def test_the_protocol_filter_excludes_the_other_protocol(listening_port):
+    assert "is in use" in _run(listening_port, "tcp")
+    assert "Nothing is listening" in _run(listening_port, "udp")
+
+
+@pytest.mark.parametrize("port", ["abc", "0", "70000", "-1", "80.5"])
+def test_an_impossible_port_is_rejected_before_anything_runs(port):
+    import subprocess
+
+    with pytest.raises(subprocess.CalledProcessError) as exc:
+        _run(port)
+    assert exc.value.returncode == 2
+    assert "between 1 and 65535" in exc.value.stdout + exc.value.stderr
+
+
+def test_an_unknown_protocol_is_rejected():
+    import subprocess
+
+    with pytest.raises(subprocess.CalledProcessError) as exc:
+        _run(8080, "sctp")
+    assert exc.value.returncode == 2
+    assert "tcp, udp or all" in exc.value.stdout + exc.value.stderr
