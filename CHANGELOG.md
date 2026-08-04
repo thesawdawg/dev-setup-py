@@ -1,3 +1,22 @@
+## v2.0.0 (2026-08-04)
+
+### BREAKING CHANGE
+
+- the `dev-setup` command alias is removed. Config/data moved
+from ~/.config/dev-setup and ~/.local/share/dev-setup to the devstuff
+equivalents. bashrc block markers renamed (dev-setup: bat -> devstuff: bat,
+dev-setup-fn:<key> -> devstuff-fn:<key>). Existing users run `devstuff
+doctor --fix` to migrate.
+
+### Features
+
+- drop dev-setup alias, rename paths to devstuff, add doctor command
+- **configure**: add pre-commit, docker, bat, ansible and lazygit wizards
+
+### Bug Fixes
+
+- **dev**: copy the devstuff wheel, not the stale dev_setup name
+
 ## v1.18.0 (2026-08-01)
 
 ### Features
