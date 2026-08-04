@@ -24,11 +24,13 @@ RUN useradd -m -s /bin/bash developer \
 USER developer
 WORKDIR /home/developer
 
-# Install the pre-built wheel (built by 'make build' before docker build runs)
-COPY --chown=developer:developer dist/dev_setup-*.whl /tmp/
+# Install the pre-built wheel (built by 'make build' before docker build runs).
+# The glob tracks the [project] name in pyproject.toml — 'devstuff', not the
+# 'dev_setup' Python module the wheel installs.
+COPY --chown=developer:developer dist/devstuff-*.whl /tmp/
 
-RUN pip install --user --break-system-packages /tmp/dev_setup-*.whl \
-    && rm /tmp/dev_setup-*.whl
+RUN pip install --user --break-system-packages /tmp/devstuff-*.whl \
+    && rm /tmp/devstuff-*.whl
 
 ENV PATH="/home/developer/.local/bin:$PATH"
 
