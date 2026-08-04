@@ -1,3 +1,9 @@
+## v2.1.0 (2026-08-04)
+
+### Features
+
+- **functions**: add whats-on-port to find what is holding a port
+
 ## v2.0.0 (2026-08-04)
 
 ### BREAKING CHANGE
