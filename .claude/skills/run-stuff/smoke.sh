@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test for dev-setup CLI. Run from repo root.
+# Smoke test for devstuff CLI. Run from repo root.
 set -euo pipefail
 
 PASS=0
@@ -31,20 +31,20 @@ check_output() {
 }
 
 echo ""
-echo "=== dev-setup smoke tests ==="
+echo "=== devstuff smoke tests ==="
 echo ""
 
-check "version" uv run dev-setup version
-check_output "version number" "1\." uv run dev-setup version
-check "list (all)" uv run dev-setup list
-check "list core" uv run dev-setup list core
-check "list tools" uv run dev-setup list tools
-check "list --installed" uv run dev-setup list --installed
-check "list --available" uv run dev-setup list --available
-check "catalog path" uv run dev-setup catalog path
-check_output "catalog path output" ".config/dev-setup" uv run dev-setup catalog path
-check "catalog export" uv run dev-setup catalog export /tmp/dev-setup-smoke-export.yaml
-check_output "help flag" "Commands:" uv run dev-setup --help
+check "version" uv run devstuff version
+check_output "version number" "1\." uv run devstuff version
+check "list (all)" uv run devstuff list
+check "list core" uv run devstuff list core
+check "list tools" uv run devstuff list tools
+check "list --installed" uv run devstuff list --installed
+check "list --available" uv run devstuff list --available
+check "catalog path" uv run devstuff catalog path
+check_output "catalog path output" ".config/devstuff" uv run devstuff catalog path
+check "catalog export" uv run devstuff catalog export /tmp/devstuff-smoke-export.yaml
+check_output "help flag" "Commands:" uv run devstuff --help
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then

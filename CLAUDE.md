@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`dev-setup` is a Python CLI (Click + Rich + questionary) that installs, removes, and tracks
+`devstuff` is a Python CLI (Click + Rich + questionary) that installs, removes, and tracks
 developer tools on Linux. There is no per-tool Python code — every tool (built-in or
 user-added) is a data record in a YAML catalog, executed by one generic engine
 (`GenericTool` in `src/dev_setup/generic.py`). Adding a tool is a YAML edit, not a code change;
@@ -13,8 +13,8 @@ adding a new *install mechanism* (a "type") is a code change touched in ~5 place
 ## Commands
 
 ```bash
-uv run dev-setup <cmd>       # run from source (repo root)
-./dev-setup <cmd>            # bash wrapper — bootstraps .venv on first run, then execs Python
+uv run devstuff <cmd>       # run from source (repo root)
+./devstuff <cmd>            # bash wrapper — bootstraps .venv on first run, then execs Python
 uv run pytest                # unit tests only (integration tests skipped by default, ~0.3s)
 uv run pytest -m integration # real installs — requires sudo + network, run inside Docker (see below)
 uv run pytest tests/test_catalog.py::test_user_catalog_overrides_bundled_tool_in_place  # single test
@@ -67,7 +67,7 @@ src/dev_setup/
 ```
 
 **Catalog precedence** (`catalog.load_effective_catalog`): bundled `tools.yaml` loads first →
-user YAML at `~/.config/dev-setup/tools.yaml` overrides matching keys in place and appends
+user YAML at `~/.config/devstuff/tools.yaml` overrides matching keys in place and appends
 new ones. `registry.py` turns that merged dict into `GenericTool` instances; a tool is
 `builtin` only if it came from bundled and has no user override.
 
@@ -77,13 +77,13 @@ new ones. `registry.py` turns that merged dict into `GenericTool` instances; a t
 `generic.py`) rather than an if/elif chain, and shell out via `subprocess`. `install()` raises
 `RuntimeError`/`CalledProcessError` on failure — there's no result enum, command handlers just
 catch and report. `bash`-type scripts are written to a temp file and run with `bash <file>` for
-full parsing fidelity (not `bash -c "<string>"`). `dev-setup update` reuses the same dispatch
+full parsing fidelity (not `bash -c "<string>"`). `devstuff update` reuses the same dispatch
 pattern for upgrading an already-installed tool (latest or a pinned version); for `script`/
 `bash` types "update" is a full reinstall, since there's no narrower mechanism, so the command
 layer confirms before re-running it.
 
 **Two ways a tool gets defined**: built-in (an entry added directly to `src/dev_setup/tools.yaml`,
-`builtin=True`) or custom (created via the `dev-setup add` wizard, `dev-setup catalog import`,
+`builtin=True`) or custom (created via the `devstuff add` wizard, `devstuff catalog import`,
 or hand-edited YAML, landing in the user catalog). Both use the identical schema — the only
 difference is which file the key lives in and `category`.
 
@@ -123,7 +123,7 @@ installing PHP packages via Composer as their own first-class type (analogous to
 
 `src/dev_setup/functions.yaml` + `functions_catalog.py` + `functions_registry.py` +
 `function_runner.py` are a parallel, independent catalog/registry from tools — functions
-aren't installed/removed, they're invoked (`dev-setup run <key>`), so they get their own
+aren't installed/removed, they're invoked (`devstuff run <key>`), so they get their own
 schema instead of overloading `GenericTool`. Some duplication with `catalog.py`/`registry.py`
 is deliberate (see "Key design decisions" below).
 
@@ -133,18 +133,18 @@ loaded or enforced at runtime (no `jsonschema` dependency), so if you add/change
 a constraint in `functions_catalog.py`'s `validate_catalog()`, update the schema file too or
 they'll silently drift apart.
 
-**Why two function `type`s exist**: a `dev-setup` command is its own child process, so
+**Why two function `type`s exist**: a `devstuff` command is its own child process, so
 anything it does with `subprocess` (env vars, `cd`, aliases) is invisible to the shell that
 invoked it the moment the process exits. `type: script` is for functions that don't need to
 mutate the calling shell (runs as a subprocess, like a tool's `install_script`). `type:
 shell-eval` is for functions that must (`ssh-agent`, `nvm use`-style tools) — it has two
 `register` modes:
-- `register: bashrc` (default) — `dev-setup functions enable <key>` patches a real shell
+- `register: bashrc` (default) — `devstuff functions enable <key>` patches a real shell
   function into `~/.bashrc` via `base.patch_bashrc`; the user calls it directly by name in a
-  new shell afterward. `dev-setup run` refuses to run these directly (there's nothing it
+  new shell afterward. `devstuff run` refuses to run these directly (there's nothing it
   *can* do) and points at `functions enable` instead.
-- `register: eval` — `dev-setup run <key>` prints resolved shell code to stdout for
-  `eval "$(dev-setup run key args)"`. This path must never print anything else to stdout
+- `register: eval` — `devstuff run <key>` prints resolved shell code to stdout for
+  `eval "$(devstuff run key args)"`. This path must never print anything else to stdout
   (no `ui.*` calls, no prompts) since it would corrupt what gets `eval`'d — missing required
   params are reported on stderr and exit non-zero instead of being prompted for.
 
@@ -161,7 +161,7 @@ make `functions disable` orphan everything after it — closing brace included.
 
 Functions have a `category` field (defaults to `custom`, freeform — not an enum) that
 `functions list` groups/sorts by, mirroring tools. A `script`-type function that shells out to
-another CLI should guard on `command -v <tool>` and point at `dev-setup install <tool>` in the
+another CLI should guard on `command -v <tool>` and point at `devstuff install <tool>` in the
 error rather than let a raw "command not found" surface — see `validate-yaml`/`aws-saml-reauth`
 in `functions.yaml`. If that CLI is only reachable via nvm (like `pi`), source
 `"$HOME/.nvm/nvm.sh"` first (see `acc-check`) — `script`-type functions run via a non-login,
@@ -487,7 +487,7 @@ strategy-dispatch pattern as `_INSTALLERS` in `generic.py`.
   deliberately not disabled by `--yolo`. The prompt is a human attention filter; attention
   degrades over a session, the denylist does not.
 - Credential dirs are blocked for **read** as well as write — exfiltrating an SSH key into a model
-  context is as bad as overwriting one. `~/.config/dev-setup` is readable but not writable, so
+  context is as bad as overwriting one. `~/.config/devstuff` is readable but not writable, so
   the agent cannot author catalogs (FR-14a).
 - `assess()` (the launch guard) is advisory UX, not a control. Keep that distinction in comments;
   the risk is a future reader mistaking a warning for enforcement.

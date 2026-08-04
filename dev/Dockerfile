@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC \
     LANG=C.UTF-8
 
-# System packages needed to bootstrap dev-setup and run its installers
+# System packages needed to bootstrap devstuff and run its installers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 \
     python3.12-venv \
@@ -33,6 +33,6 @@ RUN pip install --user --break-system-packages /tmp/dev_setup-*.whl \
 ENV PATH="/home/developer/.local/bin:$PATH"
 
 # Pre-create config dir so the tool has somewhere to write on first run
-RUN mkdir -p /home/developer/.config/dev-setup
+RUN mkdir -p /home/developer/.config/devstuff
 
 CMD ["/bin/bash", "--login"]

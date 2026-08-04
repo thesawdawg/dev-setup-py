@@ -1,6 +1,6 @@
 # Agent tool catalog.
 #
-# Bundled definitions; a user catalog at ~/.config/dev-setup/agent_tools.yaml
+# Bundled definitions; a user catalog at ~/.config/devstuff/agent_tools.yaml
 # overrides matching keys in place and appends new ones, exactly like tools.yaml
 # and functions.yaml.
 #

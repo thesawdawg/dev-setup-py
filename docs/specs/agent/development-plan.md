@@ -25,7 +25,7 @@
 src/dev_setup/
 ├── agent/
 │   ├── __init__.py
-│   ├── config.py          # AgentConfig, ~/.config/dev-setup/agent.yaml
+│   ├── config.py          # AgentConfig, ~/.config/devstuff/agent.yaml
 │   ├── ollama.py          # transport: chat(), list_models(), _parse_message()
 │   ├── catalog.py         # agent_tools.yaml load/validate/merge (mirrors functions_catalog.py)
 │   ├── registry.py        # AgentTool/AgentParam, merge with tools.yaml + functions.yaml bridges
@@ -74,7 +74,7 @@ down, model not pulled, timeout) prints a one-line actionable message; `--model`
 - **Live-run finding:** the daemon ignores `think: false` for lfm2.5 and emits raw `<think>`
   tags in `content`. `parse_message` now strips them (FR-3a). Caught only by running against
   a real daemon — the reason this milestone ends in a live checkpoint.
-- Remote hosts verified working (FR-3b); `~/.config/dev-setup/agent.yaml` pins
+- Remote hosts verified working (FR-3b); `~/.config/devstuff/agent.yaml` pins
   `http://192.168.1.69:11434`.
 - Model spot-check: `gemma4:latest` gave the only fully correct answer to a factual probe;
   `lfm2.5` was wrong and the most verbose reasoner. Default **stays** `lfm2.5` pending the

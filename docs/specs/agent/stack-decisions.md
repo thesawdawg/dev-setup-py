@@ -90,7 +90,7 @@ subject to the `run_command` denylist.
 ## SD-6 — Tool definitions: YAML catalog, reusing the existing ones
 
 **Decision: a bundled `src/dev_setup/agent_tools.yaml`, user-overridable at
-`~/.config/dev-setup/agent_tools.yaml`, plus automatic exposure of `functions.yaml`.**
+`~/.config/devstuff/agent_tools.yaml`, plus automatic exposure of `functions.yaml`.**
 
 This matches the repo's central design decision ("catalogs are the source of truth, not Python
 classes") and the precedence rules already implemented for `tools.yaml`/`functions.yaml`.
@@ -113,7 +113,7 @@ loop. This mirrors the guard already in `run_cmd.py`.
 
 ## SD-7 — Model configuration
 
-**Decision: `~/.config/dev-setup/agent.yaml`, no hard-coded model requirement.**
+**Decision: `~/.config/devstuff/agent.yaml`, no hard-coded model requirement.**
 
 ```yaml
 version: 1
@@ -172,6 +172,6 @@ prompt styling matches the rest of the CLI.
 | Sandbox | Workspace root, prompted at launch (default `$PWD`), `resolve()`-enforced |
 | Safety | Confirm-on-mutate + hard denylist |
 | Default model | `lfm2.5:latest` (8.5B MoE, 128k ctx, tools + thinking) |
-| Config | `~/.config/dev-setup/agent.yaml` |
+| Config | `~/.config/devstuff/agent.yaml` |
 | REPL | prompt_toolkit + Rich + questionary |
 | CLI surface | `devstuff agent [--dir] [--model] [--host] [--yolo] [--print]` |

@@ -22,7 +22,7 @@ def path_cmd() -> None:
 @click.argument("path", required=False, type=click.Path(path_type=Path))
 def export_cmd(path: Path | None) -> None:
     """Export the effective catalog to PATH."""
-    out = path or Path("dev-setup-tools.yaml")
+    out = path or Path("devstuff-tools.yaml")
     catalog.export_catalog(out)
     ui.success(f"Exported catalog to {out}")
 

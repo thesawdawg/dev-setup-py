@@ -634,7 +634,7 @@ def _apt_installed(pkg: str) -> bool:
 
 def _git_clone_dest(url: str) -> Path:
     repo_name = url.rstrip("/").split("/")[-1].removesuffix(".git")
-    return Path.home() / ".local" / "share" / "dev-setup" / repo_name
+    return Path.home() / ".local" / "share" / "devstuff" / repo_name
 
 
 def _download_script(url: str, *, expected_sha256: str = "") -> str:

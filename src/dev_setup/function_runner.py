@@ -25,7 +25,7 @@ def resolve_params(
     missing required params raise instead of being asked for interactively.
 
     A value counts as "provided" only if it's non-empty — an explicitly empty positional
-    arg (`dev-setup run key ""`) is treated the same as a missing one for a required
+    arg (`devstuff run key ""`) is treated the same as a missing one for a required
     param, rather than silently running with an empty value.
     """
     positional = list(args[: len(params)])
@@ -59,7 +59,7 @@ def _positional_prelude(params: list[FunctionParam]) -> str:
 def _literal_prelude(params: list[FunctionParam], values: list[str]) -> str:
     """`name='resolved value'` assignments for eval mode.
 
-    `eval "$(dev-setup run ...)"` has no argv of its own — the values dev-setup resolved
+    `eval "$(devstuff run ...)"` has no argv of its own — the values devstuff resolved
     from its own CLI args must be baked into the printed text as shell-quoted literals.
     """
     return "\n".join(f"{p.name}={shlex.quote(v)}" for p, v in zip(params, values, strict=True))
@@ -77,7 +77,7 @@ def _bashrc_prelude(fn: FunctionDef) -> list[str]:
     """Per-param lines for a bashrc-registered function: `name="$N"` plus, for required
     params with no default, a guard that fails loudly if the caller left it blank.
 
-    dev-setup itself is never in the loop when an enabled function is called directly by
+    devstuff itself is never in the loop when an enabled function is called directly by
     the user's shell — `resolve_params` can't help here — so this is the only place
     "required" can be enforced for this mode.
     """
@@ -106,11 +106,11 @@ def render_bashrc_function(fn: FunctionDef) -> str:
 
 
 def enable_bashrc_function(fn: FunctionDef) -> bool:
-    return patch_bashrc(f"dev-setup-fn:{fn.key}", render_bashrc_function(fn))
+    return patch_bashrc(f"devstuff-fn:{fn.key}", render_bashrc_function(fn))
 
 
 def disable_bashrc_function(fn: FunctionDef) -> bool:
-    return remove_bashrc_block(f"dev-setup-fn:{fn.key}")
+    return remove_bashrc_block(f"devstuff-fn:{fn.key}")
 
 
 def run_script_function(

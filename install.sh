@@ -23,7 +23,7 @@ _ensure_local_bin_on_path() {
     local dir="$HOME/.local/bin"
     local bashrc="$HOME/.bashrc"
     if ! grep -qF '.local/bin' "$bashrc" 2>/dev/null; then
-        printf '\n# dev-setup\nexport PATH="%s:$PATH"\n' "$dir" >> "$bashrc"
+        printf '\n# devstuff\nexport PATH="%s:$PATH"\n' "$dir" >> "$bashrc"
         echo "  ✔ Added $dir to PATH in $bashrc"
         NEED_RELOAD=1
     fi

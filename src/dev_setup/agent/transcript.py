@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-TRANSCRIPT_DIR = Path.home() / ".local" / "share" / "dev-setup" / "agent" / "transcripts"
+TRANSCRIPT_DIR = Path.home() / ".local" / "share" / "devstuff" / "agent" / "transcripts"
 
 
 class Transcript:

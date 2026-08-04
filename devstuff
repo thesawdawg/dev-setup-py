@@ -3,8 +3,8 @@
 # For production: pip install devstuff  or  pipx install devstuff
 set -euo pipefail
 
-DEVSETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV="$DEVSETUP_DIR/.venv"
+DEVSTUFF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="$DEVSTUFF_DIR/.venv"
 
 # Common locations where pip/pipx/uv install binaries
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
@@ -29,7 +29,7 @@ _setup_venv() {
     echo "  ❯ Creating virtual environment..."
 
     if "$python" -m venv "$VENV" &>/dev/null; then
-        "$VENV/bin/pip" install --quiet -e "$DEVSETUP_DIR"
+        "$VENV/bin/pip" install --quiet -e "$DEVSTUFF_DIR"
         echo "  ✔ Ready"
         return 0
     fi
@@ -42,7 +42,7 @@ _setup_venv() {
     if command -v uv &>/dev/null; then
         echo "  ❯ python3-venv unavailable — falling back to uv venv..."
         uv venv "$VENV" --quiet
-        VIRTUAL_ENV="$VENV" uv pip install -e "$DEVSETUP_DIR" --quiet
+        VIRTUAL_ENV="$VENV" uv pip install -e "$DEVSTUFF_DIR" --quiet
         echo "  ✔ Ready"
         return 0
     fi

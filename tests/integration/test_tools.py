@@ -1,7 +1,7 @@
 """
 Integration tests: verify each builtin tool installs successfully in a clean environment.
 
-Run inside the dev-setup-ci Docker image (see dev/Dockerfile.ci) or any fresh Ubuntu system
+Run inside the devstuff-ci Docker image (see dev/Dockerfile.ci) or any fresh Ubuntu system
 with sudo access:
 
     pytest tests/integration/ -m integration -v

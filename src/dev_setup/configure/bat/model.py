@@ -30,7 +30,7 @@ CONFIG_FILE = "config"
 # `detect.py` asks the binary rather than reproducing the search order.
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "bat" / "config"
 
-BASHRC_BLOCK = "dev-setup: bat"
+BASHRC_BLOCK = "devstuff: bat"
 
 
 # ---------------------------------------------------------------------------

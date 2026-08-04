@@ -59,15 +59,15 @@ mutating step. It stays local: no API keys, no network egress of source code, us
 | FR-13 | `functions.yaml` entries of `type: script` MUST be auto-exposed as agent tools with their catalog `params` as the schema. `shell-eval` entries MUST be excluded (they cannot run in a subprocess context). | Must |
 | FR-13a | Named tool arguments MUST be mapped to the function's positional argv **by declared order, holding a slot for every omitted argument**. `function_runner` resolves params positionally, so compacting out absent ones would shift later values into the wrong variable. | Must |
 | FR-13b | A function's own stdout/stderr MUST be captured and returned as the tool result, and MUST be included in the error when it exits non-zero. Functions guard on their dependencies with actionable messages ("yq is required — `devstuff install yq`"); a bare exit code leaves the model to invent a cause. `devstuff run` keeps inherited stdio so output still streams live for humans. | Must |
-| FR-14 | Model, host, temperature, `num_ctx`, `think`, `max_iterations`, timeout, auto-approve list and extra deny patterns MUST be configurable via `~/.config/dev-setup/agent.yaml`; `--model` and `--host` MUST override per invocation. Defaults: `gemma4:latest`, `num_ctx: 16384`, `temperature: 0.2`, `think: false`. | Must |
-| FR-14a | The agent MUST NOT be able to modify the user catalogs — no `add_tool`, `delete_tool`, or direct writes to `~/.config/dev-setup/*.yaml`. Catalog access is read-plus-install only. Those paths MUST be denied to `write_file` even when the workspace root would otherwise permit them. | Must |
+| FR-14 | Model, host, temperature, `num_ctx`, `think`, `max_iterations`, timeout, auto-approve list and extra deny patterns MUST be configurable via `~/.config/devstuff/agent.yaml`; `--model` and `--host` MUST override per invocation. Defaults: `gemma4:latest`, `num_ctx: 16384`, `temperature: 0.2`, `think: false`. | Must |
+| FR-14a | The agent MUST NOT be able to modify the user catalogs — no `add_tool`, `delete_tool`, or direct writes to `~/.config/devstuff/*.yaml`. Catalog access is read-plus-install only. Those paths MUST be denied to `write_file` even when the workspace root would otherwise permit them. | Must |
 | FR-15 | The REPL MUST support in-session slash commands: `/tools`, `/cwd`, `/model`, `/reset`, `/history`, `/help`, `/exit`. | Should |
 | FR-15a | The prompt MUST accept multi-line input: Enter submits, Alt+Enter (and Ctrl-J, which is what many terminals send for Shift+Enter) inserts a newline. This inverts prompt_toolkit's `multiline=True` default, where Enter inserts — wrong for a chat prompt where most turns are one line. | Should |
 | FR-15b | Typing `/` at the start of a line MUST offer a completion menu of session commands followed by every tool in the live toolbox, with mutating tools flagged. It MUST NOT trigger on a `/` elsewhere in the line (a path, a date) or once an argument is being typed. | Should |
 | FR-15c | `/<tool>` MUST describe that tool and its parameters. It MUST NOT invoke it — the agent decides when tools run, and a REPL back door around the confirmation flow is not worth the ambiguity. | Should |
 | FR-16 | `--print "<prompt>"` MUST run a single non-interactive turn and exit — usable from scripts. In this mode, absent `--yolo`, mutating calls are refused rather than silently auto-approved. | Should |
 | FR-17 | Tool output returned to the model MUST be truncated to a configurable byte cap, with truncation marked, so one `ls -R` cannot blow the context window. | Should |
-| FR-18 | The session transcript (messages + tool calls + results) SHOULD be written to `~/.local/share/dev-setup/agent/<timestamp>.json` for debugging. | Should |
+| FR-18 | The session transcript (messages + tool calls + results) SHOULD be written to `~/.local/share/devstuff/agent/<timestamp>.json` for debugging. | Should |
 | FR-19 | `--yolo` MAY disable confirmation prompts for a session; the denylist still applies and the mode MUST be announced at launch. | May |
 | FR-20 | A malformed tool call (unknown tool name, bad JSON arguments, missing required param) MUST be returned to the model as a structured error rather than crashing the session. | Must |
 
@@ -88,7 +88,7 @@ mutating step. It stays local: no API keys, no network egress of source code, us
 
 - **`AgentConfig`** — `model`, `host`, `temperature`, `num_ctx`, `max_iterations`,
   `request_timeout`, `auto_approve[]`, `deny_patterns[]`, `max_tool_output_bytes`.
-  Loaded from `~/.config/dev-setup/agent.yaml`; CLI flags override.
+  Loaded from `~/.config/devstuff/agent.yaml`; CLI flags override.
 - **`AgentTool`** — `key`, `name`, `description`, `impl` (`primitive`|`catalog`|`function`),
   `mutating: bool`, `params: [AgentParam]`, `target` (for `catalog`/`function` bridges).
   Serialises to an Ollama `tools[]` JSON-Schema entry via `to_schema()`.
@@ -187,7 +187,7 @@ Validation mirrors `functions_catalog.py`: unknown fields, bad `impl`, unknown `
 - An `add` wizard for agent tools (same gap functions already has).
 - Editing `agent_tools.yaml` from within the agent (no self-modifying toolbox).
 - **Agent-driven catalog authoring** — the agent cannot run `add`/`delete` or write to
-  `~/.config/dev-setup/`. Read-plus-install only (FR-14a).
+  `~/.config/devstuff/`. Read-plus-install only (FR-14a).
 - Windows/macOS support — the project targets Linux.
 - Streaming token-by-token rendering (non-streaming `/api/chat` in v1).
 

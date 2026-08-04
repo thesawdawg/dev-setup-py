@@ -222,7 +222,7 @@ def test_resolve_params_optional_without_default_resolves_empty():
 
 def test_resolve_params_explicit_empty_string_counts_as_missing():
     """An explicitly empty positional arg must not satisfy a required param — this was
-    the reported bug: `dev-setup run key ""` ran successfully with an empty value."""
+    the reported bug: `devstuff run key ""` ran successfully with an empty value."""
     with pytest.raises(ParamResolutionError, match="a"):
         runner.resolve_params(_params("a"), ("",))
 

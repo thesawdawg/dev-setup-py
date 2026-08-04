@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/thesawdawg/dev-setup-py/functions.schema.json",
   "title": "devstuff functions catalog",
-  "description": "Schema for functions.yaml (bundled at src/dev_setup/functions.yaml, user overrides at ~/.config/dev-setup/functions.yaml). Defines reusable shell functions/scripts invoked via `devstuff run <key>` or, for bashrc-registered functions, called directly by name after `devstuff functions enable <key>`. Mirrors the validation in functions_catalog.py — keep both in sync.",
+  "description": "Schema for functions.yaml (bundled at src/dev_setup/functions.yaml, user overrides at ~/.config/devstuff/functions.yaml). Defines reusable shell functions/scripts invoked via `devstuff run <key>` or, for bashrc-registered functions, called directly by name after `devstuff functions enable <key>`. Mirrors the validation in functions_catalog.py — keep both in sync.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "functions"],

@@ -14,7 +14,7 @@ from dev_setup.agent.registry import AgentTool
 from dev_setup.agent.sandbox import Workspace
 from dev_setup.agent.transcript import Transcript
 
-STATE_DIR = Path.home() / ".local" / "share" / "dev-setup" / "agent"
+STATE_DIR = Path.home() / ".local" / "share" / "devstuff" / "agent"
 HISTORY_PATH = STATE_DIR / "history"
 
 SYSTEM_PROMPT = """You are the devstuff agent, working in a terminal on a Linux \

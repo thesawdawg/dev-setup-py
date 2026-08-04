@@ -27,6 +27,7 @@ def _register_commands() -> None:
     from dev_setup.commands.configure_cmd import configure_cmd
     from dev_setup.commands.delete_cmd import delete_cmd
     from dev_setup.commands.docs_cmd import docs_cmd
+    from dev_setup.commands.doctor_cmd import doctor_cmd
     from dev_setup.commands.functions_cmd import functions_cmd
     from dev_setup.commands.install_cmd import install_cmd
     from dev_setup.commands.list_cmd import list_cmd
@@ -39,6 +40,7 @@ def _register_commands() -> None:
     cli.add_command(install_cmd, "install")
     cli.add_command(remove_cmd, "remove")
     cli.add_command(remove_cmd, "uninstall")
+    cli.add_command(doctor_cmd, "doctor")
     cli.add_command(update_cmd, "update")
     cli.add_command(configure_cmd, "configure")
     cli.add_command(configure_cmd, "config")

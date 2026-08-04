@@ -15,7 +15,7 @@ build:
 
 # Build the CI image (sandbox + pytest + integration tests baked in)
 build-ci: build
-	docker build -f Dockerfile.ci -t dev-setup-ci ..
+	docker build -f Dockerfile.ci -t devstuff-ci ..
 
 # Drop into an interactive shell as the 'developer' user
 run: build
@@ -33,7 +33,7 @@ shell: run
 #   make run-tests PYTEST_ARGS="-x --tb=long"
 run-tests: build-ci
 	$(eval _NODESEL := $(if $(TOOL),tests/integration/test_tools.py::test_install[$(TOOL)],tests/integration/test_tools.py))
-	docker run --rm dev-setup-ci \
+	docker run --rm devstuff-ci \
 		pytest $(_NODESEL) -m integration -v --tb=short $(PYTEST_ARGS)
 
 # Smoke-test `devstuff agent` against a live Ollama daemon.
@@ -57,4 +57,4 @@ tui-tests:
 # Remove the built images and named volume
 clean:
 	docker compose down --rmi local --volumes 2>/dev/null || true
-	docker rmi dev-setup-ci 2>/dev/null || true
+	docker rmi devstuff-ci 2>/dev/null || true

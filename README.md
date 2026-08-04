@@ -26,7 +26,7 @@ sudo apt-get install -y python3 python3-pip curl ca-certificates sudo
 |-------------|------|
 | `git` | `git`-type custom packages (`devstuff add` → git) |
 | `node` / `npm` | `npm`-type custom packages |
-| `uv` | Running from source via `./dev-setup` (auto-installed if missing) |
+| `uv` | Running from source via `./devstuff` (auto-installed if missing) |
 
 ---
 
@@ -44,8 +44,94 @@ pipx install devstuff
 pip install devstuff
 ```
 
-After install, `devstuff` is the primary command. Run `devstuff --help` to verify. The former
-`dev-setup` command remains available as a compatibility alias.
+After install, `devstuff` is the command. Run `devstuff --help` to verify.
+
+### Diagnosing and repairing (`devstuff doctor`)
+
+`devstuff doctor` runs a battery of health checks and reports the status of each. Checks
+that can be auto-fixed are offered for repair interactively, or applied all at once with
+`--fix`. Use `--check-only` for a read-only report (no fixes offered).
+
+```bash
+devstuff doctor              # run checks, offer to fix problems
+devstuff doctor --fix        # run checks and auto-apply every available fix
+devstuff doctor --check-only # report only, don't offer or apply fixes
+```
+
+The checks cover:
+
+| Check | What it verifies | Auto-fixable |
+|-------|-----------------|--------------|
+| `python-version` | Python 3.11+ | — |
+| `runtime-deps` | click, pyyaml, rich, questionary importable | — |
+| `config-dir` | `~/.config/devstuff` exists and is writable | create it |
+| `bundled-tools-catalog` | bundled `tools.yaml` loads and validates | — |
+| `user-tools-catalog` | user `tools.yaml` (if present) is valid | — |
+| `bundled-functions-catalog` | bundled `functions.yaml` loads and validates | — |
+| `user-functions-catalog` | user `functions.yaml` (if present) is valid | — |
+| `bundled-agent-catalog` | bundled `agent_tools.yaml` loads and validates | — |
+| `user-agent-catalog` | user `agent_tools.yaml` (if present) is valid | — |
+| `registry` | effective catalog builds into tool objects; `is_installed()` probes don't crash | — |
+| `bashrc` | `~/.bashrc` is writable (needed by configurators and `functions enable`) | — |
+| `stale-executable` | no stale `dev-setup` command on `$PATH` | remove symlink |
+| `stale-packages` | no old `dev-setup` install reported by `uv`/`pipx` | uninstall |
+| `old-dirs` | no old `~/.config/dev-setup` or `~/.local/share/dev-setup` | move to `devstuff` |
+| `stale-bashrc-blocks` | no stale `# dev-setup:` / `# dev-setup-fn:` blocks in `~/.bashrc` | remove |
+
+The last four checks detect leftover artifacts from pre-v1.19 installs (when the package
+shipped a `dev-setup` command alias and used `~/.config/dev-setup` paths). `doctor --fix`
+cleans them up: it uninstalls old `dev-setup` packages from `uv`/`pipx`, removes stale
+symlinks (refusing to touch one that points into the current `devstuff` install), moves
+old config/data directories to the new `devstuff` paths, and strips stale bashrc blocks —
+verifying each fix before moving on.
+
+#### Manual cleanup (pre-v1.19 artifacts)
+
+If you prefer to clean up by hand, or `doctor` can't fix something automatically:
+
+1. **Uninstall the old package(s).** The exact command depends on how you installed it:
+
+   ```bash
+   # uv tool (check first with: uv tool list)
+   uv tool uninstall dev-setup devstuff
+
+   # pipx
+   pipx uninstall dev-setup
+   pipx uninstall devstuff
+
+   # plain pip
+   pip uninstall dev-setup devstuff
+   ```
+
+   This removes the now-defunct `dev-setup` executable from `~/.local/bin` (a stale symlink
+   there will keep resolving to the old version otherwise).
+
+2. **Install the current version** (see [From PyPI](#from-pypi-recommended) above).
+
+3. **Move your config and data to the new paths** (only if they exist on your machine):
+
+   ```bash
+   [ -d ~/.config/dev-setup ]      && mv ~/.config/dev-setup ~/.config/devstuff
+   [ -d ~/.local/share/dev-setup ] && mv ~/.local/share/dev-setup ~/.local/share/devstuff
+   ```
+
+   Your `tools.yaml`, `functions.yaml`, `agent.yaml`, and `agent_tools.yaml` catalogs move
+   with the directory and are picked up automatically on the next run.
+
+4. **Clean up stale `~/.bashrc` blocks.** The bashrc patch markers were renamed, so
+   `devstuff remove` / `devstuff functions disable` won't find blocks written by the old
+   version. Search for and remove any leftover blocks:
+
+   ```bash
+   # Show any old blocks still in your bashrc:
+   grep -nE '# dev-setup:|# dev-setup-fn:' ~/.bashrc
+   ```
+
+   Then either delete those blocks manually (each is a `# <marker>` line followed by its
+   content up to the next blank line), or re-run the relevant configurator / `devstuff
+   functions enable <key>` to write a fresh block under the new marker and remove the old
+   one by hand. The `bat` configurator's block marker changed from `dev-setup: bat` to
+   `devstuff: bat`; function blocks changed from `dev-setup-fn:<key>` to `devstuff-fn:<key>`.
 
 ### From source (development)
 
@@ -58,10 +144,10 @@ bash install.sh   # installs from PyPI via pipx or pip
 Or to run directly from the cloned repo without installing:
 
 ```bash
-./dev-setup list   # creates a .venv on first run, then stays fast
+./devstuff list   # creates a .venv on first run, then stays fast
 ```
 
-The `./dev-setup` bash script requires Python 3.11+ and creates a local `.venv` automatically. On Debian/Ubuntu, if `python3-venv` is not installed, it falls back to `uv venv` if uv is available.
+The `./devstuff` bash script requires Python 3.11+ and creates a local `.venv` automatically. On Debian/Ubuntu, if `python3-venv` is not installed, it falls back to `uv venv` if uv is available.
 
 For editable development installs:
 
@@ -74,9 +160,9 @@ devstuff list
 
 ## How it works
 
-When installed from PyPI (via `pip` or `pipx`), `devstuff` is a standard Python entry point — Python is the only runtime dependency. The `[project.scripts]` entries in `pyproject.toml` map both `devstuff` and the compatibility alias `dev-setup` directly to `dev_setup.__main__:main`.
+When installed from PyPI (via `pip` or `pipx`), `devstuff` is a standard Python entry point — Python is the only runtime dependency. The `[project.scripts]` entry in `pyproject.toml` maps `devstuff` directly to `dev_setup.__main__:main`.
 
-The bash `./dev-setup` script in the repo is a convenience runner for the git-clone workflow. It creates a `.venv` using `python3 -m venv` (falling back to `uv venv` on systems where `python3-venv` is a separate package) and installs the project in editable mode on first run.
+The bash `./devstuff` script in the repo is a convenience runner for the git-clone workflow. It creates a `.venv` using `python3 -m venv` (falling back to `uv venv` on systems where `python3-venv` is a separate package) and installs the project in editable mode on first run.
 
 ---
 
@@ -635,7 +721,7 @@ Guided wizard to register a new custom package. Supports six install types:
 devstuff add
 ```
 
-The wizard collects type-specific fields, then prompts for a help command (e.g. `tool --help`). Packages are saved into `~/.config/dev-setup/tools.yaml`.
+The wizard collects type-specific fields, then prompts for a help command (e.g. `tool --help`). Packages are saved into `~/.config/devstuff/tools.yaml`.
 
 #### `bash` type
 
@@ -674,7 +760,7 @@ devstuff delete my-tool
 devstuff rm my-tool              # alias
 ```
 
-Asks for confirmation, then removes the entry from `~/.config/dev-setup/tools.yaml`.
+Asks for confirmation, then removes the entry from `~/.config/devstuff/tools.yaml`.
 
 ---
 
@@ -683,8 +769,8 @@ Asks for confirmation, then removes the entry from `~/.config/dev-setup/tools.ya
 Manage the user YAML catalog.
 
 ```bash
-devstuff catalog path                 # print ~/.config/dev-setup/tools.yaml
-devstuff catalog export               # write ./dev-setup-tools.yaml
+devstuff catalog path                 # print ~/.config/devstuff/tools.yaml
+devstuff catalog export               # write ./devstuff-tools.yaml
 devstuff catalog export tools.yaml    # write effective catalog to a path
 devstuff catalog import tools.yaml    # validate and merge into user catalog
 ```
@@ -692,8 +778,8 @@ devstuff catalog import tools.yaml    # validate and merge into user catalog
 The effective catalog is loaded in this order:
 
 1. Bundled tools from `src/dev_setup/tools.yaml`
-2. Legacy JSON migration from `~/.config/dev-setup/packages/*.json`
-3. User overrides and additions from `~/.config/dev-setup/tools.yaml`
+2. Legacy JSON migration from `~/.config/devstuff/packages/*.json`
+3. User overrides and additions from `~/.config/devstuff/tools.yaml`
 
 When a user key matches a bundled key, the user definition overrides the bundled definition in place. New user keys are appended after bundled tools.
 
@@ -757,7 +843,7 @@ ollama pull gemma4          # or any model reporting the `tools` capability
 
 Then the **first time you run `devstuff agent`** with no configuration, a wizard walks you
 through it — Ollama host, then a pick-list of your locally available tool-capable models, then
-whether to show the model's reasoning. It writes `~/.config/dev-setup/agent.yaml` and continues
+whether to show the model's reasoning. It writes `~/.config/devstuff/agent.yaml` and continues
 into the session. Re-run it any time with `devstuff agent --setup`.
 
 The wizard only lists models that report the `tools` capability (`ollama show <model>` shows it
@@ -777,7 +863,7 @@ boundary:
   symlinks) and must land inside the workspace root. A symlink planted inside the workspace is
   not a way out.
 - **Protected paths** — `~/.ssh`, `~/.aws`, `~/.gnupg` and `~/.config/gh` are refused for read
-  *and* write even if the workspace root contains them. `~/.config/dev-setup` is readable but
+  *and* write even if the workspace root contains them. `~/.config/devstuff` is readable but
   never writable: catalog authoring stays a human action.
 - **Confirmation** — every mutating tool call shows the exact command, or a unified diff for
   `write_file`, and waits for yes / no / always-this-session. Read-only calls run silently.
@@ -793,7 +879,7 @@ scripted invocation cannot become an unattended agent with write access.
 
 ### Configuration
 
-`~/.config/dev-setup/agent.yaml` (all fields optional):
+`~/.config/devstuff/agent.yaml` (all fields optional):
 
 ```yaml
 version: 1
@@ -832,7 +918,7 @@ exist to mutate the calling shell, which a subprocess cannot do.
 ### agent_tools.yaml
 
 The toolbox is a catalog, like everything else. Bundled at `src/dev_setup/agent_tools.yaml`,
-user overrides at `~/.config/dev-setup/agent_tools.yaml`, same merge precedence as `tools.yaml`.
+user overrides at `~/.config/devstuff/agent_tools.yaml`, same merge precedence as `tools.yaml`.
 
 ```yaml
 version: 1
@@ -857,8 +943,8 @@ documents every field for editor autocomplete; it is not enforced at runtime.
 
 ### Session state
 
-- Prompt history: `~/.local/share/dev-setup/agent/history`
-- Transcripts: `~/.local/share/dev-setup/agent/transcripts/<timestamp>.json`, written after every
+- Prompt history: `~/.local/share/devstuff/agent/history`
+- Transcripts: `~/.local/share/devstuff/agent/transcripts/<timestamp>.json`, written after every
   turn so a session that ends in a crash is still readable. `/history` shows the current session
   and the transcript path.
 
@@ -878,7 +964,7 @@ In-session commands: `/tools`, `/history`, `/cwd`, `/model`, `/reset`, `/help`, 
 ## Functions/Scripts
 
 Reusable shell functions/snippets, tracked in a separate catalog from installable tools
-(`~/.config/dev-setup/functions.yaml`, same bundled+user precedence merge as `tools.yaml`).
+(`~/.config/devstuff/functions.yaml`, same bundled+user precedence merge as `tools.yaml`).
 Unlike tools, functions aren't installed/removed — they're invoked.
 
 There are two function `type`s, because a `devstuff` command runs as its own child process
@@ -913,7 +999,7 @@ Other commands:
 
 ```bash
 devstuff functions list      # show all functions, their type, and declared params
-devstuff functions path      # print ~/.config/dev-setup/functions.yaml
+devstuff functions path      # print ~/.config/devstuff/functions.yaml
 ```
 
 ### functions.yaml schema
@@ -983,7 +1069,7 @@ differently per invocation path:
 
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have — for now, custom functions are hand-edited YAML at
-`~/.config/dev-setup/functions.yaml`.
+`~/.config/devstuff/functions.yaml`.
 
 ### Built-in functions
 
@@ -1045,7 +1131,7 @@ Optional utilities you may want on some machines.
 
 ## Custom packages
 
-Custom packages live in `~/.config/dev-setup/tools.yaml`. You can create them via `devstuff add`, import them with `devstuff catalog import`, or edit the YAML by hand.
+Custom packages live in `~/.config/devstuff/tools.yaml`. You can create them via `devstuff add`, import them with `devstuff catalog import`, or edit the YAML by hand.
 
 ### YAML schema
 
@@ -1159,7 +1245,7 @@ tools:
 
 ```
 dev-setup-py/
-├── dev-setup              # Bash entry point — bootstraps uv, then exec's Python
+├── devstuff              # Bash entry point — bootstraps uv, then exec's Python
 ├── install.sh             # Installs devstuff and exposes the devstuff command
 ├── pyproject.toml         # Python project (hatchling, requires-python >=3.11)
 └── src/

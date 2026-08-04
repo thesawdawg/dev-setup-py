@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-CONFIG_DIR = Path.home() / ".config" / "dev-setup"
+CONFIG_DIR = Path.home() / ".config" / "devstuff"
 USER_CATALOG_PATH = CONFIG_DIR / "tools.yaml"
 BUNDLED_CATALOG = "tools.yaml"
 

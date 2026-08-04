@@ -3,12 +3,12 @@ services:
     build:
       context: ..
       dockerfile: dev/Dockerfile
-    image: dev-setup-sandbox
+    image: devstuff-sandbox
     stdin_open: true
     tty: true
     volumes:
-      # Persist custom packages added via 'dev-setup add' across container runs
-      - dev-setup-config:/home/developer/.config/dev-setup
+      # Persist custom packages added via 'devstuff add' across container runs
+      - devstuff-config:/home/developer/.config/devstuff
 
 volumes:
-  dev-setup-config:
+  devstuff-config:

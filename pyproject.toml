@@ -32,7 +32,6 @@ dependencies = [
 
 [project.scripts]
 devstuff = "dev_setup.__main__:main"
-dev-setup = "dev_setup.__main__:main"
 
 [project.urls]
 Repository = "https://github.com/thesawdawg/dev-setup-py"

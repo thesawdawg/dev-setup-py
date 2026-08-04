@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/thesawdawg/dev-setup-py/agent_tools.schema.json",
   "title": "devstuff agent tool catalog",
-  "description": "Schema for agent_tools.yaml (bundled at src/dev_setup/agent_tools.yaml, user overrides at ~/.config/dev-setup/agent_tools.yaml). Defines the tools exposed to the local model by `devstuff agent`. Mirrors the validation in agent/catalog.py — keep both in sync; this file is documentation for editor tooling and is NOT enforced at runtime.",
+  "description": "Schema for agent_tools.yaml (bundled at src/dev_setup/agent_tools.yaml, user overrides at ~/.config/devstuff/agent_tools.yaml). Defines the tools exposed to the local model by `devstuff agent`. Mirrors the validation in agent/catalog.py — keep both in sync; this file is documentation for editor tooling and is NOT enforced at runtime.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "tools"],

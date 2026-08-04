@@ -24,22 +24,22 @@ jobs:
         run: uv build
 
       # Two-step docker build matching the local dev workflow:
-      #   dev/Dockerfile        → dev-setup-sandbox  (minimal system + wheel installed)
-      #   dev/Dockerfile.ci     → dev-setup-ci       (+ pytest + test files baked in)
+      #   dev/Dockerfile        → devstuff-sandbox  (minimal system + wheel installed)
+      #   dev/Dockerfile.ci     → devstuff-ci       (+ pytest + test files baked in)
       - name: Build sandbox image
-        run: docker build -f dev/Dockerfile -t dev-setup-sandbox .
+        run: docker build -f dev/Dockerfile -t devstuff-sandbox .
 
       - name: Build CI test image
-        run: docker build -f dev/Dockerfile.ci -t dev-setup-ci .
+        run: docker build -f dev/Dockerfile.ci -t devstuff-ci .
 
       - name: Export image archive
-        run: docker save dev-setup-ci | gzip > dev-setup-ci.tar.gz
+        run: docker save devstuff-ci | gzip > devstuff-ci.tar.gz
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
           name: docker-image
-          path: dev-setup-ci.tar.gz
+          path: devstuff-ci.tar.gz
           retention-days: 1
 
   # ─── Stage 2: one isolated container per tool, all run in parallel ───────────
@@ -81,12 +81,12 @@ jobs:
           name: docker-image
 
       - name: Load image
-        run: docker load < dev-setup-ci.tar.gz
+        run: docker load < devstuff-ci.tar.gz
 
       - name: Test ${{ matrix.tool }} installs
         run: |
           set +e
-          docker run --rm dev-setup-ci \
+          docker run --rm devstuff-ci \
             pytest "tests/integration/test_tools.py::test_install[${{ matrix.tool }}]" \
               -v --tb=short 2>&1 | tee test-output.txt
           RESULT=${PIPESTATUS[0]}

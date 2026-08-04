@@ -24,7 +24,7 @@ def run_cmd(key: str, args: tuple[str, ...]) -> None:
         _run_script(fn, args)
     elif fn.type == "shell-eval" and fn.register == "eval":
         _run_eval(fn, args)
-    else:  # shell-eval + bashrc — dev-setup can't mutate the calling shell itself
+    else:  # shell-eval + bashrc — devstuff can't mutate the calling shell itself
         ui.error(f"'{fn.key}' is registered via ~/.bashrc, not run directly.")
         ui.dim(f"Enable it once:  devstuff functions enable {fn.key}")
         ui.dim(f"Then call it directly in your shell:  {fn.key} ...")
@@ -56,7 +56,7 @@ def _run_script(fn: FunctionDef, args: tuple[str, ...]) -> None:
 
 def _run_eval(fn: FunctionDef, args: tuple[str, ...]) -> None:
     # Diagnostics must go to stderr and stdout must carry ONLY the resolved script —
-    # the caller does `eval "$(dev-setup run ...)"`, so anything else printed to
+    # the caller does `eval "$(devstuff run ...)"`, so anything else printed to
     # stdout becomes part of what gets evaluated in their shell.
     try:
         script = runner.render_eval_script(fn, args)
