@@ -1078,8 +1078,37 @@ ones tools already have — for now, custom functions are hand-edited YAML at
 | `ssh-agent-key` | auth | shell-eval (bashrc) | Start ssh-agent in the current shell and add a key to it | `key_path` |
 | `validate-docker-compose` | validation | script | Validate a docker-compose.yml file in the current directory | — |
 | `validate-yaml` | validation | script | Validate a YAML file's syntax using `yq` | `file` |
+| `whats-on-port` | network | script | Find which process is listening on a port | `port`, `protocol` (optional: `tcp`/`udp`/`all`) |
 | `acc-check` | web-dev | script | Run the pi coding agent's `/dogfood` skill against a web URL | `url`, `instruction` (optional) |
 | `aws-saml-reauth` | web-dev | script | Reauthorize the AWS CLI via `saml2aws login --force` | `profile` (optional) |
+
+#### `whats-on-port`
+
+```bash
+devstuff run whats-on-port 8080          # tcp and udp
+devstuff run whats-on-port 5432 tcp      # one protocol
+```
+
+Prints the matching sockets, then the PID, user, elapsed time and **untruncated** command
+line of every process holding them — plural because `SO_REUSEPORT` lets several processes
+share one port, and "which of these five node processes" is usually the actual question.
+
+It uses `ss` rather than `lsof` or `fuser` for one measured reason: **run unprivileged
+against another user's socket, `lsof` and `fuser` print nothing and exit as though the port
+were free.** `ss` still lists the socket, just without the `users:((...))` field — so the
+function can tell "nothing there" apart from "something there I'm not allowed to name", and
+says which. When the process is hidden it retries under `sudo -n`, and only if that needs no
+password; a diagnostic shouldn't stop to prompt for one. If sudo isn't available it says
+what to re-run.
+
+"Nothing is listening" is reported as a success, not a failure, along with the two reasons a
+bind can still fail afterwards: a container port published with `userland-proxy: false` is
+NAT-forwarded with no host socket to find at all, and sockets in another network namespace
+are invisible. If Docker is running, published container ports are matched and named too —
+`docker-proxy`'s own command line doesn't say which container it belongs to.
+
+`ss` comes from `iproute2`, which isn't a devstuff package and isn't on every minimal image,
+so a missing `ss` names the apt package instead of surfacing "command not found".
 
 ---
 
