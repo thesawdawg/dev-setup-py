@@ -730,7 +730,13 @@ def _check_cmd_installed(cmd: str, *, install_type: str = "") -> bool:
             ).returncode == 0
         except Exception:
             return False
+    # Same nvm sourcing as the simple-command branch above. `bash -lc` reads ~/.profile,
+    # whose sourcing of ~/.bashrc (where nvm's init lives) returns early when the shell
+    # is non-interactive — so an nvm-installed binary is never on PATH here. Without
+    # this, any npm-type tool with a multi-word check_cmd reports "not installed"
+    # immediately after installing successfully.
+    prefix = f"{_npm_init()} && " if install_type == "npm" else ""
     try:
-        return _probe(["bash", "-lc", cmd], capture_output=True).returncode == 0
+        return _probe(["bash", "-lc", f"{prefix}{cmd}"], capture_output=True).returncode == 0
     except Exception:
         return False

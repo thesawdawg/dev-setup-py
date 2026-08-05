@@ -706,7 +706,11 @@ tools:
     category: ai-tools
     type: npm
     npm_name: llm-checker
-    check_cmd: llm-checker hw-detect
+    # Multi-word on purpose: a "complex" check_cmd is what makes get_version() fall
+    # through to the nvm-sourcing probe, which is the only way to read the version of
+    # an nvm-installed binary. `hw-detect` also answered "is it installed", but did a
+    # full hardware scan (shelling out to lspci) on every `devstuff list` to do it.
+    check_cmd: llm-checker --version
     help_cmd: llm-checker --help
     docs_url: https://github.com/signerless/llm-checker
     requires:
@@ -722,6 +726,14 @@ tools:
     docs_url: https://lmstudio.ai/docs/cli
     install_script: |
       set -euo pipefail
+      # LM Studio's installer hard-fails on a system without libatomic: it prints the
+      # apt line to run and exits 1 rather than installing it. That is the state of a
+      # minimal Ubuntu (including this repo's CI image), so install it here — every
+      # other prerequisite the installer needs is already present on a base system.
+      if ! ldconfig -p 2>/dev/null | grep -q 'libatomic\.so'; then
+        sudo apt-get update -q
+        sudo apt-get install -y libatomic1
+      fi
       curl -fsSL https://lmstudio.ai/install.sh | bash
     remove_script: |
       set -euo pipefail

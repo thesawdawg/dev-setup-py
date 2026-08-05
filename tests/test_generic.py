@@ -159,3 +159,35 @@ def test_download_script_skips_check_when_no_sha256():
 )
 def test_is_simple_command(cmd, expected):
     assert _is_simple_command(cmd) is expected
+
+
+# -- check_cmd probing ---------------------------------------------------------------
+
+
+def _probed_script(run_mock) -> str:
+    """The shell text passed to `bash -lc` by the last _check_cmd_installed probe."""
+    return run_mock.call_args[0][0][2]
+
+
+@pytest.mark.parametrize("cmd", ["llm-checker --version", "llm-checker"])
+def test_npm_check_cmd_sources_nvm_whether_simple_or_complex(cmd):
+    """`bash -lc` never loads nvm on its own: it reads ~/.profile, whose sourcing of
+    ~/.bashrc returns early for a non-interactive shell. Without the explicit source,
+    an npm-type tool reports "not installed" right after installing successfully."""
+    with mock.patch("dev_setup.generic.shutil.which", return_value=None), \
+         mock.patch("subprocess.run") as run:
+        run.return_value.returncode = 0
+        assert generic._check_cmd_installed(cmd, install_type="npm")
+    assert ".nvm/nvm.sh" in _probed_script(run)
+
+
+def test_non_npm_check_cmd_does_not_pay_for_nvm():
+    with mock.patch("dev_setup.generic.shutil.which", return_value=None), \
+         mock.patch("subprocess.run") as run:
+        run.return_value.returncode = 0
+        generic._check_cmd_installed("test -d ~/.somewhere", install_type="bash")
+    assert ".nvm/nvm.sh" not in _probed_script(run)
+
+
+def test_complex_check_cmd_still_reports_a_failing_command_as_not_installed():
+    assert not generic._check_cmd_installed("false --version", install_type="npm")
