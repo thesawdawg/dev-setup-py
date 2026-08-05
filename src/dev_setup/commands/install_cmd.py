@@ -11,13 +11,9 @@ from dev_setup.base import Tool
 
 
 @click.command("install")
-@click.option("--verbose", "-v", is_flag=True, help="Stream install output to the terminal.")
 @click.argument("packages", nargs=-1)
-def install_cmd(packages: tuple[str, ...], verbose: bool) -> None:
+def install_cmd(packages: tuple[str, ...]) -> None:
     """Install packages. Interactive picker when called with no arguments."""
-    from dev_setup import generic
-    generic._verbose = verbose
-
     if not packages:
         _install_interactive()
     else:

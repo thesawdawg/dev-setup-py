@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 
+from dev_setup import verbose
 from dev_setup.base import patch_bashrc, remove_bashrc_block
 from dev_setup.functions_registry import FunctionDef, FunctionParam
 
@@ -70,7 +71,12 @@ def render_eval_script(fn: FunctionDef, args: tuple[str, ...]) -> str:
     clean for `eval "$(...)"` capture, so missing required params raise instead."""
     values = resolve_params(fn.params, args)
     prelude = _literal_prelude(fn.params, values)
-    return f"{prelude}\n{fn.script}" if prelude else fn.script
+    script = f"{prelude}\n{fn.script}" if prelude else fn.script
+    # Logged, never traced with `set -x`: this text is evaluated by the *caller's*
+    # interactive shell, where enabling xtrace would persist after the function returns.
+    verbose.log(f"eval script for '{fn.key}':")
+    verbose.block(script, minimum=verbose.VERBOSE)
+    return script
 
 
 def _bashrc_prelude(fn: FunctionDef) -> list[str]:
@@ -106,7 +112,10 @@ def render_bashrc_function(fn: FunctionDef) -> str:
 
 
 def enable_bashrc_function(fn: FunctionDef) -> bool:
-    return patch_bashrc(f"devstuff-fn:{fn.key}", render_bashrc_function(fn))
+    block = render_bashrc_function(fn)
+    verbose.log(f"patching ~/.bashrc with devstuff-fn:{fn.key}")
+    verbose.block(block)
+    return patch_bashrc(f"devstuff-fn:{fn.key}", block)
 
 
 def disable_bashrc_function(fn: FunctionDef) -> bool:
@@ -137,13 +146,25 @@ def run_script_function(
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write(content)
         tmp = f.name
+
+    # `bash -x` at -vv traces every expanded command inside the function to stderr.
+    # A function is an opaque blob of someone else's shell until you can see that;
+    # `capture` mode gets it too, since the trace lands in the returned text.
+    cmd = ["bash", *(["-x"] if verbose.enabled(verbose.TRACE) else []), tmp, *values]
+    verbose.command(cmd)
+    verbose.trace(f"params: {_describe_params(fn.params, values)}")
+    verbose.block(content)
     try:
         if capture:
-            proc = subprocess.run(
-                ["bash", tmp, *values], check=True, capture_output=True, text=True
-            )
+            proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
             return ((proc.stdout or "") + (proc.stderr or "")).strip()
-        subprocess.run(["bash", tmp, *values], check=True)
+        subprocess.run(cmd, check=True)
         return None
     finally:
         os.unlink(tmp)
+
+
+def _describe_params(params: list[FunctionParam], values: list[str]) -> str:
+    if not params:
+        return "(none)"
+    return "  ".join(f"{p.name}={v!r}" for p, v in zip(params, values, strict=True))

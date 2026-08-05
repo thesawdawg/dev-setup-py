@@ -166,6 +166,30 @@ The bash `./devstuff` script in the repo is a convenience runner for the git-clo
 
 ---
 
+## Verbose output (`-v` / `-vv`)
+
+Every command accepts `-v`, before or after the subcommand. devstuff is a thin layer over other
+people's commands; this is how you see them.
+
+```bash
+devstuff install lazygit -v      # log each command and stream its output live
+devstuff -vv run whats-on-port 8080   # + probes, exit codes, and bash -x line tracing
+DEVSTUFF_VERBOSE=1 devstuff update    # same as -v, for scripts and CI
+```
+
+| Level | What you get |
+|-------|--------------|
+| *(default)* | Normal output. Command output is captured and shown only if the command fails. |
+| `-v` | Every command devstuff runs, printed as a line you can paste back into a shell, with its output streaming live. Spinners are replaced by plain lines so they don't fight with that output. |
+| `-vv` | Plus read-only probes (version checks, install-state checks) with their exit codes and output, the body of any script before it runs, resolved function parameters, and `bash -x` tracing of every line inside function and installer scripts. |
+
+`-vvv` and above are the same as `-vv`.
+
+All of it goes to **stderr**, so it never contaminates anything you pipe or capture — including
+`eval "$(devstuff run <shell-eval function>)"`, whose stdout has to be shell code and nothing else.
+
+---
+
 ## Commands
 
 ### `list`

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 
 import click
 
 from dev_setup import function_runner as runner
-from dev_setup import functions_registry, ui
+from dev_setup import functions_registry, ui, verbose
 from dev_setup.function_runner import ParamResolutionError
 from dev_setup.functions_registry import FunctionDef, FunctionParam
 
@@ -19,6 +20,8 @@ def run_cmd(key: str, args: tuple[str, ...]) -> None:
     if fn is None:
         ui.error(f"Unknown function: '{key}'")
         sys.exit(1)
+
+    verbose.trace(f"function '{fn.key}': type={fn.type} register={fn.register} args={list(args)}")
 
     if fn.type == "script":
         _run_script(fn, args)
@@ -48,6 +51,12 @@ def _run_script(fn: FunctionDef, args: tuple[str, ...]) -> None:
         ui.success(f"{fn.name} completed")
     except ParamResolutionError as exc:
         ui.error(str(exc))
+        sys.exit(1)
+    except subprocess.CalledProcessError as exc:
+        # devstuff's own exit code is always 1 here (a function can't signal a result
+        # through it), so the script's real exit code is only visible under -v.
+        ui.error(f"'{fn.name}' failed: {exc}")
+        verbose.log(f"'{fn.key}' exited {exc.returncode}")
         sys.exit(1)
     except Exception as exc:
         ui.error(f"'{fn.name}' failed: {exc}")

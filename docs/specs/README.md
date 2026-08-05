@@ -46,3 +46,4 @@ They are most useful when they capture:
 | [`bat-config/`](bat-config/) — `devstuff configure bat`, the theme and decoration wizard | Complete (v1) |
 | [`ansible-config/`](ansible-config/) — `devstuff configure ansible`, the ansible.cfg wizard | Complete (v1) |
 | [`lazygit-config/`](lazygit-config/) — `devstuff configure lazygit`, the icons/pager/panels wizard | Complete (v1) |
+| [`verbose-mode/`](verbose-mode/) — `-v`/`-vv`, the process-wide verbosity level | Complete (v1) |
