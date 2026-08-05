@@ -1,3 +1,9 @@
+## v2.2.1 (2026-08-05)
+
+### Bug Fixes
+
+- repair the two failing builtin install integration tests (#40)
+
 ## v2.2.0 (2026-08-05)
 
 ### Features
