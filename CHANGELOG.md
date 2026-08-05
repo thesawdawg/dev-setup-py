@@ -1,3 +1,9 @@
+## v2.2.0 (2026-08-05)
+
+### Features
+
+- **cli**: add -v/-vv verbose mode across every command
+
 ## v2.1.0 (2026-08-04)
 
 ### Features
