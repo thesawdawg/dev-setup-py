@@ -10,9 +10,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields
 from pathlib import Path
 
+from dev_setup import verbose
 from dev_setup.base import Tool
-
-_verbose: bool = False
 
 # Auto-inferred requires per install type (re-derived on load, not persisted)
 AUTO_REQUIRES = {
@@ -43,15 +42,46 @@ class UpdateStatus:
 
 
 def _run(cmd: list, *, cwd: Path | None = None) -> None:
-    """Run a command. Streams output when verbose, captures when not."""
-    if _verbose:
-        subprocess.run(cmd, check=True, cwd=cwd)
+    """Run a state-changing command (install/remove/update). Raises RuntimeError on failure.
+
+    Streams output when verbose, captures when not — captured output is discarded on
+    success and surfaced as the exception message on failure, which is the only reason
+    quiet mode can say anything useful about what went wrong.
+    """
+    verbose.command(cmd, cwd=cwd)
+    if verbose.enabled():
+        try:
+            subprocess.run(cmd, check=True, cwd=cwd)
+        except subprocess.CalledProcessError as e:
+            # The output already streamed past; repeating the whole argv in the error
+            # adds nothing the user can't see directly above it.
+            raise RuntimeError(f"exit code {e.returncode}") from e
     else:
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=cwd)
         except subprocess.CalledProcessError as e:
             msg = e.stderr.strip() if e.stderr else f"exit code {e.returncode}"
             raise RuntimeError(msg) from e
+
+
+def _probe(cmd: list, *, log_at: int = verbose.TRACE, **kwargs) -> subprocess.CompletedProcess:
+    """Run a command whose output we capture rather than stream, and don't raise on.
+
+    Used for read-only probes (version checks, dpkg queries, …) and for the few
+    best-effort actions whose failure is deliberately ignored. Verbosity only adds
+    logging here, and by default only at -vv: probes fire constantly — one or more per
+    tool on every `list` — and would bury the actual work at -v. `log_at=verbose.VERBOSE`
+    marks the ones that are real actions the user should see at -v.
+    """
+    kwargs.setdefault("capture_output", True)
+    verbose.command(cmd, cwd=kwargs.get("cwd"), minimum=log_at)
+    proc = subprocess.run(cmd, **kwargs)
+    if verbose.enabled(verbose.TRACE):
+        out = "".join(
+            part for part in (proc.stdout, proc.stderr) if isinstance(part, str)
+        )
+        verbose.result(proc.returncode, out)
+    return proc
 
 
 @dataclass
@@ -160,7 +190,7 @@ class GenericTool(Tool):
         if cmd and shutil.which(cmd):
             for flag in ["--version", "-v", "version"]:
                 try:
-                    r = subprocess.run([cmd, flag], capture_output=True, text=True, timeout=5)
+                    r = _probe([cmd, flag], capture_output=True, text=True, timeout=5)
                     if r.returncode == 0 and r.stdout.strip():
                         return r.stdout.strip().splitlines()[0]
                 except Exception:
@@ -178,18 +208,13 @@ class GenericTool(Tool):
 
 
 def _install_npm(tool: GenericTool) -> None:
-    from dev_setup import ui
     if not tool.npm_name:
         raise RuntimeError("npm_name not set")
-    with ui.spinner(f"Installing {tool.name} via npm..."):
-        subprocess.run(
-            ["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(tool.npm_name)}"],
-            check=True, capture_output=True,
-        )
+    with verbose.step(f"Installing {tool.name} via npm..."):
+        _run(["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(tool.npm_name)}"])
 
 
 def _install_uvx(tool: GenericTool) -> None:
-    from dev_setup import ui
     if not tool.pip_name:
         raise RuntimeError("pip_name not set")
     uv = shutil.which("uv")
@@ -198,26 +223,19 @@ def _install_uvx(tool: GenericTool) -> None:
             "uv is required to install uvx packages. "
             "Install it first: devstuff install uv"
         )
-    with ui.spinner(f"Installing {tool.name} via uvx..."):
-        subprocess.run([uv, "tool", "install", tool.pip_name], check=True, capture_output=True)
+    with verbose.step(f"Installing {tool.name} via uvx..."):
+        _run([uv, "tool", "install", tool.pip_name])
 
 
 def _install_git(tool: GenericTool) -> None:
-    from dev_setup import ui
     if not tool.git_url:
         raise RuntimeError("git_url not set")
     dest = _git_clone_dest(tool.git_url)
-    with ui.spinner(f"Cloning {tool.name}..."):
-        subprocess.run(
-            ["git", "clone", "--depth=1", tool.git_url, str(dest)],
-            check=True, capture_output=True,
-        )
+    with verbose.step(f"Cloning {tool.name}..."):
+        _run(["git", "clone", "--depth=1", tool.git_url, str(dest)])
     if tool.git_install_cmd:
-        with ui.spinner("Running install command..."):
-            subprocess.run(
-                ["bash", "-c", tool.git_install_cmd],
-                cwd=dest, check=True, capture_output=True,
-            )
+        with verbose.step("Running install command..."):
+            _run(["bash", "-c", tool.git_install_cmd], cwd=dest)
 
 
 def _install_apt(tool: GenericTool) -> None:
@@ -225,7 +243,7 @@ def _install_apt(tool: GenericTool) -> None:
     if not tool.apt_packages:
         raise RuntimeError("apt_packages not set")
     ui.info(f"Installing {tool.name} via apt...")
-    subprocess.run(["sudo", "apt-get", "update", "-q"], capture_output=True)
+    _run_apt_update()
     _run(["sudo", "apt-get", "install", "-y"] + tool.apt_packages.split())
 
 
@@ -250,19 +268,14 @@ def _install_bash(tool: GenericTool) -> None:
 
 
 def _update_npm(tool: GenericTool, version: str | None) -> None:
-    from dev_setup import ui
     if not tool.npm_name:
         raise RuntimeError("npm_name not set")
     target = f"{tool.npm_name}@{version or 'latest'}"
-    with ui.spinner(f"Updating {tool.name} via npm..."):
-        subprocess.run(
-            ["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(target)}"],
-            check=True, capture_output=True,
-        )
+    with verbose.step(f"Updating {tool.name} via npm..."):
+        _run(["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(target)}"])
 
 
 def _update_uvx(tool: GenericTool, version: str | None) -> None:
-    from dev_setup import ui
     if not tool.pip_name:
         raise RuntimeError("pip_name not set")
     uv = shutil.which("uv")
@@ -272,8 +285,8 @@ def _update_uvx(tool: GenericTool, version: str | None) -> None:
             "Install it first: devstuff install uv"
         )
     target = f"{tool.pip_name}=={version}" if version else tool.pip_name
-    with ui.spinner(f"Updating {tool.name} via uv tool upgrade..."):
-        subprocess.run([uv, "tool", "upgrade", target], check=True, capture_output=True)
+    with verbose.step(f"Updating {tool.name} via uv tool upgrade..."):
+        _run([uv, "tool", "upgrade", target])
 
 
 def _update_apt(tool: GenericTool, version: str | None) -> None:
@@ -281,7 +294,7 @@ def _update_apt(tool: GenericTool, version: str | None) -> None:
     if not tool.apt_packages:
         raise RuntimeError("apt_packages not set")
     packages = tool.apt_packages.split()
-    subprocess.run(["sudo", "apt-get", "update", "-q"], capture_output=True)
+    _run_apt_update()
     if version:
         if len(packages) != 1:
             raise RuntimeError(
@@ -295,7 +308,6 @@ def _update_apt(tool: GenericTool, version: str | None) -> None:
 
 
 def _update_git(tool: GenericTool, version: str | None) -> None:
-    from dev_setup import ui
     if version:
         raise RuntimeError(
             "Version pinning is not supported for git tools (shallow clone). "
@@ -306,13 +318,10 @@ def _update_git(tool: GenericTool, version: str | None) -> None:
     dest = _git_clone_dest(tool.git_url)
     if not dest.exists():
         raise RuntimeError(f"{tool.name} clone not found at {dest}")
-    with ui.spinner(f"Pulling latest {tool.name}..."):
+    with verbose.step(f"Pulling latest {tool.name}..."):
         _run(["git", "-C", str(dest), "pull"])
         if tool.git_install_cmd:
-            subprocess.run(
-                ["bash", "-c", tool.git_install_cmd],
-                cwd=dest, check=True, capture_output=True,
-            )
+            _run(["bash", "-c", tool.git_install_cmd], cwd=dest)
 
 
 def _update_script_url(tool: GenericTool, version: str | None) -> None:
@@ -335,7 +344,7 @@ def _update_bash(tool: GenericTool, version: str | None) -> None:
 def _npm_installed_version(pkg: str) -> str:
     import json
     try:
-        r = subprocess.run(
+        r = _probe(
             ["bash", "-lc", f"{_npm_init()} && npm list -g --depth=0 --json {shlex.quote(pkg)}"],
             capture_output=True, text=True, timeout=10,
         )
@@ -347,7 +356,7 @@ def _npm_installed_version(pkg: str) -> str:
 
 def _npm_latest_version(pkg: str) -> str:
     try:
-        r = subprocess.run(
+        r = _probe(
             ["bash", "-lc", f"{_npm_init()} && npm view {shlex.quote(pkg)} version"],
             capture_output=True, text=True, timeout=10,
         )
@@ -371,7 +380,7 @@ def _uv_tool_current_version(pkg: str) -> str:
     if not uv:
         return ""
     try:
-        r = subprocess.run(
+        r = _probe(
             [uv, "tool", "list", "--color", "never"], capture_output=True, text=True, timeout=15,
         )
     except Exception:
@@ -392,7 +401,7 @@ def _uv_outdated_map() -> dict[str, str]:
     if not uv:
         return {}
     try:
-        r = subprocess.run(
+        r = _probe(
             [uv, "tool", "list", "--outdated", "--color", "never"],
             capture_output=True, text=True, timeout=20,
         )
@@ -423,14 +432,14 @@ def _check_update_apt(tool: GenericTool) -> UpdateStatus:
         return UpdateStatus()
     pkg = tool.apt_packages.split()[0]
     try:
-        r = subprocess.run(
+        r = _probe(
             ["dpkg-query", "-W", "-f=${Version}", pkg], capture_output=True, text=True, timeout=10,
         )
         current = r.stdout.strip() if r.returncode == 0 else ""
     except Exception:
         current = ""
     try:
-        r = subprocess.run(["apt-cache", "policy", pkg], capture_output=True, text=True, timeout=10)
+        r = _probe(["apt-cache", "policy", pkg], capture_output=True, text=True, timeout=10)
     except Exception:
         return UpdateStatus(current=current)
     candidate = ""
@@ -451,7 +460,7 @@ def _check_update_git(tool: GenericTool) -> UpdateStatus:
     if not dest.exists():
         return UpdateStatus()
     try:
-        r = subprocess.run(
+        r = _probe(
             ["git", "-C", str(dest), "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True, timeout=10,
         )
@@ -459,7 +468,7 @@ def _check_update_git(tool: GenericTool) -> UpdateStatus:
     except Exception:
         current = ""
     try:
-        r = subprocess.run(
+        r = _probe(
             ["git", "ls-remote", tool.git_url, "HEAD"], capture_output=True, text=True, timeout=10,
         )
         remote_full = r.stdout.split()[0] if r.returncode == 0 and r.stdout.strip() else ""
@@ -486,32 +495,28 @@ _UPDATE_CHECKERS: dict[str, Callable[[GenericTool], UpdateStatus]] = {
 
 
 def _remove_npm(tool: GenericTool) -> None:
-    from dev_setup import ui
-    with ui.spinner(f"Removing {tool.name}..."):
-        subprocess.run(
-            ["bash", "-lc", f"{_npm_init()} && npm uninstall -g {shlex.quote(tool.npm_name)}"],
-            check=True, capture_output=True,
-        )
+    with verbose.step(f"Removing {tool.name}..."):
+        _run(["bash", "-lc", f"{_npm_init()} && npm uninstall -g {shlex.quote(tool.npm_name)}"])
 
 
 def _remove_uvx(tool: GenericTool) -> None:
-    from dev_setup import ui
     uv = shutil.which("uv")
     if not uv:
         raise RuntimeError(
             "uv is required to remove uvx packages. "
             "Install it first: devstuff install uv"
         )
-    with ui.spinner(f"Removing {tool.name}..."):
-        subprocess.run([uv, "tool", "uninstall", tool.pip_name], check=True, capture_output=True)
+    with verbose.step(f"Removing {tool.name}..."):
+        _run([uv, "tool", "uninstall", tool.pip_name])
 
 
 def _remove_git(tool: GenericTool) -> None:
-    from dev_setup import ui
     dest = _git_clone_dest(tool.git_url)
     if tool.git_remove_cmd:
-        with ui.spinner("Running remove command..."):
-            subprocess.run(["bash", "-c", tool.git_remove_cmd], cwd=dest, capture_output=True)
+        # Best-effort: the clone directory is removed below either way, so a remove
+        # command that fails must not abort the removal.
+        with verbose.step("Running remove command..."):
+            _probe(["bash", "-c", tool.git_remove_cmd], cwd=dest, log_at=verbose.VERBOSE)
     if dest.exists():
         shutil.rmtree(dest)
 
@@ -610,7 +615,7 @@ _UPDATERS: dict[str, Callable[[GenericTool, str | None], None]] = {
 
 def _npm_global_installed(pkg: str) -> bool:
     try:
-        r = subprocess.run(
+        r = _probe(
             ["bash", "-lc", f"{_npm_init()} && npm list -g --depth=0 {shlex.quote(pkg)}"],
             capture_output=True,
             text=True,
@@ -620,13 +625,19 @@ def _npm_global_installed(pkg: str) -> bool:
         return False
 
 
+def _run_apt_update() -> None:
+    """Refresh apt's package lists. Deliberately non-fatal: a failing mirror shouldn't
+    stop an install of a package that may already be cached."""
+    _probe(["sudo", "apt-get", "update", "-q"], log_at=verbose.VERBOSE)
+
+
 def _npm_init() -> str:
     return '. "$HOME/.nvm/nvm.sh" 2>/dev/null || true'
 
 
 def _apt_installed(pkg: str) -> bool:
     try:
-        r = subprocess.run(["dpkg", "-s", pkg], capture_output=True, text=True)
+        r = _probe(["dpkg", "-s", pkg], capture_output=True, text=True)
         return "Status: install ok installed" in r.stdout
     except Exception:
         return False
@@ -641,8 +652,10 @@ def _download_script(url: str, *, expected_sha256: str = "") -> str:
     """Download a script over HTTPS and optionally verify its sha256."""
     import urllib.request
 
+    verbose.log(f"downloading {url}")
     with urllib.request.urlopen(url, timeout=30) as resp:
         data = resp.read()
+    verbose.trace(f"downloaded {len(data)} bytes, sha256 {hashlib.sha256(data).hexdigest()}")
 
     if expected_sha256:
         actual = hashlib.sha256(data).hexdigest()
@@ -664,8 +677,12 @@ def _run_bash_script(script: str) -> None:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write(script)
         tmp = f.name
+    verbose.trace(f"script → {tmp}")
+    verbose.block(script)
     try:
-        _run(["bash", tmp])
+        # -x at -vv traces each expanded command to stderr as the script runs, which is
+        # the only way to see where a downloaded installer actually failed.
+        _run(["bash", *(["-x"] if verbose.enabled(verbose.TRACE) else []), tmp])
     finally:
         os.unlink(tmp)
 
@@ -686,7 +703,7 @@ def _is_simple_command(cmd: str) -> bool:
 def _bash_version(key: str) -> str:
     for flag in ["--version", "-v", "version"]:
         try:
-            r = subprocess.run(
+            r = _probe(
                 [
                     "bash", "-lc",
                     f'. "$HOME/.nvm/nvm.sh" 2>/dev/null; {shlex.quote(key)} {flag} 2>/dev/null',
@@ -707,13 +724,13 @@ def _check_cmd_installed(cmd: str, *, install_type: str = "") -> bool:
         # Only source nvm for npm-type tools — avoids unnecessary shell overhead
         prefix = f"{_npm_init()} && " if install_type == "npm" else ""
         try:
-            return subprocess.run(
+            return _probe(
                 ["bash", "-lc", f"{prefix}command -v {cmd} >/dev/null 2>&1"],
                 capture_output=True,
             ).returncode == 0
         except Exception:
             return False
     try:
-        return subprocess.run(["bash", "-lc", cmd], capture_output=True).returncode == 0
+        return _probe(["bash", "-lc", cmd], capture_output=True).returncode == 0
     except Exception:
         return False

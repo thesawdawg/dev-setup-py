@@ -1,12 +1,13 @@
 import click
 
-from dev_setup import __version__
+from dev_setup import __version__, verbose
 
 
 @click.group(
     invoke_without_command=True,
     context_settings={"help_option_names": ["-h", "--help"]},
 )
+@verbose.option
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     if ctx.invoked_subcommand is None:
@@ -53,6 +54,32 @@ def _register_commands() -> None:
     cli.add_command(functions_cmd, "functions")
     cli.add_command(skills_cmd, "skills")
     cli.add_command(agent_cmd, "agent")
+
+    _add_verbose_option(cli)
+
+
+def _add_verbose_option(group: click.Group) -> None:
+    """Give every command and subcommand `-v`/`-vv`, recursively.
+
+    Done centrally rather than by decorating each command so that the flag is accepted
+    everywhere it could plausibly be typed — `devstuff -v install x`, `devstuff install
+    -v x`, `devstuff functions -v enable k` all work, and no command can be forgotten.
+    Aliases (`remove`/`uninstall`) share one Command object, hence the seen-set.
+    """
+    seen: set[int] = set()
+
+    def walk(cmd: click.Command) -> None:
+        if id(cmd) in seen:
+            return
+        seen.add(id(cmd))
+        if not any("--verbose" in p.opts for p in cmd.params):
+            verbose.option(cmd)
+        if isinstance(cmd, click.Group):
+            for sub in cmd.commands.values():
+                walk(sub)
+
+    for command in group.commands.values():
+        walk(command)
 
 
 _register_commands()

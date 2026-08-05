@@ -12,17 +12,13 @@ from dev_setup.generic import UpdateStatus
 
 
 @click.command("update")
-@click.option("--verbose", "-v", is_flag=True, help="Stream update output to the terminal.")
 @click.option(
     "--version", "target_version", default=None,
     help="Update to a specific version instead of latest. Only valid with a single package.",
 )
 @click.argument("packages", nargs=-1)
-def update_cmd(packages: tuple[str, ...], verbose: bool, target_version: str | None) -> None:
+def update_cmd(packages: tuple[str, ...], target_version: str | None) -> None:
     """Update packages. Interactive picker with recommended updates when called with no arguments."""
-    from dev_setup import generic
-    generic._verbose = verbose
-
     if not packages:
         if target_version:
             ui.error("--version requires a package key.")

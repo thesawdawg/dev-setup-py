@@ -62,6 +62,7 @@ src/dev_setup/
 ├── generic.py       # GenericTool — the ONE engine that implements every install type
 ├── tools.yaml       # Bundled built-in catalog (core/tools/languages categories)
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
+├── verbose.py      # Process-wide -v/-vv level + the stderr logger built on it
 ├── configure/       # Per-tool setup wizards (see "Configurators" below)
 └── commands/        # One Click command per file: list, install, remove, add, delete, docs, catalog
 ```
@@ -81,6 +82,25 @@ full parsing fidelity (not `bash -c "<string>"`). `devstuff update` reuses the s
 pattern for upgrading an already-installed tool (latest or a pinned version); for `script`/
 `bash` types "update" is a full reinstall, since there's no narrower mechanism, so the command
 layer confirms before re-running it.
+
+**Verbosity** (`verbose.py`, spec in `docs/specs/verbose-mode/`): one process-wide level —
+`0` / `-v` / `-vv` — set by a Click callback and read by the subprocess helpers, never threaded
+through call signatures. Three things about it are load-bearing:
+- **Every line goes to stderr.** `devstuff run` for a `register: eval` function puts shell code
+  on stdout for `eval "$(...)"`; a verbose line there is *code that gets executed*. The logger
+  has no stdout path at all rather than a check at each call site.
+- **`cli._add_verbose_option` applies `-v` to every command and subcommand**, walking the group
+  tree, so `devstuff -v install x`, `devstuff install -v x` and `devstuff functions -v enable k`
+  all work. Don't go back to decorating commands individually — the first draft did, and `list`
+  was immediately missing it.
+- **`generic.py` has exactly two subprocess helpers**: `_run` (state-changing — streams when
+  verbose, raises `RuntimeError`) and `_probe` (captures, never raises, logs at `-vv` only
+  because probes fire once per tool on every `list`). Anything new that shells out belongs in
+  one of them; a direct `subprocess.run` is a hole in the flag's coverage, which is exactly what
+  the old boolean `-v` was — it never reached npm/uvx/git installs at all. `verbose.step` is the
+  spinner-or-line swap, since a spinner repaints its line and can't share a terminal with
+  streaming output. At `-vv` script bodies run under `bash -x`, *except* eval-mode function
+  scripts — `set -x` there would persist in the caller's interactive shell.
 
 **Two ways a tool gets defined**: built-in (an entry added directly to `src/dev_setup/tools.yaml`,
 `builtin=True`) or custom (created via the `devstuff add` wizard, `devstuff catalog import`,
