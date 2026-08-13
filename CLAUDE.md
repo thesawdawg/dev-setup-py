@@ -83,6 +83,36 @@ pattern for upgrading an already-installed tool (latest or a pinned version); fo
 `bash` types "update" is a full reinstall, since there's no narrower mechanism, so the command
 layer confirms before re-running it.
 
+**uv is the backbone for Python-packaged tools** (spec in `docs/specs/uv-backbone/`). The
+`uvx`/`pip` types accept three optional fields beyond `pip_name` — `uv_with`,
+`uv_executables_from`, `uv_python` — assembled into argv by `_uv_install_flags` in `generic.py`
+and rejected by `validate_catalog()` on every other type. Three things about them are
+load-bearing:
+- **`uv tool install` only exposes console scripts of the *requested* package.** The `ansible`
+  distribution is a collections bundle declaring none of its own, so `pip_name: ansible` alone
+  installs one unusable `ansible-community` binary and reports success. `uv_executables_from:
+  [ansible-core]` is what produces the eleven real ones. Don't "simplify" it to
+  `pip_name: ansible-core` — that silently drops the bundled collections.
+- **`_update_uvx` never uses `uv tool upgrade`** — both paths are `uv tool install --force`
+  (`<pkg>==<ver>` pinned, `<pkg>@latest` otherwise). `uv tool upgrade` can't take a requirement
+  *and* is a no-op on an already-pinned tool, so the obvious pairing makes a pin a one-way door.
+  `--force` writes a fresh receipt, so the `uv_*` flags are re-passed on every update; that is
+  deliberate, since it also means a newly added `uv_with` applies on update, not just reinstall.
+  Anything printed telling a user how to escape a pin must be measured — two plausible remedies
+  ("re-run without `--version`", "run `devstuff install`") are both false, the second because
+  `install_cmd` returns early on `is_installed()`.
+- **The `python` entry provisions CPython through uv** (`uv python install --default`). Its
+  `check_cmd` is the delicate part: every host has a `python3`, so the check requires the default
+  shim to *resolve inside* `uv python dir`, uses `test -x` so a dangling shim from a removed
+  interpreter reads as absent, and guards `test -n "$d"` because an empty `uv python dir` would
+  collapse the `case` pattern to `/*` and match everything. Removal uninstalls only the version
+  the default shim points at — `uv python uninstall --all` would also destroy managed interpreters
+  that existing `uv tool` environments were built against.
+- **`_remove_uvx` honours an explicit `remove_script`**, mirroring `_remove_apt`. Two entries can
+  share one `pip_name` (`ansible-vault` shares `ansible`'s), and there `uv tool uninstall` would
+  tear out the shared environment. Extras need no field: `pip_name` reaches `subprocess` as one
+  argv element, never a shell, so `pip_name: "ansible-lint[lock]"` already works.
+
 **Verbosity** (`verbose.py`, spec in `docs/specs/verbose-mode/`): one process-wide level —
 `0` / `-v` / `-vv` — set by a Click callback and read by the subprocess helpers, never threaded
 through call signatures. Three things about it are load-bearing:
@@ -114,7 +144,15 @@ Add an entry to `src/dev_setup/tools.yaml` using an existing `type` (`npm`, `pip
 and per-type examples. Then:
 - Add the key to `.github/workflows/test-installs.yml`'s matrix (or to `_SKIP` in
   `tests/integration/test_tools.py` with a reason, if it can't run in CI).
-- Add it to the relevant table in README.md ("Built-in packages").
+  `test_ci_matrix_covers_every_builtin_tool` enforces this, in both directions — a stale matrix
+  entry names a pytest node id that matches nothing, so the job exits 4 and the workflow files a
+  GitHub issue every week. That went unnoticed for `eza`/`whichllm` from July until the test
+  existed, which is why it is a test and not a line in this file.
+- Add it to the relevant table in README.md ("Built-in packages"). Not enforced by a test —
+  the tables are prose-formatted and grouped loosely, so check by hand.
+- If it needs an executable that belongs to a *dependency* rather than the package itself, add
+  it to `_EXTRA_EXECUTABLES` in `tests/integration/test_tools.py`; `is_installed()` alone would
+  pass on a half-installed tool (see the `uvx` notes above).
 - No Python code changes needed — `GenericTool` already knows how to run every existing type.
 
 ## Adding a new tool *type* (e.g. a `composer`/PHP-package type)
@@ -193,6 +231,12 @@ the CLI isn't a catalog tool at all, name the distro package instead (`whats-on-
 through its exit code — only whether it ran. A "found nothing" answer should therefore exit 0 and
 say so, or the user gets a red "command failed" banner under a correct result; keep non-zero for
 "could not perform the lookup" (see `whats-on-port`'s comment on this).
+
+The way this rule actually gets broken is not a stray `exit 1` — it is **a bare `[ -n "$x" ] &&
+echo …` as the last statement of a branch**, which silently becomes the script's exit status when
+the test is false. `which-ansible` shipped that bug in its first draft: "no global ansible found",
+a correct answer, exited 1. Use a full `if`, and end such scripts with an explicit `exit 0`. It is
+only catchable by *running* every branch, not by reading them.
 
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have.

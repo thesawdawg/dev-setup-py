@@ -238,3 +238,101 @@ functions:
         saml2aws login --force
       fi
     docs_url: https://github.com/Versent/saml2aws
+
+  which-ansible:
+    name: Which Ansible
+    description: Show which ansible a directory will actually use — the project's uv venv or the global one
+    category: validation
+    type: script
+    params:
+      - name: path
+        description: Directory to inspect (default the current one)
+        required: false
+        default: "."
+    docs_url: https://docs.astral.sh/uv/guides/projects/
+    script: |
+      # No `set -e`: reporting "this project has no ansible" is a successful answer,
+      # not a failure, and -e would turn a stray non-zero probe into a red banner.
+      # Non-zero is reserved for "could not perform the lookup" (see whats-on-port).
+      set -uo pipefail
+
+      if ! command -v uv >/dev/null 2>&1; then
+        echo "uv is not installed, so there is nothing to inspect." >&2
+        echo "Install it with: devstuff install uv" >&2
+        exit 1
+      fi
+
+      start="${path:-.}"
+      if [ ! -d "$start" ]; then
+        echo "Not a directory: $start" >&2
+        exit 1
+      fi
+      start="$(cd "$start" && pwd)"
+
+      # Walk up for a uv project root, the same way uv itself does.
+      root=""
+      dir="$start"
+      while [ -n "$dir" ]; do
+        if [ -f "$dir/pyproject.toml" ] || [ -f "$dir/uv.lock" ]; then
+          root="$dir"
+          break
+        fi
+        [ "$dir" = "/" ] && break
+        dir="$(dirname "$dir")"
+      done
+
+      global="$(command -v ansible-playbook 2>/dev/null || true)"
+
+      if [ -z "$root" ]; then
+        echo "No uv project above $start (no pyproject.toml or uv.lock)."
+        if [ -n "$global" ]; then
+          echo "ansible-playbook here is the global one: $global"
+        else
+          echo "No ansible-playbook on PATH either — install one with: devstuff install ansible"
+        fi
+        exit 0
+      fi
+
+      echo "uv project root: $root"
+
+      declared=""
+      for f in "$root/uv.lock" "$root/pyproject.toml"; do
+        [ -f "$f" ] || continue
+        if grep -qiE '(^|[^-a-z])ansible(-core)?([^-a-z]|$)' "$f" 2>/dev/null; then
+          declared="$f"
+          break
+        fi
+      done
+
+      venv_ansible="$root/.venv/bin/ansible-playbook"
+      if [ -x "$venv_ansible" ]; then
+        echo "Project ansible:  $venv_ansible"
+        echo "                  $("$venv_ansible" --version 2>/dev/null | head -1)"
+        echo
+        echo "Inside this project, run ansible through uv so it uses that one:"
+        echo "    uv run ansible-playbook <playbook.yml>"
+        # `[ -n "$x" ] && echo ...` as the last statement of a branch would make the
+        # whole script exit 1 whenever the test is false — a correct answer reported
+        # as a failure. Use a full `if`.
+        if [ -n "$global" ]; then
+          echo "(A bare 'ansible-playbook' would use $global instead.)"
+        fi
+      elif [ -n "$declared" ]; then
+        echo "Declared in:      $declared"
+        echo "But .venv has no ansible-playbook yet — create it with:"
+        echo "    uv sync"
+        if [ -n "$global" ]; then
+          echo "Until then a bare 'ansible-playbook' uses the global $global."
+        fi
+      else
+        echo "This project does not declare ansible."
+        if [ -n "$global" ]; then
+          echo "ansible-playbook here is the global one: $global"
+        else
+          echo "No ansible-playbook on PATH — install one with: devstuff install ansible"
+        fi
+      fi
+
+      # Belt and braces for the rule above: every path that got far enough to print
+      # an answer is a success, whatever the last command happened to return.
+      exit 0

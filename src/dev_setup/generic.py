@@ -95,6 +95,12 @@ class GenericTool(Tool):
     version_cmd: str = ""
     npm_name: str = ""
     pip_name: str = ""
+    # uvx/pip only. `uv tool install` exposes console scripts of the *requested*
+    # package alone, so a package whose entry points live in a dependency (ansible's
+    # live in ansible-core) needs uv_executables_from or it installs nothing usable.
+    uv_with: list | None = None
+    uv_executables_from: list | None = None
+    uv_python: str = ""
     git_url: str = ""
     git_install_cmd: str = ""
     git_remove_cmd: str = ""
@@ -113,6 +119,12 @@ class GenericTool(Tool):
             self.name = self.key
         if self.requires is None:
             self.requires = list(AUTO_REQUIRES.get(self.install_type, []))
+        # Normalise to lists so the installer can iterate without None checks. Both
+        # stay falsy when unset, so to_dict() still omits them.
+        if self.uv_with is None:
+            self.uv_with = []
+        if self.uv_executables_from is None:
+            self.uv_executables_from = []
 
     @classmethod
     def from_dict(cls, data: dict, key: str) -> GenericTool:
@@ -214,6 +226,22 @@ def _install_npm(tool: GenericTool) -> None:
         _run(["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(tool.npm_name)}"])
 
 
+def _uv_install_flags(tool: GenericTool) -> list[str]:
+    """Catalog uv_* fields as `uv tool install` flags.
+
+    uv records all of these in the tool's uv-receipt.toml and re-applies them on
+    `uv tool upgrade`, so they only need passing at install time.
+    """
+    flags: list[str] = []
+    if tool.uv_python:
+        flags += ["--python", tool.uv_python]
+    for pkg in tool.uv_with or []:
+        flags += ["--with", pkg]
+    for pkg in tool.uv_executables_from or []:
+        flags += ["--with-executables-from", pkg]
+    return flags
+
+
 def _install_uvx(tool: GenericTool) -> None:
     if not tool.pip_name:
         raise RuntimeError("pip_name not set")
@@ -224,7 +252,7 @@ def _install_uvx(tool: GenericTool) -> None:
             "Install it first: devstuff install uv"
         )
     with verbose.step(f"Installing {tool.name} via uvx..."):
-        _run([uv, "tool", "install", tool.pip_name])
+        _run([uv, "tool", "install"] + _uv_install_flags(tool) + [tool.pip_name])
 
 
 def _install_git(tool: GenericTool) -> None:
@@ -284,9 +312,30 @@ def _update_uvx(tool: GenericTool, version: str | None) -> None:
             "uv is required to update uvx packages. "
             "Install it first: devstuff install uv"
         )
-    target = f"{tool.pip_name}=={version}" if version else tool.pip_name
-    with verbose.step(f"Updating {tool.name} via uv tool upgrade..."):
-        _run([uv, "tool", "upgrade", target])
+    # Both paths go through `uv tool install`, not `uv tool upgrade`.
+    #
+    # `uv tool upgrade` takes a tool *name*, not a requirement, so the pinned form
+    # ("pkg==1.2.3") was read as the whole name and always failed. And it is a no-op
+    # on an already-pinned tool ("Nothing to upgrade"), which would leave a user who
+    # ever pinned with no way back to latest through devstuff. `install pkg@latest`
+    # re-resolves *and* clears the pin in one call — measured against uv 0.11.21.
+    #
+    # Passing the uv_* flags on every update is deliberate: this writes a fresh
+    # receipt, and re-deriving from the catalog means a newly added uv_with or
+    # uv_executables_from takes effect on update rather than only on reinstall.
+    target = f"{tool.pip_name}=={version}" if version else f"{tool.pip_name}@latest"
+    cmd = [uv, "tool", "install", "--force"] + _uv_install_flags(tool) + [target]
+
+    if version:
+        from dev_setup import ui
+        ui.warn(
+            f"Pinning {tool.name} to {version}. It stays there until the next "
+            f"'devstuff update {tool.key}' without --version, which moves it back "
+            f"to the latest release."
+        )
+
+    with verbose.step(f"Updating {tool.name} via uv tool install..."):
+        _run(cmd)
 
 
 def _update_apt(tool: GenericTool, version: str | None) -> None:
@@ -500,6 +549,12 @@ def _remove_npm(tool: GenericTool) -> None:
 
 
 def _remove_uvx(tool: GenericTool) -> None:
+    # An explicit remove_script wins, mirroring _remove_apt. Without this, a tool that
+    # shares a pip_name with another entry (ansible-vault shares ansible's) would
+    # uninstall the whole shared tool environment out from under it.
+    if tool.remove_script:
+        _run_bash_script(tool.remove_script)
+        return
     uv = shutil.which("uv")
     if not uv:
         raise RuntimeError(

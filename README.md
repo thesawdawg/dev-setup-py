@@ -260,7 +260,7 @@ How "update" is performed depends on the package's install `type`:
 | Type | Latest | Specific version |
 |------|--------|-------------------|
 | `npm` | `npm install -g <pkg>@latest` | `npm install -g <pkg>@<version>` |
-| `pip` / `uvx` | `uv tool upgrade <pkg>` | `uv tool upgrade <pkg>==<version>` |
+| `pip` / `uvx` | `uv tool install --force <pkg>@latest` | `uv tool install --force <pkg>==<version>` |
 | `apt` | `apt-get install --only-upgrade` | `apt-get install <pkg>=<version>` (single package only) |
 | `git` | `git pull` (+ re-run `git_install_cmd`) | not supported — repos are cloned shallow (`--depth=1`) |
 | `script` / `bash` | Re-runs the install script | not supported — no version parameter to inject |
@@ -268,6 +268,17 @@ How "update" is performed depends on the package's install `type`:
 For `script`/`bash` packages, "update" is a full reinstall (the same script that may have used
 `sudo` runs again), since there's no narrower update mechanism available. `devstuff update` asks
 for confirmation before doing this.
+
+`pip`/`uvx` packages go through `uv tool install` rather than `uv tool upgrade` in **both**
+columns. `uv tool upgrade` takes a tool *name*, so it cannot accept `<pkg>==<version>` at all, and
+it is a no-op on a tool that was previously pinned — using it for the "latest" column would mean
+pinning a package once left no way to move it again. `<pkg>@latest` re-resolves and clears any
+existing pin in one step. Pinning warns that the pin holds until the next `devstuff update`
+without `--version`.
+
+Any `uv_with` / `uv_executables_from` / `uv_python` fields on the package are re-applied on every
+update, so adding one to your catalog takes effect on the next update rather than needing a
+reinstall.
 
 ---
 
@@ -1105,6 +1116,7 @@ ones tools already have — for now, custom functions are hand-edited YAML at
 | `whats-on-port` | network | script | Find which process is listening on a port | `port`, `protocol` (optional: `tcp`/`udp`/`all`) |
 | `acc-check` | web-dev | script | Run the pi coding agent's `/dogfood` skill against a web URL | `url`, `instruction` (optional) |
 | `aws-saml-reauth` | web-dev | script | Reauthorize the AWS CLI via `saml2aws login --force` | `profile` (optional) |
+| `which-ansible` | validation | script | Show which ansible a directory will actually use — the project's uv venv or the global one | `path` (optional) |
 
 #### `whats-on-port`
 
@@ -1136,6 +1148,32 @@ so a missing `ss` names the apt package instead of surfacing "command not found"
 
 ---
 
+#### `which-ansible`
+
+```bash
+devstuff run which-ansible              # the current directory
+devstuff run which-ansible ~/infra      # somewhere else
+```
+
+Answers "if I type `ansible-playbook` here, which one runs?" — the project's own uv venv, or the
+global tool install. It walks up for a `pyproject.toml`/`uv.lock` the way uv does, then reports
+whichever applies:
+
+- a synced project venv, plus the `uv run ansible-playbook` invocation that uses it (and what a
+  bare `ansible-playbook` would pick instead);
+- ansible declared but not synced yet, pointing at `uv sync`;
+- no ansible in the project, or no project at all, naming the global one.
+
+Every one of those is a success and exits 0 — including "this project has no ansible", which is
+an answer, not a failure. Non-zero is reserved for not being able to look at all (no uv, or a
+path that isn't a directory).
+
+It exists because devstuff's ansible and a uv-managed ansible repo are now the *same shape* — both
+a uv-created venv — so the question stopped being "which tool is broken" and became "which
+environment am I in". See `docs/specs/uv-backbone/` for why the global one moved off apt.
+
+---
+
 ## Built-in packages
 
 ### Core
@@ -1155,13 +1193,18 @@ Optional utilities you may want on some machines.
 | Key | Name | Description | Help |
 |-----|------|-------------|------|
 | `ansible` | Ansible | Automation engine for configuration management and app deployment (`devstuff configure ansible`) | `ansible --help` |
+| `ansible-vault` | Ansible Vault | Encrypt and manage secrets within Ansible projects (bundled with Ansible) | `ansible-vault --help` |
 | `aws` | AWS CLI | Amazon Web Services CLI v2 | `aws help` |
 | `bat` | bat | cat replacement with syntax highlighting and git integration (`devstuff configure bat`) | `bat --help` |
 | `commitizen` | Commitizen | Conventional-commit prompt, semantic version bumping, and changelog generation (`devstuff configure commitizen`) | `cz --help` |
-| `eza` | eza | Modern ls replacement with git status, icons, and tree view | `eza --help` |
 | `gh` | GitHub CLI | GitHub's official CLI | `gh --help` |
+| `git-lfs` | Git LFS | Git extension for versioning large files | `git lfs --help` |
 | `htop` | htop | Interactive process and resource monitor | `man htop` |
+| `homebrew` | Homebrew | Package manager for Linux (and macOS) | `brew --help` |
+| `ipython` | IPython | Enhanced interactive Python shell with rich tab completion and magic commands | `ipython --help` |
 | `lazygit` | lazygit | TUI git client for fast, keyboard-driven git workflows (`devstuff configure lazygit`) | `lazygit --help` |
+| `llm-checker` | llm-checker | Check LLM compatibility with your hardware | `llm-checker --help` |
+| `lmstudio` | LM Studio | Run large language models locally with a GUI | `lms --help` |
 | `mkcert` | mkcert | Zero-config local HTTPS certificates | `mkcert --help` |
 | `nerd-font` | JetBrainsMono Nerd Font | Patched font supplying the icons Starship and other CLI tools draw | `fc-list \| grep -i "nerd font"` |
 | `ollama` | Ollama | Run large language models locally | `ollama --help` |
@@ -1178,6 +1221,7 @@ Optional utilities you may want on some machines.
 |-----|------|-------------|------|
 | `go` | Go | Go programming language toolchain | `go help` |
 | `java` | Java 21 (OpenJDK) | OpenJDK 21 LTS - JDK and JRE | `java --help` |
+| `python` | Python (uv-managed) | CPython provisioned by uv, installed as the default `python`/`python3` | `uv python list` |
 | `ruby` | Ruby (rbenv) | Ruby via rbenv version manager + ruby-build | `ruby --version` |
 
 ---
@@ -1220,7 +1264,10 @@ tools:
 | `docs_url` | no | URL opened by `devstuff docs <key>` |
 | `requires` | no | List of package keys that must already be installed |
 | `npm_name` | npm | npm package name |
-| `pip_name` | pip | PyPI package name |
+| `pip_name` | pip | PyPI package name. Extras work as-is: `pip_name: "ansible-lint[lock]"` |
+| `uv_with` | no (pip/uvx) | Extra packages installed into the tool's environment (`uv tool install --with`) |
+| `uv_executables_from` | no (pip/uvx) | Also expose console scripts from these packages (`--with-executables-from`). Needed when a package's entry points live in a dependency |
+| `uv_python` | no (pip/uvx) | Pin the tool environment's Python (`--python`), e.g. `"3.12"` |
 | `apt_packages` | apt | Space-separated list of apt packages |
 | `git_url` | git | Repository URL to clone |
 | `git_install_cmd` | git | Bash command run inside the cloned repo after clone |
@@ -1229,7 +1276,21 @@ tools:
 | `install_script` | bash | Full bash script to run on install |
 | `remove_script` | bash | Full bash script to run on remove |
 
-Unknown fields fail validation. `requires` defaults to `["nvm"]` for `npm` tools and `["uv"]` for `pip`/`uvx` tools unless explicitly set.
+Unknown fields fail validation — including the three `uv_*` fields on any type other than `pip`/`uvx`. `requires` defaults to `["nvm"]` for `npm` tools and `["uv"]` for `pip`/`uvx` tools unless explicitly set.
+
+`uv_executables_from` is worth understanding before you skip it: `uv tool install` exposes the console scripts of the *requested* package only. The `ansible` distribution is a collections bundle that declares none of its own — `ansible`, `ansible-playbook` and `ansible-vault` are all entry points of its `ansible-core` dependency — so without this field the install reports success and puts a single unusable `ansible-community` on `PATH`:
+
+```yaml
+version: 1
+tools:
+  ansible:
+    name: Ansible
+    type: uvx
+    check_cmd: ansible
+    pip_name: ansible
+    uv_executables_from:
+      - ansible-core
+```
 
 ### Examples
 

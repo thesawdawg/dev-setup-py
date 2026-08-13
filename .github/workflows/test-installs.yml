@@ -51,27 +51,32 @@ jobs:
       fail-fast: false  # let all tools run even when some fail
       matrix:
         tool:
+          - ansible       # uvx tool, requires uv
+          - ansible-vault # shares ansible's tool environment
           - aws
+          - bat
           - commitizen  # uvx tool, requires uv
-          - eza
           - gh
           - git-lfs
           - go
+          - homebrew    # slow: builds from source
           - htop
           - ipython     # uvx tool, requires uv
           - java
           - lazygit
+          - llm-checker # npm tool, installs nvm first via `requires`
+          - lmstudio
           - mkcert
           - nerd-font
           - nvm
           - php
           - pi          # installs nvm first via its declared `requires`
           - pre-commit  # uvx tool, requires uv
+          - python      # uv-managed CPython, requires uv
           - ruby        # compiles from source — this job takes ~15 minutes
           - saml2aws
           - starship
           - uv
-          - whichllm    # uvx tool, requires uv
           - yq
 
     steps:
