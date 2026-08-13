@@ -35,8 +35,11 @@ ansible-core 2.21.3). They are the reason the requirements below are shaped as t
 - **F-3. uv persists install options in a receipt, and `uv tool upgrade` honours them.**
   `<UV_TOOL_DIR>/<tool>/uv-receipt.toml` records `requirements` (including everything passed via
   `--with` *and* `--with-executables-from`), the pinned `python`, and the entry-point→source-package
-  map. Upgrades therefore do **not** lose these flags, so no extra bookkeeping is needed in
-  devstuff. This is why the upgrade path is not a requirement here.
+  map. Upgrades therefore do **not** lose these flags, so devstuff needs no copy of uv's state.
+  *Narrowed by F-10:* the update path ended up on `uv tool install --force` rather than
+  `uv tool upgrade`, which writes a fresh receipt, so the flags are re-passed from the catalog on
+  every update (FR-10a). The point that survives is the one that mattered — devstuff stores no
+  duplicate of uv's state.
 - **F-4. An `==` pin blocks future upgrades.** A tool installed as `ansible==14.2.0` answers
   `uv tool upgrade ansible` with *"Nothing to upgrade … installed with an exact version pin"*.
 - **F-5. `_update_uvx` is broken for pinned versions.** It runs
@@ -48,6 +51,33 @@ ansible-core 2.21.3). They are the reason the requirements below are shaped as t
   unrelated fetcher; `yq` is Kislyuk's jq-wrapper, which has **different syntax** from the
   catalog's mikefarah Go `yq`; and `awscli` is still **v1** (1.46.0) — there is no AWS CLI v2 on
   PyPI. Converting any of these would silently install a different program.
+- **F-7. `_installed_uvx` is effectively dead code.** `GenericTool.is_installed`
+  (`generic.py:147`) short-circuits on `check_cmd`, and every catalog entry sets one. The
+  `_CHECKERS` entry is only reachable for a hand-written catalog entry with no `check_cmd`. Noted
+  so a future reader does not "fix" a checker that never runs. Not a defect; no change required.
+- **F-8. `uv python install --default` exists in 0.11.21** and installs `python`/`python3` shims
+  into the uv bin directory. `uv python dir` reports `~/.local/share/uv/python`.
+- **F-9 (found during M1/M3 implementation, 2026-08-12). `_remove_uvx` ignored `remove_script`,
+  unlike `_remove_apt`.** Harmless while `ansible-vault` was an `apt` entry; a live regression the
+  moment it became `uvx`, because `devstuff remove ansible-vault` would then have run
+  `uv tool uninstall ansible` and taken `ansible-playbook` and the rest with it. `_remove_uvx` now
+  prefers an explicit `remove_script`, matching `_remove_apt`. Covered by
+  `test_uvx_remove_prefers_remove_script`.
+- **F-10 (found during M2, 2026-08-12). `uv tool upgrade` is a no-op on a pinned tool, and the
+  unpinned update path could not clear the pin.** Measured: after
+  `uv tool install commitizen==4.16.0`, `uv tool upgrade commitizen` answers *"Nothing to
+  upgrade"* forever. Since the original FR-9 kept `uv tool upgrade` for the unpinned path, a user
+  who ever pinned a tool had **no route back to latest through devstuff at all**. Fixed by routing
+  both paths through `uv tool install --force`, with `<pkg>@latest` for the unpinned case —
+  measured to re-resolve *and* drop the specifier from the receipt in one call.
+- **F-11 (2026-08-12). Two plausible remedies for a pin do not work, and were shipped in drafts
+  of the warning text before being measured.**
+  (a) *"Re-run without `--version`"* — false while that path was `uv tool upgrade`.
+  (b) *"Run `devstuff install <key>` to clear the pin"* — false because `install_cmd.py:48`
+  returns early on `is_installed()` and never reaches `uv tool install`. A bare
+  `uv tool install <pkg>` *does* clear the specifier, but no devstuff command reaches it.
+  The lesson is the project's own: a remedy printed to the user is a claim about the tool, and
+  claims about the tool get measured.
 - **F-12 (M4, 2026-08-12). `uv python install --default` creates `python`, `python3` *and*
   `python3.X` symlinks in uv's bin directory** (`~/.local/bin` by default). Since uv's own bashrc
   line puts that directory early on `PATH`, this changes what `python3` means in the user's
@@ -71,37 +101,12 @@ ansible-core 2.21.3). They are the reason the requirements below are shaped as t
   of a branch it sets the script's exit status, so a correct "no global ansible found" answer
   exited 1 and surfaced as a red *'Which Ansible' failed* banner. Caught by running the case, not
   by reading the script. Fixed with full `if` blocks plus a closing `exit 0`.
-- **F-10 (found during M2, 2026-08-12). `uv tool upgrade` is a no-op on a pinned tool, and the
-  unpinned update path could not clear the pin.** Measured: after
-  `uv tool install commitizen==4.16.0`, `uv tool upgrade commitizen` answers *"Nothing to
-  upgrade"* forever. Since the original FR-9 kept `uv tool upgrade` for the unpinned path, a user
-  who ever pinned a tool had **no route back to latest through devstuff at all**. Fixed by routing
-  both paths through `uv tool install --force`, with `<pkg>@latest` for the unpinned case —
-  measured to re-resolve *and* drop the specifier from the receipt in one call.
-- **F-11 (2026-08-12). Two plausible remedies for a pin do not work, and were shipped in drafts
-  of the warning text before being measured.**
-  (a) *"Re-run without `--version`"* — false while that path was `uv tool upgrade`.
-  (b) *"Run `devstuff install <key>` to clear the pin"* — false because `install_cmd.py:48`
-  returns early on `is_installed()` and never reaches `uv tool install`. A bare
-  `uv tool install <pkg>` *does* clear the specifier, but no devstuff command reaches it.
-  The lesson is the project's own: a remedy printed to the user is a claim about the tool, and
-  claims about the tool get measured.
-- **F-9 (found during M1/M3 implementation, 2026-08-12). `_remove_uvx` ignored `remove_script`,
-  unlike `_remove_apt`.** Harmless while `ansible-vault` was an `apt` entry; a live regression the
-  moment it became `uvx`, because `devstuff remove ansible-vault` would then have run
-  `uv tool uninstall ansible` and taken `ansible-playbook` and the rest with it. `_remove_uvx` now
-  prefers an explicit `remove_script`, matching `_remove_apt`. Covered by
-  `test_uvx_remove_prefers_remove_script`.
-- **F-7. `_installed_uvx` is effectively dead code.** `GenericTool.is_installed`
-  (`generic.py:147`) short-circuits on `check_cmd`, and every catalog entry sets one. The
-  `_CHECKERS` entry is only reachable for a hand-written catalog entry with no `check_cmd`. Noted
-  so a future reader does not "fix" a checker that never runs. Not a defect; no change required.
-- **F-8. `uv python install --default` exists in 0.11.21** and installs `python`/`python3` shims
-  into the uv bin directory. `uv python dir` reports `~/.local/share/uv/python`.
 
 ## Conversion list — every tool in `tools.yaml`, classified
 
-28 catalog entries. **2 convert, 3 are already uv, 23 stay as they are.**
+28 catalog entries at the time of the audit. **2 convert, 3 are already uv, 23 stay as they
+are.** M4 later added a 29th, `python`, which is a new uv-backed entry rather than a
+conversion of anything.
 
 ### Convert to `uvx` (2)
 

@@ -81,11 +81,23 @@ changes — CLAUDE.md notes it is hand-maintained and drifts silently.
 (0), this repo which is a uv project without ansible (0), and a real uv ansible repo before and
 after `uv sync` (0). The first draft failed FR-19 exactly as predicted (F-16).
 
-### M6 — docs
+### M6 — docs — **done 2026-08-12**
 
-README "Built-in packages" tables reflect `ansible`/`ansible-vault` moving to `uvx` and the new
-`python` entry. Update this spec directory with anything the implementation contradicted, per the
-project's spec-currency rule.
+Done as described, and the sweep turned up drift that predates this work:
+
+- The `update` mechanism table still documented `uv tool upgrade` for `pip`/`uvx` (both columns).
+- `eza` was deleted from the catalog in a1a5126 (2026-07-01) but never from the README table **or
+  the CI matrix**, and `whichllm` was renamed to `llm-checker` in the same commit with the matrix
+  never updated. A matrix entry naming a tool that no longer exists makes pytest exit 4 — so those
+  two jobs have failed every weekly run since July, and the workflow's report step files a GitHub
+  issue about them each time.
+- Five real tools (`git-lfs`, `homebrew`, `ipython`, `llm-checker`, `lmstudio`) were missing from
+  the README tables, and four (`bat`, `homebrew`, `llm-checker`, `lmstudio`) from the CI matrix.
+
+All fixed, and `test_ci_matrix_covers_every_builtin_tool` now enforces the matrix half in both
+directions — verified to fail on a stale entry *and* on a missing one. The README half is left to
+manual review; its tables are prose-grouped and a parser would be more brittle than the drift it
+catches.
 
 ## Testing strategy
 
@@ -114,5 +126,6 @@ project's spec-currency rule.
 - `uv run ansible-playbook` inside a uv ansible repo is unaffected.
 - `devstuff update commitizen --version 4.16.0` works (it currently cannot).
 - All three new fields are documented in the README schema table and validated on the wrong types.
-- Unit suite green; `make run-tests TOOL=ansible` green.
+- Unit suite green. `make run-tests TOOL=ansible` **not yet run** — the containerised
+  clean-install path remains unexercised for `ansible`, `ansible-vault` and `python`.
 - This spec directory matches what was built.

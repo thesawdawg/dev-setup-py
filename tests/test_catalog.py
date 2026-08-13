@@ -234,3 +234,34 @@ def test_unset_uv_fields_are_not_persisted():
     assert "uv_with" not in d
     assert "uv_executables_from" not in d
     assert "uv_python" not in d
+
+
+# -- CI matrix / catalog drift ---------------------------------------------------
+
+
+def test_ci_matrix_covers_every_builtin_tool():
+    """The weekly install canary must name exactly the builtin tools it can test.
+
+    Drift here is silent in both directions: a tool added to the catalog is simply
+    never install-tested, and a tool *removed* from the catalog leaves a matrix entry
+    whose pytest node id matches nothing — pytest exits 4, the job fails every week,
+    and the workflow files a GitHub issue about it. Both happened between commit
+    a1a5126 (which deleted `eza` and renamed `whichllm`) and this test.
+    """
+    import re
+    from pathlib import Path
+
+    from tests.integration.test_tools import _SKIP
+
+    workflow = Path(__file__).parent.parent / ".github/workflows/test-installs.yml"
+    matrix = set(re.findall(r"^ +- ([a-z0-9][a-z0-9_-]*)\s*(?:#.*)?$", workflow.read_text(), re.M))
+
+    registry.init()
+    testable = {t.key for t in registry.all_tools() if t.builtin} - set(_SKIP)
+
+    assert matrix - testable == set(), (
+        f"CI matrix names tools that are not in the catalog: {sorted(matrix - testable)}"
+    )
+    assert testable - matrix == set(), (
+        f"builtin tools missing from the CI matrix: {sorted(testable - matrix)}"
+    )

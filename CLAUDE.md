@@ -144,7 +144,15 @@ Add an entry to `src/dev_setup/tools.yaml` using an existing `type` (`npm`, `pip
 and per-type examples. Then:
 - Add the key to `.github/workflows/test-installs.yml`'s matrix (or to `_SKIP` in
   `tests/integration/test_tools.py` with a reason, if it can't run in CI).
-- Add it to the relevant table in README.md ("Built-in packages").
+  `test_ci_matrix_covers_every_builtin_tool` enforces this, in both directions — a stale matrix
+  entry names a pytest node id that matches nothing, so the job exits 4 and the workflow files a
+  GitHub issue every week. That went unnoticed for `eza`/`whichllm` from July until the test
+  existed, which is why it is a test and not a line in this file.
+- Add it to the relevant table in README.md ("Built-in packages"). Not enforced by a test —
+  the tables are prose-formatted and grouped loosely, so check by hand.
+- If it needs an executable that belongs to a *dependency* rather than the package itself, add
+  it to `_EXTRA_EXECUTABLES` in `tests/integration/test_tools.py`; `is_installed()` alone would
+  pass on a half-installed tool (see the `uvx` notes above).
 - No Python code changes needed — `GenericTool` already knows how to run every existing type.
 
 ## Adding a new tool *type* (e.g. a `composer`/PHP-package type)
@@ -223,6 +231,12 @@ the CLI isn't a catalog tool at all, name the distro package instead (`whats-on-
 through its exit code — only whether it ran. A "found nothing" answer should therefore exit 0 and
 say so, or the user gets a red "command failed" banner under a correct result; keep non-zero for
 "could not perform the lookup" (see `whats-on-port`'s comment on this).
+
+The way this rule actually gets broken is not a stray `exit 1` — it is **a bare `[ -n "$x" ] &&
+echo …` as the last statement of a branch**, which silently becomes the script's exit status when
+the test is false. `which-ansible` shipped that bug in its first draft: "no global ansible found",
+a correct answer, exited 1. Use a full `if`, and end such scripts with an explicit `exit 0`. It is
+only catchable by *running* every branch, not by reading them.
 
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have.
