@@ -531,6 +531,50 @@ tools:
       sudo apt-get remove -y 'php8.4*'
       sudo apt-get autoremove -y
 
+  python:
+    name: Python (uv-managed)
+    description: CPython provisioned by uv, installed as the default python/python3
+    category: languages
+    type: bash
+    # Every Linux host already has a python3, so "is python3 on PATH" would report
+    # this installed before it ever ran. Ask uv where its interpreters live and
+    # require the default shim to resolve *inside* that directory. `test -x` rather
+    # than `test -e` because a leftover shim pointing at an uninstalled version is a
+    # dangling symlink — readlink still prints a matching path, but it is not usable.
+    # The `test -n "$d"` guard is load-bearing: with uv absent, "$d" is empty and the
+    # case pattern would collapse to "/*", which matches every absolute path.
+    check_cmd: |
+      bin="${UV_PYTHON_BIN_DIR:-$HOME/.local/bin}"; d="$(uv python dir 2>/dev/null)"; test -n "$d" || exit 1; case "$(readlink -f "$bin/python3" 2>/dev/null)" in "$d"/*) test -x "$bin/python3";; *) exit 1;; esac
+    help_cmd: uv python list
+    docs_url: https://docs.astral.sh/uv/guides/install-python/
+    requires:
+      - uv
+    install_script: |
+      set -euo pipefail
+      uv python install --default
+      bin="${UV_PYTHON_BIN_DIR:-$HOME/.local/bin}"
+      echo
+      echo "'python' and 'python3' in $bin now resolve to uv's CPython."
+      echo "Since uv puts $bin early on PATH, that is what your shell will pick."
+      echo "The system interpreter at /usr/bin/python3 is untouched, and anything"
+      echo "with an explicit /usr/bin/python3 shebang keeps using it."
+    remove_script: |
+      set -euo pipefail
+      bin="${UV_PYTHON_BIN_DIR:-$HOME/.local/bin}"
+      target="$(readlink -f "$bin/python3" 2>/dev/null || true)"
+      if [ -z "$target" ] || [ ! -x "$target" ]; then
+        echo "No uv-managed default python3 found in $bin — nothing to remove."
+        exit 0
+      fi
+      # Uninstall only the version the default shim points at. `uv python uninstall
+      # --all` would also take out managed interpreters that existing `uv tool`
+      # environments were built against, breaking tools this command was not asked
+      # to touch.
+      version="$("$target" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])')"
+      uv python uninstall "$version"
+      echo "Removed uv-managed Python $version and its python/python3 shims."
+      echo "Other uv-managed versions and /usr/bin/python3 were left alone."
+
   pre-commit:
     name: pre-commit
     description: Git hook manager for automated code quality checks

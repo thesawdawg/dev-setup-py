@@ -1105,6 +1105,7 @@ ones tools already have — for now, custom functions are hand-edited YAML at
 | `whats-on-port` | network | script | Find which process is listening on a port | `port`, `protocol` (optional: `tcp`/`udp`/`all`) |
 | `acc-check` | web-dev | script | Run the pi coding agent's `/dogfood` skill against a web URL | `url`, `instruction` (optional) |
 | `aws-saml-reauth` | web-dev | script | Reauthorize the AWS CLI via `saml2aws login --force` | `profile` (optional) |
+| `which-ansible` | validation | script | Show which ansible a directory will actually use — the project's uv venv or the global one | `path` (optional) |
 
 #### `whats-on-port`
 
@@ -1179,6 +1180,7 @@ Optional utilities you may want on some machines.
 |-----|------|-------------|------|
 | `go` | Go | Go programming language toolchain | `go help` |
 | `java` | Java 21 (OpenJDK) | OpenJDK 21 LTS - JDK and JRE | `java --help` |
+| `python` | Python (uv-managed) | CPython provisioned by uv, installed as the default `python`/`python3` | `uv python list` |
 | `ruby` | Ruby (rbenv) | Ruby via rbenv version manager + ruby-build | `ruby --version` |
 
 ---

@@ -61,21 +61,25 @@ The integration assertion was strengthened as the risk table demanded: `_EXTRA_E
 **Exit:** `cd dev && make run-tests TOOL=ansible` passes, and a manual check that all eleven
 executables resolve and `ansible --version` reports the uv venv interpreter (FR-12).
 
-### M4 — uv-managed Python (FR-15..FR-17)
+### M4 — uv-managed Python (FR-15..FR-17) — **done 2026-08-12**
 
 New `python` entry in `tools.yaml`. The risk here is entirely in `check_cmd` (FR-16, SD-8) — write
 it against `uv python list --only-installed` / `uv python dir` rather than `command -v python3`, and
 verify it answers *false* on a machine that has system Python but no uv-managed one.
 
-**Exit:** added to the CI matrix; check verified false-then-true across an install.
+**Exit (met):** added to the CI matrix. The check was verified false-then-true across an install,
+and separately against the two ways it could lie: a dangling shim from a removed interpreter
+(F-14, which this machine already had) and a missing uv collapsing the match pattern to `/*`
+(F-15). Removal is targeted rather than `--all` (F-13).
 
-### M5 — per-repo ansible helper (FR-18..FR-20)
+### M5 — per-repo ansible helper (FR-18..FR-20) — **done 2026-08-12**
 
 New `functions.yaml` entry. Also update `src/dev_setup/functions.schema.json` if any field shape
 changes — CLAUDE.md notes it is hand-maintained and drifts silently.
 
-**Exit:** run it in three places — a uv ansible repo, a non-ansible repo, and `/tmp` — and confirm
-exit 0 in all three (FR-19).
+**Exit (met):** run in five states — no uv (exit 1), bad path (exit 1), `/tmp` with no project
+(0), this repo which is a uv project without ansible (0), and a real uv ansible repo before and
+after `uv sync` (0). The first draft failed FR-19 exactly as predicted (F-16).
 
 ### M6 — docs
 

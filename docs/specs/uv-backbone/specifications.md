@@ -48,6 +48,29 @@ ansible-core 2.21.3). They are the reason the requirements below are shaped as t
   unrelated fetcher; `yq` is Kislyuk's jq-wrapper, which has **different syntax** from the
   catalog's mikefarah Go `yq`; and `awscli` is still **v1** (1.46.0) — there is no AWS CLI v2 on
   PyPI. Converting any of these would silently install a different program.
+- **F-12 (M4, 2026-08-12). `uv python install --default` creates `python`, `python3` *and*
+  `python3.X` symlinks in uv's bin directory** (`~/.local/bin` by default). Since uv's own bashrc
+  line puts that directory early on `PATH`, this changes what `python3` means in the user's
+  interactive shells. `/usr/bin/python3` and anything with an explicit shebang are unaffected. The
+  install script says so out loud rather than leaving it to be discovered.
+- **F-13 (M4). `uv python uninstall --all` is too destructive to use for `devstuff remove`.**
+  It removes *every* managed interpreter, including ones existing `uv tool` environments were built
+  against — so removing the `python` tool could break `ansible` or `commitizen`. Removal instead
+  resolves the default shim, reads its version, and uninstalls only that. Verified: with 3.14.6
+  (default) and 3.12.13 installed, removal takes 3.14.6 and its three shims and leaves 3.12.13 and
+  its `python3.12` shim intact.
+- **F-14 (M4). A dangling shim must not read as installed.** This machine already carried a
+  `~/.local/bin/python3.11` symlink pointing at a removed interpreter. `readlink -f` still prints a
+  path under uv's python dir, so the check uses `test -x` (which follows the link and fails) rather
+  than `test -e`. Verified against the real dangling link.
+- **F-15 (M4). An empty `uv python dir` would make the check match everything.** With uv absent,
+  `d=""` turns the `case` pattern `"$d"/*` into `/*`, which matches every absolute path — so a
+  machine with no uv would report the tool installed. Hence the explicit `test -n "$d"` guard,
+  verified with uv removed from `PATH`.
+- **F-16 (M5). A trailing `[ -n "$x" ] && echo …` silently violates FR-19.** As the last statement
+  of a branch it sets the script's exit status, so a correct "no global ansible found" answer
+  exited 1 and surfaced as a red *'Which Ansible' failed* banner. Caught by running the case, not
+  by reading the script. Fixed with full `if` blocks plus a closing `exit 0`.
 - **F-10 (found during M2, 2026-08-12). `uv tool upgrade` is a no-op on a pinned tool, and the
   unpinned update path could not clear the pin.** Measured: after
   `uv tool install commitizen==4.16.0`, `uv tool upgrade commitizen` answers *"Nothing to

@@ -101,6 +101,13 @@ load-bearing:
   Anything printed telling a user how to escape a pin must be measured — two plausible remedies
   ("re-run without `--version`", "run `devstuff install`") are both false, the second because
   `install_cmd` returns early on `is_installed()`.
+- **The `python` entry provisions CPython through uv** (`uv python install --default`). Its
+  `check_cmd` is the delicate part: every host has a `python3`, so the check requires the default
+  shim to *resolve inside* `uv python dir`, uses `test -x` so a dangling shim from a removed
+  interpreter reads as absent, and guards `test -n "$d"` because an empty `uv python dir` would
+  collapse the `case` pattern to `/*` and match everything. Removal uninstalls only the version
+  the default shim points at — `uv python uninstall --all` would also destroy managed interpreters
+  that existing `uv tool` environments were built against.
 - **`_remove_uvx` honours an explicit `remove_script`**, mirroring `_remove_apt`. Two entries can
   share one `pip_name` (`ansible-vault` shares `ansible`'s), and there `uv tool uninstall` would
   tear out the shared environment. Extras need no field: `pip_name` reaches `subprocess` as one
