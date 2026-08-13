@@ -50,13 +50,26 @@ Duplicating that in devstuff would add a second source of truth that can drift f
 Note the ordering here — the receipt was *measured*, not assumed. A plausible-sounding memory would
 have said flags are lost on upgrade, and the wrong feature would have been built.
 
-## SD-5. `uv tool install --force` for pinned updates, not `uv tool upgrade`
+## SD-5. `uv tool install --force` for *every* uvx update, not `uv tool upgrade`
 
-**Chosen:** version-pinned updates go through `uv tool install "<pkg>==<ver>" --force`.
+**Chosen:** both update paths go through `uv tool install --force` — `<pkg>==<ver>` when pinned,
+`<pkg>@latest` otherwise.
 
 **Rejected: keeping `uv tool upgrade <pkg>==<ver>`.** Measured to fail outright (F-5) — `uv tool
 upgrade` parses its argument as a tool name, so the `==` is part of the name and nothing matches.
 The current code has never worked for this path.
+
+**Rejected (revised 2026-08-12): keeping `uv tool upgrade` for the *unpinned* path.** This was the
+original decision and it was wrong. `uv tool upgrade` is also a no-op on an already-pinned tool
+(F-10), so pairing it with a pinned-install path created a one-way door: pin once and devstuff
+could never move the tool again. `install <pkg>@latest` re-resolves and clears the pin in a single
+call, which collapses the whole problem.
+
+The cost is that `--force` writes a fresh receipt, so the `uv_*` flags must be re-passed on update
+(FR-10a). That turns out to be a feature — the flags are re-derived from the catalog, so adding a
+`uv_with` to a tool takes effect on the next update instead of requiring a manual reinstall.
+This narrows SD-4 rather than contradicting it: devstuff still stores no *copy* of uv's state; the
+catalog remains the single source of truth for what a tool's environment should contain.
 
 **Rejected: `uv tool install <pkg>@<ver>`.** uv accepts the `@` form, but `==` is what the rest of
 the catalog schema and the `devstuff update --version` UI already speak. No reason to introduce a
@@ -64,7 +77,7 @@ second spelling.
 
 ## SD-6. A pinned install warns rather than being refused
 
-**Chosen:** warn that the pin blocks later upgrades (F-4), then do it.
+**Chosen:** warn that the pin holds until the next unpinned update, then do it.
 
 **Rejected: refusing exact pins,** and **rejected: silently reinstalling unpinned on the next
 update.** Pinning is a legitimate thing to want; silently undoing it would be worse than the

@@ -48,6 +48,21 @@ ansible-core 2.21.3). They are the reason the requirements below are shaped as t
   unrelated fetcher; `yq` is Kislyuk's jq-wrapper, which has **different syntax** from the
   catalog's mikefarah Go `yq`; and `awscli` is still **v1** (1.46.0) — there is no AWS CLI v2 on
   PyPI. Converting any of these would silently install a different program.
+- **F-10 (found during M2, 2026-08-12). `uv tool upgrade` is a no-op on a pinned tool, and the
+  unpinned update path could not clear the pin.** Measured: after
+  `uv tool install commitizen==4.16.0`, `uv tool upgrade commitizen` answers *"Nothing to
+  upgrade"* forever. Since the original FR-9 kept `uv tool upgrade` for the unpinned path, a user
+  who ever pinned a tool had **no route back to latest through devstuff at all**. Fixed by routing
+  both paths through `uv tool install --force`, with `<pkg>@latest` for the unpinned case —
+  measured to re-resolve *and* drop the specifier from the receipt in one call.
+- **F-11 (2026-08-12). Two plausible remedies for a pin do not work, and were shipped in drafts
+  of the warning text before being measured.**
+  (a) *"Re-run without `--version`"* — false while that path was `uv tool upgrade`.
+  (b) *"Run `devstuff install <key>` to clear the pin"* — false because `install_cmd.py:48`
+  returns early on `is_installed()` and never reaches `uv tool install`. A bare
+  `uv tool install <pkg>` *does* clear the specifier, but no devstuff command reaches it.
+  The lesson is the project's own: a remedy printed to the user is a claim about the tool, and
+  claims about the tool get measured.
 - **F-9 (found during M1/M3 implementation, 2026-08-12). `_remove_uvx` ignored `remove_script`,
   unlike `_remove_apt`.** Harmless while `ansible-vault` was an `apt` entry; a live regression the
   moment it became `uvx`, because `devstuff remove ansible-vault` would then have run
@@ -114,12 +129,16 @@ itself is circular. The `bash` installer stays.
 
 ### Engine — update path
 
-- **FR-9.** `_update_uvx` with an explicit `version` must use
-  `uv tool install "<pip_name>==<version>" --force` (plus the FR-1..3 flags), **not**
-  `uv tool upgrade`, which does not accept a requirement (F-5). Without a version it continues to
-  use `uv tool upgrade <pip_name>`, which is correct and preserves the receipt's flags (F-3).
-- **FR-10.** Pinning to an exact version must warn that the pin blocks later
-  `devstuff update` runs until the tool is reinstalled unpinned (F-4).
+- **FR-9 (revised 2026-08-12 during M2).** `_update_uvx` uses `uv tool install --force` on **both**
+  paths — `<pip_name>==<version>` when pinned, `<pip_name>@latest` otherwise — never
+  `uv tool upgrade`. The original requirement kept `uv tool upgrade` for the unpinned path; that
+  was wrong, see F-10.
+- **FR-10 (revised).** A pinned update warns that the pin holds until the next `devstuff update`
+  without `--version`. The warning must state an escape route that actually works — see F-11 for
+  two that do not.
+- **FR-10a.** The FR-1..3 flags are passed on update as well as install, because `--force` writes
+  a fresh receipt. Deliberately this also means a newly added `uv_with`/`uv_executables_from` in
+  the catalog takes effect on the next update rather than only on a reinstall.
 
 ### Ansible
 

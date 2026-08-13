@@ -5,7 +5,7 @@ from unittest import mock
 
 import pytest
 
-from dev_setup import generic
+from dev_setup import generic, ui
 from dev_setup.generic import GenericTool, _download_script, _is_simple_command
 
 
@@ -271,3 +271,86 @@ def test_uvx_remove_prefers_remove_script(monkeypatch):
     tool.remove()
 
     assert ran["script"] == "echo bye"
+
+
+# -- uvx update -----------------------------------------------------------------
+
+
+def _capture_uvx_update_argv(monkeypatch, tool, version) -> list[str]:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(generic.shutil, "which", lambda _c: "/usr/bin/uv")
+    monkeypatch.setattr(generic, "_run", lambda cmd, **kw: calls.append(cmd))
+    with mock.patch.object(GenericTool, "get_version", return_value="1.0"):
+        tool.update(version)
+    return calls[0]
+
+
+def test_uvx_update_unpinned_installs_latest(monkeypatch):
+    tool = make_tool(install_type="uvx", pip_name="commitizen")
+
+    argv = _capture_uvx_update_argv(monkeypatch, tool, None)
+
+    # NOT `uv tool upgrade`: that is a no-op on a tool someone previously pinned,
+    # which would leave them with no route back to latest through devstuff.
+    assert argv == [
+        "/usr/bin/uv",
+        "tool",
+        "install",
+        "--force",
+        "commitizen@latest",
+    ]
+
+
+def test_uvx_update_pinned_uses_forced_install(monkeypatch):
+    # `uv tool upgrade "pkg==1.2.3"` reads the whole string as a tool name and fails.
+    tool = make_tool(install_type="uvx", pip_name="commitizen")
+
+    argv = _capture_uvx_update_argv(monkeypatch, tool, "4.16.0")
+
+    assert argv == [
+        "/usr/bin/uv",
+        "tool",
+        "install",
+        "--force",
+        "commitizen==4.16.0",
+    ]
+    assert "upgrade" not in argv
+
+
+def test_uvx_update_pinned_reapplies_uv_flags(monkeypatch):
+    # --force writes a fresh receipt, so the flags must be passed again or the
+    # pinned install silently loses its extra executables.
+    tool = make_tool(
+        install_type="uvx",
+        pip_name="ansible",
+        uv_executables_from=["ansible-core"],
+        uv_python="3.12",
+    )
+
+    argv = _capture_uvx_update_argv(monkeypatch, tool, "14.2.0")
+
+    assert argv == [
+        "/usr/bin/uv",
+        "tool",
+        "install",
+        "--force",
+        "--python",
+        "3.12",
+        "--with-executables-from",
+        "ansible-core",
+        "ansible==14.2.0",
+    ]
+
+
+def test_uvx_update_pinned_warns_about_the_pin(monkeypatch):
+    warnings: list[str] = []
+    monkeypatch.setattr(ui, "warn", warnings.append)
+    tool = make_tool(install_type="uvx", pip_name="commitizen")
+
+    _capture_uvx_update_argv(monkeypatch, tool, "4.16.0")
+
+    assert len(warnings) == 1
+    assert "4.16.0" in warnings[0]
+    # The stated escape route must be the one that actually works.
+    assert "devstuff update demo" in warnings[0]
+    assert "--version" in warnings[0]

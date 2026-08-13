@@ -27,17 +27,23 @@ Touching, per CLAUDE.md's five-place rule for schema changes:
 
 **Exit:** `uv run pytest` green; a hand-written user catalog entry using all three fields loads.
 
-### M2 — the update-path bug (FR-9, FR-10)
+### M2 — the update-path bug (FR-9, FR-10, FR-10a) — **done 2026-08-12**
 
-`_update_uvx` switches to `uv tool install "<pkg>==<ver>" --force` when a version is given, carrying
-the FR-1..3 flags, and warns about the pin. Unpinned updates keep using `uv tool upgrade`.
+`_update_uvx` routes **both** paths through `uv tool install --force` plus the FR-1..3 flags:
+`<pkg>==<ver>` when pinned, `<pkg>@latest` otherwise.
+
+The plan originally kept `uv tool upgrade` for the unpinned path; measuring it during
+implementation showed that would have left a pinned tool permanently stuck (F-10), so the
+requirement changed. Two draft warning texts named remedies that did not work (F-11) before the
+current one was verified end to end.
 
 This is a **pre-existing bug**, not a regression from M1 — `devstuff update <uvx-tool> --version X`
-has never worked (F-5). Worth landing as its own commit with its own `fix:` message so it shows up
-in the changelog independently.
+has never worked (F-5).
 
-**Exit:** a unit test asserting the argv shape for both the pinned and unpinned branches. The real
-behaviour was already verified by hand against uv 0.11.21.
+**Exit (met):** unit tests assert the argv shape for the pinned branch, the unpinned branch, flag
+re-application, and the warning text. Verified against real uv: pin → 4.16.0 with a specifier in
+the receipt; plain update → 4.17.0 with the specifier gone. Ansible keeps all eleven executables
+across both a pinned and an unpinned update.
 
 ### M3 — ansible conversion (FR-11..FR-14) — **done 2026-08-12**
 

@@ -93,9 +93,14 @@ load-bearing:
   installs one unusable `ansible-community` binary and reports success. `uv_executables_from:
   [ansible-core]` is what produces the eleven real ones. Don't "simplify" it to
   `pip_name: ansible-core` — that silently drops the bundled collections.
-- **The flags are passed at install time only.** uv records them in the tool's
-  `uv-receipt.toml` and re-applies them on `uv tool upgrade` (measured), so devstuff deliberately
-  keeps no copy — a second source of truth would drift from uv's.
+- **`_update_uvx` never uses `uv tool upgrade`** — both paths are `uv tool install --force`
+  (`<pkg>==<ver>` pinned, `<pkg>@latest` otherwise). `uv tool upgrade` can't take a requirement
+  *and* is a no-op on an already-pinned tool, so the obvious pairing makes a pin a one-way door.
+  `--force` writes a fresh receipt, so the `uv_*` flags are re-passed on every update; that is
+  deliberate, since it also means a newly added `uv_with` applies on update, not just reinstall.
+  Anything printed telling a user how to escape a pin must be measured — two plausible remedies
+  ("re-run without `--version`", "run `devstuff install`") are both false, the second because
+  `install_cmd` returns early on `is_installed()`.
 - **`_remove_uvx` honours an explicit `remove_script`**, mirroring `_remove_apt`. Two entries can
   share one `pip_name` (`ansible-vault` shares `ansible`'s), and there `uv tool uninstall` would
   tear out the shared environment. Extras need no field: `pip_name` reaches `subprocess` as one

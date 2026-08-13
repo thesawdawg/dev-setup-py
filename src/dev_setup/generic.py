@@ -312,9 +312,30 @@ def _update_uvx(tool: GenericTool, version: str | None) -> None:
             "uv is required to update uvx packages. "
             "Install it first: devstuff install uv"
         )
-    target = f"{tool.pip_name}=={version}" if version else tool.pip_name
-    with verbose.step(f"Updating {tool.name} via uv tool upgrade..."):
-        _run([uv, "tool", "upgrade", target])
+    # Both paths go through `uv tool install`, not `uv tool upgrade`.
+    #
+    # `uv tool upgrade` takes a tool *name*, not a requirement, so the pinned form
+    # ("pkg==1.2.3") was read as the whole name and always failed. And it is a no-op
+    # on an already-pinned tool ("Nothing to upgrade"), which would leave a user who
+    # ever pinned with no way back to latest through devstuff. `install pkg@latest`
+    # re-resolves *and* clears the pin in one call — measured against uv 0.11.21.
+    #
+    # Passing the uv_* flags on every update is deliberate: this writes a fresh
+    # receipt, and re-deriving from the catalog means a newly added uv_with or
+    # uv_executables_from takes effect on update rather than only on reinstall.
+    target = f"{tool.pip_name}=={version}" if version else f"{tool.pip_name}@latest"
+    cmd = [uv, "tool", "install", "--force"] + _uv_install_flags(tool) + [target]
+
+    if version:
+        from dev_setup import ui
+        ui.warn(
+            f"Pinning {tool.name} to {version}. It stays there until the next "
+            f"'devstuff update {tool.key}' without --version, which moves it back "
+            f"to the latest release."
+        )
+
+    with verbose.step(f"Updating {tool.name} via uv tool install..."):
+        _run(cmd)
 
 
 def _update_apt(tool: GenericTool, version: str | None) -> None:
