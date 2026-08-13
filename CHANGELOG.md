@@ -1,3 +1,9 @@
+## v2.3.0 (2026-08-13)
+
+### Features
+
+- make uv the install backbone, and fix ansible (#42)
+
 ## v2.2.1 (2026-08-05)
 
 ### Bug Fixes
