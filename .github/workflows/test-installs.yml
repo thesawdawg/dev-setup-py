@@ -51,6 +51,8 @@ jobs:
       fail-fast: false  # let all tools run even when some fail
       matrix:
         tool:
+          - ansible       # uvx tool, requires uv
+          - ansible-vault # shares ansible's tool environment
           - aws
           - commitizen  # uvx tool, requires uv
           - eza

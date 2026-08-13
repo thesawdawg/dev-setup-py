@@ -8,9 +8,23 @@ with sudo access:
 """
 from __future__ import annotations
 
+import shutil
+
 import pytest
 
 from dev_setup import registry
+
+# Extra executables a tool must put on PATH beyond its own check_cmd.
+#
+# `uv tool install` only exposes console scripts of the *requested* package, and the
+# `ansible` distribution declares none — every real entry point belongs to its
+# ansible-core dependency. So a broken install still yields an `ansible` binary via
+# some other route while ansible-playbook and friends are missing, and a check_cmd-only
+# assertion passes. Name them explicitly.
+_EXTRA_EXECUTABLES: dict[str, tuple[str, ...]] = {
+    "ansible": ("ansible-playbook", "ansible-galaxy", "ansible-vault", "ansible-doc"),
+    "ansible-vault": ("ansible-playbook",),
+}
 
 # Tools excluded from automated CI testing — with explicit reasons
 _SKIP: dict[str, str] = {
@@ -48,3 +62,8 @@ def test_install(tool):
         f"{tool.name} ({tool.key}): install() completed without raising "
         "but is_installed() still returns False"
     )
+
+    for exe in _EXTRA_EXECUTABLES.get(tool.key, ()):
+        assert shutil.which(exe), (
+            f"{tool.name} ({tool.key}): installed, but {exe!r} is not on PATH"
+        )

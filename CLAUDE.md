@@ -83,6 +83,24 @@ pattern for upgrading an already-installed tool (latest or a pinned version); fo
 `bash` types "update" is a full reinstall, since there's no narrower mechanism, so the command
 layer confirms before re-running it.
 
+**uv is the backbone for Python-packaged tools** (spec in `docs/specs/uv-backbone/`). The
+`uvx`/`pip` types accept three optional fields beyond `pip_name` — `uv_with`,
+`uv_executables_from`, `uv_python` — assembled into argv by `_uv_install_flags` in `generic.py`
+and rejected by `validate_catalog()` on every other type. Three things about them are
+load-bearing:
+- **`uv tool install` only exposes console scripts of the *requested* package.** The `ansible`
+  distribution is a collections bundle declaring none of its own, so `pip_name: ansible` alone
+  installs one unusable `ansible-community` binary and reports success. `uv_executables_from:
+  [ansible-core]` is what produces the eleven real ones. Don't "simplify" it to
+  `pip_name: ansible-core` — that silently drops the bundled collections.
+- **The flags are passed at install time only.** uv records them in the tool's
+  `uv-receipt.toml` and re-applies them on `uv tool upgrade` (measured), so devstuff deliberately
+  keeps no copy — a second source of truth would drift from uv's.
+- **`_remove_uvx` honours an explicit `remove_script`**, mirroring `_remove_apt`. Two entries can
+  share one `pip_name` (`ansible-vault` shares `ansible`'s), and there `uv tool uninstall` would
+  tear out the shared environment. Extras need no field: `pip_name` reaches `subprocess` as one
+  argv element, never a shell, so `pip_name: "ansible-lint[lock]"` already works.
+
 **Verbosity** (`verbose.py`, spec in `docs/specs/verbose-mode/`): one process-wide level —
 `0` / `-v` / `-vv` — set by a Click callback and read by the subprocess helpers, never threaded
 through call signatures. Three things about it are load-bearing:

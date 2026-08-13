@@ -191,3 +191,83 @@ def test_non_npm_check_cmd_does_not_pay_for_nvm():
 
 def test_complex_check_cmd_still_reports_a_failing_command_as_not_installed():
     assert not generic._check_cmd_installed("false --version", install_type="npm")
+
+
+# -- uvx install flags ----------------------------------------------------------
+
+
+def _capture_uvx_argv(monkeypatch, tool) -> list[str]:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(generic.shutil, "which", lambda _c: "/usr/bin/uv")
+    monkeypatch.setattr(generic, "_run", lambda cmd, **kw: calls.append(cmd))
+    with mock.patch.object(GenericTool, "get_version", return_value="1.0"):
+        tool.install()
+    return calls[0]
+
+
+def test_uvx_install_without_uv_fields_is_a_bare_install(monkeypatch):
+    tool = make_tool(install_type="uvx", pip_name="ipython")
+
+    argv = _capture_uvx_argv(monkeypatch, tool)
+
+    assert argv == ["/usr/bin/uv", "tool", "install", "ipython"]
+
+
+def test_uvx_install_passes_executables_from(monkeypatch):
+    # The ansible case: entry points live in ansible-core, not in ansible.
+    tool = make_tool(
+        install_type="uvx", pip_name="ansible", uv_executables_from=["ansible-core"]
+    )
+
+    argv = _capture_uvx_argv(monkeypatch, tool)
+
+    assert argv == [
+        "/usr/bin/uv",
+        "tool",
+        "install",
+        "--with-executables-from",
+        "ansible-core",
+        "ansible",
+    ]
+
+
+def test_uvx_install_passes_python_and_with_flags(monkeypatch):
+    tool = make_tool(
+        install_type="uvx",
+        pip_name="ansible",
+        uv_python="3.12",
+        uv_with=["jmespath", "netaddr"],
+        uv_executables_from=["ansible-core"],
+    )
+
+    argv = _capture_uvx_argv(monkeypatch, tool)
+
+    assert argv == [
+        "/usr/bin/uv",
+        "tool",
+        "install",
+        "--python",
+        "3.12",
+        "--with",
+        "jmespath",
+        "--with",
+        "netaddr",
+        "--with-executables-from",
+        "ansible-core",
+        "ansible",
+    ]
+    # the package must stay last, after every flag
+    assert argv[-1] == "ansible"
+
+
+def test_uvx_remove_prefers_remove_script(monkeypatch):
+    # ansible-vault shares ansible's pip_name; `uv tool uninstall ansible` there would
+    # remove ansible-playbook and friends too.
+    ran = {}
+    monkeypatch.setattr(generic, "_run_bash_script", lambda s: ran.setdefault("script", s))
+    monkeypatch.setattr(generic, "_run", lambda cmd, **kw: pytest.fail("uv was invoked"))
+    tool = make_tool(install_type="uvx", pip_name="ansible", remove_script="echo bye")
+
+    tool.remove()
+
+    assert ran["script"] == "echo bye"

@@ -4,23 +4,29 @@ tools:
     name: Ansible
     description: Automation engine for configuration management and app deployment
     category: tools
-    type: apt
+    type: uvx
     check_cmd: ansible
-    apt_packages: ansible
+    pip_name: ansible
+    # The `ansible` distribution is the collections bundle and declares no console
+    # scripts of its own — `ansible`, `ansible-playbook`, `ansible-vault` and the rest
+    # are entry points of its ansible-core dependency, and `uv tool install` only
+    # exposes the requested package's scripts. Without this, the install "succeeds"
+    # and puts a single unusable `ansible-community` on PATH. Do not swap this for
+    # pip_name: ansible-core — that drops the bundled collections.
+    uv_executables_from:
+      - ansible-core
     help_cmd: ansible --help
     docs_url: https://docs.ansible.com/
-    remove_script: |
-      set -euo pipefail
-      sudo apt-get remove -y ansible
-      sudo apt-get autoremove -y
 
   ansible-vault:
     name: Ansible Vault
     description: Encrypt and manage secrets within Ansible projects (bundled with Ansible)
     category: tools
-    type: apt
+    type: uvx
     check_cmd: ansible-vault
-    apt_packages: ansible
+    pip_name: ansible
+    uv_executables_from:
+      - ansible-core
     help_cmd: ansible-vault --help
     docs_url: https://docs.ansible.com/ansible/latest/vault_guide/index.html
     requires:

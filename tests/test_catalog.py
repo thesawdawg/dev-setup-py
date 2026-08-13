@@ -157,3 +157,80 @@ def test_delete_removes_user_override_and_restores_builtin(isolated_catalog, mon
     assert result.exit_code == 0
     assert not catalog.user_has_tool("docker")
     assert registry.get("docker").name == "Docker"  # type: ignore[union-attr]
+
+
+# -- uv_* fields (uvx/pip only) -----------------------------------------------
+
+
+def _uv_catalog(**extra):
+    return {
+        "version": 1,
+        "tools": {"t": {"name": "T", "type": "uvx", "pip_name": "p", **extra}},
+    }
+
+
+def test_uv_fields_accepted_on_uvx():
+    tools = catalog.validate_catalog(
+        _uv_catalog(
+            uv_with=["jmespath"],
+            uv_executables_from=["ansible-core"],
+            uv_python="3.12",
+        )
+    )
+
+    assert tools["t"]["uv_with"] == ["jmespath"]
+    assert tools["t"]["uv_executables_from"] == ["ansible-core"]
+    assert tools["t"]["uv_python"] == "3.12"
+
+
+@pytest.mark.parametrize("field", ["uv_with", "uv_executables_from", "uv_python"])
+@pytest.mark.parametrize("bad_type", ["apt", "bash", "npm"])
+def test_uv_fields_rejected_on_other_types(field, bad_type):
+    value = "3.12" if field == "uv_python" else ["x"]
+    raw = _uv_catalog(**{field: value})
+    raw["tools"]["t"]["type"] = bad_type
+
+    with pytest.raises(CatalogError, match="only valid on type"):
+        catalog.validate_catalog(raw)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("uv_with", "not-a-list"),
+        ("uv_with", [1]),
+        ("uv_executables_from", "not-a-list"),
+        ("uv_python", ["3.12"]),
+    ],
+)
+def test_uv_fields_reject_wrong_shapes(field, value):
+    with pytest.raises(CatalogError, match=field):
+        catalog.validate_catalog(_uv_catalog(**{field: value}))
+
+
+def test_uv_fields_round_trip_through_generic_tool():
+    data = {
+        "name": "T",
+        "type": "uvx",
+        "pip_name": "ansible",
+        "uv_with": ["jmespath"],
+        "uv_executables_from": ["ansible-core"],
+        "uv_python": "3.12",
+    }
+
+    tool = GenericTool.from_dict(data, "t")
+
+    assert tool.uv_executables_from == ["ansible-core"]
+    assert tool.to_dict()["uv_with"] == ["jmespath"]
+    assert tool.to_dict()["uv_executables_from"] == ["ansible-core"]
+    assert tool.to_dict()["uv_python"] == "3.12"
+
+
+def test_unset_uv_fields_are_not_persisted():
+    tool = GenericTool.from_dict({"name": "T", "type": "uvx", "pip_name": "p"}, "t")
+
+    d = tool.to_dict()
+
+    assert "uv_with" not in d
+    assert "uv_executables_from" not in d
+    assert "uv_python" not in d

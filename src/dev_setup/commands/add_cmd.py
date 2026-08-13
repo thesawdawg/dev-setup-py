@@ -61,6 +61,20 @@ def add_cmd() -> None:
     elif install_type == "uvx":
         kwargs["pip_name"] = ui.text_input("PyPI package name:", default=key, required=True)
         kwargs["check_cmd"] = ui.text_input("Command to check if installed:", default=key)
+        # All optional. Empty answers must not write empty keys into the user catalog.
+        exes = ui.text_input(
+            "Also expose executables from (space-separated packages, blank for none):"
+        )
+        if exes:
+            kwargs["uv_executables_from"] = exes.split()
+        extra = ui.text_input(
+            "Extra packages to install alongside it (space-separated, blank for none):"
+        )
+        if extra:
+            kwargs["uv_with"] = extra.split()
+        py = ui.text_input("Pin to a Python version (e.g. 3.12, blank for uv's default):")
+        if py:
+            kwargs["uv_python"] = py
 
     elif install_type == "apt":
         kwargs["apt_packages"] = ui.text_input(

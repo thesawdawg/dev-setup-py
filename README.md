@@ -1155,6 +1155,7 @@ Optional utilities you may want on some machines.
 | Key | Name | Description | Help |
 |-----|------|-------------|------|
 | `ansible` | Ansible | Automation engine for configuration management and app deployment (`devstuff configure ansible`) | `ansible --help` |
+| `ansible-vault` | Ansible Vault | Encrypt and manage secrets within Ansible projects (bundled with Ansible) | `ansible-vault --help` |
 | `aws` | AWS CLI | Amazon Web Services CLI v2 | `aws help` |
 | `bat` | bat | cat replacement with syntax highlighting and git integration (`devstuff configure bat`) | `bat --help` |
 | `commitizen` | Commitizen | Conventional-commit prompt, semantic version bumping, and changelog generation (`devstuff configure commitizen`) | `cz --help` |
@@ -1220,7 +1221,10 @@ tools:
 | `docs_url` | no | URL opened by `devstuff docs <key>` |
 | `requires` | no | List of package keys that must already be installed |
 | `npm_name` | npm | npm package name |
-| `pip_name` | pip | PyPI package name |
+| `pip_name` | pip | PyPI package name. Extras work as-is: `pip_name: "ansible-lint[lock]"` |
+| `uv_with` | no (pip/uvx) | Extra packages installed into the tool's environment (`uv tool install --with`) |
+| `uv_executables_from` | no (pip/uvx) | Also expose console scripts from these packages (`--with-executables-from`). Needed when a package's entry points live in a dependency |
+| `uv_python` | no (pip/uvx) | Pin the tool environment's Python (`--python`), e.g. `"3.12"` |
 | `apt_packages` | apt | Space-separated list of apt packages |
 | `git_url` | git | Repository URL to clone |
 | `git_install_cmd` | git | Bash command run inside the cloned repo after clone |
@@ -1229,7 +1233,21 @@ tools:
 | `install_script` | bash | Full bash script to run on install |
 | `remove_script` | bash | Full bash script to run on remove |
 
-Unknown fields fail validation. `requires` defaults to `["nvm"]` for `npm` tools and `["uv"]` for `pip`/`uvx` tools unless explicitly set.
+Unknown fields fail validation — including the three `uv_*` fields on any type other than `pip`/`uvx`. `requires` defaults to `["nvm"]` for `npm` tools and `["uv"]` for `pip`/`uvx` tools unless explicitly set.
+
+`uv_executables_from` is worth understanding before you skip it: `uv tool install` exposes the console scripts of the *requested* package only. The `ansible` distribution is a collections bundle that declares none of its own — `ansible`, `ansible-playbook` and `ansible-vault` are all entry points of its `ansible-core` dependency — so without this field the install reports success and puts a single unusable `ansible-community` on `PATH`:
+
+```yaml
+version: 1
+tools:
+  ansible:
+    name: Ansible
+    type: uvx
+    check_cmd: ansible
+    pip_name: ansible
+    uv_executables_from:
+      - ansible-core
+```
 
 ### Examples
 

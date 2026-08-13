@@ -14,6 +14,9 @@ BUNDLED_CATALOG = "tools.yaml"
 
 VERSION = 1
 VALID_KEY = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# Fields that only mean anything to `uv tool install`, and the types that accept them.
+UV_ONLY_FIELDS = ("uv_with", "uv_executables_from", "uv_python")
+UV_TYPES = ("pip", "uvx")
 SUPPORTED_FIELDS = {
     "name",
     "description",
@@ -26,6 +29,9 @@ SUPPORTED_FIELDS = {
     "requires",
     "npm_name",
     "pip_name",
+    "uv_with",
+    "uv_executables_from",
+    "uv_python",
     "apt_packages",
     "git_url",
     "git_install_cmd",
@@ -88,6 +94,22 @@ def validate_catalog(raw: Any, *, source: Path | str = "<catalog>") -> dict[str,
         item.setdefault("description", "")
         item.setdefault("category", "custom")
         item.setdefault("type", "unknown")
+
+        for field in UV_ONLY_FIELDS:
+            if field not in item:
+                continue
+            if item["type"] not in UV_TYPES:
+                types = "/".join(UV_TYPES)
+                raise CatalogError(
+                    f"{source}: tool {key!r} sets {field!r}, which is only valid on "
+                    f"type {types} (got {item['type']!r})"
+                )
+            value = item[field]
+            if field == "uv_python":
+                if not isinstance(value, str):
+                    raise CatalogError(f"{source}: tool {key!r} {field} must be a string")
+            elif not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise CatalogError(f"{source}: tool {key!r} {field} must be a list of strings")
 
         requires = item.get("requires")
         if requires is None:
