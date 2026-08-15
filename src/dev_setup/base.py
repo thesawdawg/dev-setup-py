@@ -19,6 +19,12 @@ class Tool(ABC):
     # so the command layer can ask any Tool without narrowing to GenericTool.
     unsupported_reason: str = ""
     alternative: str = ""
+    # True when the reason came from reading the install source (`compat.py`) rather
+    # than from the catalog. Inference can be wrong, so only these are overridable
+    # with `--force`; a catalog's `supported: false` never is.
+    unsupported_inferred: bool = False
+    # Everything the source scan turned up, including non-blocking advisories.
+    compat_findings: list = []
 
     @property
     def supported(self) -> bool:

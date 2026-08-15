@@ -96,6 +96,52 @@ What is genuinely unavailable says so, with a reason:
 `devstuff install` refuses those up front rather than failing partway through, `devstuff list`
 marks them, and the interactive picker disables them.
 
+### Incompatible install sources
+
+The section above relies on a package *declaring* where it works. Nothing you add with
+`devstuff add`, import with `devstuff catalog import`, or write by hand declares anything — so
+devstuff also reads the install source itself and refuses when it clearly cannot run here:
+
+```
+✖  My Tool is not available on this platform
+   the install source runs `sudo`, and Termux (Android) has no privilege escalation
+   (its prefix, /data/data/com.termux/files/usr, needs none); the install source writes
+   to /usr/local/, which does not exist on Termux (Android); the install source
+   downloads a linux-gnu build, which will not run on Termux (Android)
+   This was determined by reading the install source, not from the package definition.
+   If it is wrong, re-run with --force.
+```
+
+What it looks at, and how confident each signal is:
+
+| Signal | Blocks? | Basis |
+|--------|---------|-------|
+| The source runs a package manager (`apt-get`, `dnf`, `pacman`, `apk`, `zypper`, `brew`, `pkg`, `dpkg`, `add-apt-repository`) that is **not on `$PATH`** | yes | measured — `set -e` plus "command not found" is the whole story |
+| The source runs `sudo` on a host with no privilege escalation | yes | the platform's `sudo` capability, not `$PATH` (Termux's `sudo` package is a root-device wrapper) |
+| A `system`-type package where the host's manager is missing or unknown | yes | measured |
+| The source writes to `/usr/local/`, `/etc/`, `/opt/`, … on a host with no FHS | yes | inferred |
+| The source downloads a `linux-gnu` / glibc asset on a non-glibc host | yes | inferred |
+| The source runs `systemctl` / `service` / `snap` where those don't apply | **no** — warns only | `systemctl enable x 2>/dev/null \|\| true` is ordinary in an installer that works fine without systemd |
+
+For `script`-type packages the body doesn't exist until download time, so it is checked after the
+checksum and before it runs — the last moment before a `curl | sh` installer changes anything.
+
+Two rules keep this from getting in the way:
+
+- **A declaration wins.** If the package sets `requires_traits` (even `[]`) or has a `platforms:`
+  block for this host, the author already considered portability and the scan is skipped
+  entirely. Only undeclared packages get read.
+- **`--force` overrides inference, never declaration.**
+
+```bash
+devstuff install --force my-tool     # "I know better than the scan"
+```
+
+`--force` applies only to reasons devstuff worked out by reading the source. A package whose
+definition says `supported: false`, or whose `requires_traits` this host doesn't meet, stays
+refused — that is an authored statement of fact, not a guess. `devstuff platform` lists the two
+kinds separately.
+
 ### Previewing another platform
 
 ```bash

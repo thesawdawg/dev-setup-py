@@ -80,6 +80,11 @@ class ResolvedTool:
     data: dict[str, Any] = field(default_factory=dict)
     unsupported_reason: str = ""
     alternative: str = ""
+    # True when the entry said something about *this* host — an explicit
+    # `requires_traits` (even empty) or a `platforms:` block matching this platform
+    # or its family. The source scanner (`compat.py`) stands down when it is set:
+    # the author has considered portability, and a regex must not overrule them.
+    declared: bool = False
 
     @property
     def supported(self) -> bool:
@@ -289,12 +294,14 @@ def resolve_for_platform(
     supported: bool | None = None
     reason = ""
     alternative = str(record.pop("alternative", "") or "")
+    declared = "requires_traits" in record
 
     # family first, then the exact id — most specific wins.
     for scope in (p.family, p.id):
         override = block.get(scope)
         if not isinstance(override, dict):
             continue
+        declared = True
         for field_name, value in override.items():
             if field_name == "supported":
                 supported = bool(value)
@@ -308,14 +315,14 @@ def resolve_for_platform(
     traits = record.pop("requires_traits", None) or []
 
     if supported is False:
-        return ResolvedTool(record, reason, alternative)
+        return ResolvedTool(record, reason, alternative, declared)
     if supported is True:
-        # An explicit yes overrules the trait table — the override knows something
-        # generic capability detection does not.
-        return ResolvedTool(record, "", alternative)
+        # An explicit yes overrules the trait table *and* the source scanner — the
+        # override knows something generic detection does not.
+        return ResolvedTool(record, "", alternative, declared)
 
     trait_reason = platforms.unsupported_reason(traits, platform=p)
-    return ResolvedTool(record, trait_reason, alternative)
+    return ResolvedTool(record, trait_reason, alternative, declared)
 
 
 def catalog_document(tools: dict[str, dict[str, Any]]) -> dict[str, Any]:

@@ -61,6 +61,7 @@ src/dev_setup/
 ├── registry.py      # Loads the effective catalog into a live in-memory Tool registry
 ├── generic.py       # GenericTool — the ONE engine that implements every install type
 ├── platforms.py     # Host detection + the system-package-manager abstraction
+├── compat.py        # Reads an install source for things this host can't do
 ├── tools.yaml       # Bundled built-in catalog (core/tools/languages categories)
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
 ├── verbose.py      # Process-wide -v/-vv level + the stderr logger built on it
@@ -144,6 +145,28 @@ load-bearing:
   scripts were deliberately *not* rewritten: what most of them do genuinely isn't portable, and
   the traits say so. The prelude is for new ones.
 
+**Source inspection** (`compat.py`, same spec): `requires_traits`/`platforms:` are *declarations*,
+and nothing a user adds via `devstuff add`/`catalog import`/hand-edited YAML declares anything —
+so devstuff also reads the install source and refuses what clearly cannot run. Four things are
+load-bearing:
+- **It only runs where the catalog declared nothing about this host** (`ResolvedTool.declared` —
+  an explicit `requires_traits`, even `[]`, or a matching `platforms:` block). A declaration is a
+  decision someone made with the tool in front of them; a regex over a shell script is a guess,
+  and the guess must never overrule the decision. Say something about the platform and you own
+  the answer; say nothing and your script gets read.
+- **The whole design follows from the false-positive cost.** A missed finding leaves behaviour
+  where it was; a false one blocks a working install. So blocking findings are *measured* where
+  possible (`shutil.which` — a command not on PATH under `set -e` is not a heuristic), and
+  signals that commonly appear guarded are advisory-only. `systemctl` is the case that forced
+  the split: `systemctl enable x 2>/dev/null || true` is ordinary, and blocking on it would have
+  taken out half the catalog in a container.
+- **`sudo` is judged by the trait, not by `shutil.which`** — the one command where PATH lies,
+  for the Termux reason below.
+- **`--force` overrides an inferred refusal and never a declared one**, and the refusal message
+  says which kind it is. Don't "simplify" that to one flag covering both: forcing past
+  `supported: false` means running what the author already documented cannot work.
+  `compat.set_force()` is process-wide like `verbose`, because four callers reach `install()`.
+
 **Termux specifics that a plausible memory gets wrong** (all verified against termux-tools and
 termux-packages sources; the citations are in the spec's Measured findings):
 - **`pkg` fronts apt *or* pacman**, per `$TERMUX_APP_PACKAGE_MANAGER`. Both builds ship.
@@ -195,6 +218,8 @@ field list and per-type examples. Then:
   override if so. Preview the result with `DEVSTUFF_PLATFORM=termux devstuff platform`.
   Prefer `type: system` outright when the tool exists under one name across managers — that is
   what turned `htop`'s four-way `apt||yum||dnf||pacman` shell fallback into one line.
+  A builtin that trips `compat.py`'s scanner on the platform it was written for is a bug in the
+  entry — it should be declaring that with `requires_traits`. There is a test for it.
 - Add the key to `.github/workflows/test-installs.yml`'s matrix (or to `_SKIP` in
   `tests/integration/test_tools.py` with a reason, if it can't run in CI).
   `test_ci_matrix_covers_every_builtin_tool` enforces this, in both directions — a stale matrix

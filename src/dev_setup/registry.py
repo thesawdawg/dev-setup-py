@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dev_setup import catalog
+from dev_setup import catalog, compat
 from dev_setup.base import Tool
 from dev_setup.generic import GenericTool
 
@@ -31,6 +31,18 @@ def _load_builtins() -> None:
         tool.unsupported_reason = resolved.unsupported_reason
         tool.alternative = resolved.alternative
         tool.builtin = key in bundled and key not in user
+
+        # Declarations only cover entries whose author thought about portability.
+        # For everything else — every user-added tool — read the install source and
+        # see whether this host can actually run it.
+        if tool.supported and compat.should_scan(resolved):
+            findings = compat.scan(tool)
+            tool.compat_findings = findings
+            blockers = compat.blocking(findings)
+            if blockers:
+                tool.unsupported_reason = compat.summarise(findings)
+                tool.unsupported_inferred = True
+
         _register(tool)
 
 

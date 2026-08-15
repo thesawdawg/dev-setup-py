@@ -724,8 +724,16 @@ class PlatformReport:
 
     platform: Platform
     supported: list[str] = field(default_factory=list)
+    # Declared unavailable by the catalog (`requires_traits` / `platforms:`).
     unsupported: list[tuple[str, str]] = field(default_factory=list)
+    # Inferred unavailable by reading the install source (`compat.py`). Kept apart
+    # because the two carry different confidence, and only these accept `--force`.
+    incompatible_source: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def forced(self) -> bool:
         return "override" in self.platform.detected_from
+
+    @property
+    def total(self) -> int:
+        return len(self.supported) + len(self.unsupported) + len(self.incompatible_source)

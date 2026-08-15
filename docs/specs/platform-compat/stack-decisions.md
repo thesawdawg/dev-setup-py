@@ -1,6 +1,6 @@
 # Platform compatibility layer — stack decisions
 
-Status: complete (v1) — 2026-08-15
+Status: complete (v1.1) — 2026-08-15
 
 ## SD-1. A capability model, not a platform switch
 
@@ -124,7 +124,48 @@ such a userland already detects Debian correctly and behaves properly, so the fe
 be about *launching* one — a different product. And it would be a lie for docker specifically,
 which proot cannot support either (no namespaces).
 
-## SD-11. Rejected: shelling out to `pkg` for installed-state
+## SD-11. Source inspection fills the undeclared gap — and only that gap
+
+**Chosen:** `compat.py` reads the install source, but stands down whenever the catalog said
+anything about this host (`ResolvedTool.declared`).
+
+**Rejected:** scanning everything and letting findings stack with declarations.
+
+The two mechanisms answer the same question with different confidence. A `requires_traits` list
+is a decision someone made with the tool in front of them; a regex over a shell script is a
+guess. Where both exist the declaration must win, or a maintainer who deliberately wrote
+`requires_traits: []` — the exact thing FR-18 forces them to write — gets overruled by a pattern
+match and has no way to say "I know, it's fine".
+
+Standing down on *any* declaration (rather than only on a trait list) also makes the rule easy to
+state: say something about the platform and you own the answer; say nothing and devstuff will
+read your script.
+
+## SD-12. Two severities, chosen from the false-positive cost
+
+A missed incompatibility leaves behaviour exactly where it was before the module existed. A false
+one blocks an install that works. The asymmetry is the whole design:
+
+- **Blocking** is reserved for things that cannot work: a command not on `$PATH` (measured with
+  `shutil.which`, not inferred), a path that does not exist on this host, a glibc asset on a
+  non-glibc host.
+- **Advisory** covers signals that usually degrade gracefully. `systemctl` is the case that
+  forced the split — `systemctl enable x 2>/dev/null || true` appears in perfectly good
+  installers, and half the bundled catalog would have been blocked in a container.
+
+## SD-13. `--force` overrides inference, never declaration
+
+A heuristic with no escape hatch is a trap. But `supported: false` with a written reason is not a
+heuristic, and "force" there would just mean "run the thing the author already told you cannot
+work". So the flag is scoped to `unsupported_inferred`, and the refusal message says which kind
+the user is looking at — a user reading "this was determined by reading the install source" knows
+they might know better, which is exactly the situation `--force` is for.
+
+`compat.set_force()` is process-wide state rather than a threaded parameter, matching
+`verbose.py`; the install path reaches `GenericTool.install()` from four different callers and
+threading a flag through all of them is what that module already decided against.
+
+## SD-14. Rejected: shelling out to `pkg` for installed-state
 
 Termux's `pkg` has no query verb of its own — `pkg show` maps to `apt show`, which reports the
 repository's view, not the installed one. The installed-state probe therefore uses `dpkg -s`

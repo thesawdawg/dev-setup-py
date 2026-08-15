@@ -18,6 +18,8 @@ def build_report() -> platforms.PlatformReport:
     for tool in registry.all_tools():
         if tool.supported:
             report.supported.append(tool.key)
+        elif tool.unsupported_inferred:
+            report.incompatible_source.append((tool.key, tool.unsupported_reason))
         else:
             report.unsupported.append((tool.key, tool.unsupported_reason))
     return report
@@ -46,6 +48,9 @@ def platform_cmd(as_json: bool) -> None:
             "forced": report.forced,
             "supported": report.supported,
             "unsupported": [{"key": k, "reason": r} for k, r in report.unsupported],
+            "incompatible_source": [
+                {"key": k, "reason": r} for k, r in report.incompatible_source
+            ],
         }, indent=2))
         return
 
@@ -78,18 +83,32 @@ def platform_cmd(as_json: bool) -> None:
         )
         ui.console.print()
 
-    total = len(report.supported) + len(report.unsupported)
-    if not report.unsupported:
-        ui.success(f"All {total} catalog packages are available here.")
+    if not report.unsupported and not report.incompatible_source:
+        ui.success(f"All {report.total} catalog packages are available here.")
         return
 
-    ui.info(f"{len(report.supported)} of {total} catalog packages are available here.")
-    ui.console.print()
-    ui.console.print("  [bold]Unavailable on this platform[/]")
-    ui.divider()
-    for key, reason in sorted(report.unsupported):
-        tool = registry.get(key)
-        ui.console.print(f"  [red bold]✘[/] [bold]{key}[/]  [dim]{reason}[/]")
-        if tool is not None and tool.alternative:
-            ui.console.print(f"      [cyan]→ use '{tool.alternative}' instead[/]")
+    ui.info(
+        f"{len(report.supported)} of {report.total} catalog packages are available here."
+    )
+
+    if report.unsupported:
+        ui.console.print()
+        ui.console.print("  [bold]Unavailable on this platform[/]")
+        ui.divider()
+        for key, reason in sorted(report.unsupported):
+            tool = registry.get(key)
+            ui.console.print(f"  [red bold]✘[/] [bold]{key}[/]  [dim]{reason}[/]")
+            if tool is not None and tool.alternative:
+                ui.console.print(f"      [cyan]→ use '{tool.alternative}' instead[/]")
+
+    if report.incompatible_source:
+        ui.console.print()
+        ui.console.print("  [bold]Install source incompatible with this platform[/]")
+        ui.divider()
+        ui.dim(
+            "Read from each package's install source rather than declared in its "
+            "definition — override with `devstuff install --force <key>`."
+        )
+        for key, reason in sorted(report.incompatible_source):
+            ui.console.print(f"  [yellow bold]![/] [bold]{key}[/]  [dim]{reason}[/]")
     ui.console.print()

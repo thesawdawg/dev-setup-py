@@ -1,6 +1,7 @@
 # Platform compatibility layer — specifications
 
-Status: complete (v1) — 2026-08-15
+Status: complete (v1.1) — 2026-08-15
+v1.1 adds source inspection (FR-31…FR-38), covering entries that declare nothing.
 
 ## Problem statement
 
@@ -163,6 +164,45 @@ rather than from recollection. Each is cited, because several contradict the pla
   PATH; WARN when there is no manager (saying what still works), when the manager is missing from
   PATH, or when the platform is unrecognised.
 
+### Source inspection (v1.1)
+
+FR-14…FR-21 are *declarations*, and they only work for entries whose author thought about
+portability. Nothing produced by `devstuff add`, `catalog import`, or hand-editing
+`~/.config/devstuff/tools.yaml` carries any — measured: such an entry reports itself installable
+on Termux and dies on the first `sudo apt-get`, potentially after doing half its work.
+
+- **FR-31.** `compat.py` inspects a tool's *install* source — `install_script`,
+  `git_install_cmd`, `script_url`, and for `system` types the availability of the host's package
+  manager — and reports findings. Removal sources are never scanned: refusing to let a user
+  remove something already installed is the worst available outcome.
+- **FR-32.** The strongest rule is measured, not inferred: a command the source invokes that is
+  **not on `$PATH`** (`apt-get`, `dnf`, `pacman`, `apk`, `zypper`, `brew`, `pkg`, `dpkg`,
+  `add-apt-repository`) is a blocking finding, because `set -e` plus "command not found" is the
+  whole story. `sudo` is judged by the `sudo` **trait** instead of by `$PATH`, because Termux
+  ships a `sudo` package that is a root-device wrapper (F-4).
+- **FR-33.** Inferred rules: an absolute FHS path (`/usr/local/`, `/etc/`, `/opt/`, …) where the
+  host lacks `fhs`, and a `linux-gnu`/`glibc` asset name where it lacks `glibc`.
+- **FR-34.** Findings carry a severity. **Blocking** refuses the install; **advisory** is
+  reported and gets out of the way. `systemctl` is advisory: `systemctl enable x 2>/dev/null ||
+  true` is an ordinary line in an installer that works fine without systemd, and treating it as
+  fatal would block working installs.
+- **FR-35.** Commands are recognised only in **command position** (line start, or after
+  `;`/`&&`/`||`/`|`/`(`), with whole-line comments stripped and shell keywords (`then`, `do`,
+  `else`, …) skipped rather than treated as separators. An installer that *documents* what it
+  would do on Debian must not be read as doing it.
+- **FR-36.** The scan runs **only where the catalog declared nothing about this host**
+  (`ResolvedTool.declared`: an explicit `requires_traits`, even `[]`, or a `platforms:` block
+  matching this platform or family). A declaration is a considered decision and a regex must not
+  overrule it.
+- **FR-37.** A `script`-type body does not exist until download time, so `generic.py` re-scans
+  the downloaded text after checksum verification and before running it — the first opportunity
+  to inspect a `curl | sh` installer and the last before it changes anything.
+- **FR-38.** `devstuff install --force` downgrades an **inferred** refusal to a warning. It never
+  overrides a declared `supported: false` or an unmet `requires_traits`: those are authored
+  statements of fact, not guesses, and there is nothing for the user to know better about.
+  `devstuff platform` lists inferred incompatibilities in their own section, saying where the
+  verdict came from and how to override it.
+
 ## Non-functional requirements
 
 - **NFR-1.** No new runtime dependencies. Detection is `os.environ`, `/etc/os-release` and
@@ -178,6 +218,9 @@ rather than from recollection. Each is cited, because several contradict the pla
   inside it correctly detects Debian.
 - Rewriting every `install_script` to be portable. Scripts stay host-specific; the traits and
   overrides say *where* they apply. The prelude exists so new ones need not be.
+- Static analysis of shell beyond a text scan. `compat.py` cannot see commands built at run time
+  (`$PKG install`, `eval`), and is not trying to — see its "Known blind spots".
+- Rewriting an incompatible install source into a compatible one. Detection only.
 - A `configure`-style wizard for authoring `platforms:` blocks in `devstuff add`.
 - Per-platform `functions.yaml` and `agent_tools.yaml` gating.
 

@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-from dev_setup import platforms, verbose
+from dev_setup import compat, platforms, verbose
 from dev_setup.base import Tool
 
 # Auto-inferred requires per install type (re-derived on load, not persisted)
@@ -27,7 +27,10 @@ _ALWAYS_PERSIST = ("name", "description", "category", "install_type")
 # fields never read from / written to the catalog. `unsupported_reason`/`alternative`
 # are decided per host by catalog.resolve_for_platform and set by the registry, so
 # they must never be written back into a catalog file.
-_NON_CATALOG = ("key", "builtin", "unsupported_reason", "alternative")
+_NON_CATALOG = (
+    "key", "builtin",
+    "unsupported_reason", "alternative", "unsupported_inferred", "compat_findings",
+)
 
 
 @dataclass
@@ -124,9 +127,12 @@ class GenericTool(Tool):
     requires: list | None = None
     builtin: bool = False
     # Non-empty when this host cannot install the tool at all. Set by the registry
-    # from the catalog's `platforms:`/`requires_traits:` resolution.
+    # from the catalog's `platforms:`/`requires_traits:` resolution, or — for entries
+    # that declared nothing — from scanning the install source (`compat.py`).
     unsupported_reason: str = ""
     alternative: str = ""
+    unsupported_inferred: bool = False
+    compat_findings: list | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -201,8 +207,18 @@ class GenericTool(Tool):
         Enforced here rather than only in the command layer because every other
         entry point — a configurator installing a prerequisite, the agent's catalog
         bridge, `update` re-running an installer — goes through these methods too.
+
+        `--force` overrides a reason that was *inferred* from the install source,
+        because inference can be wrong. It never overrides one the catalog declared:
+        that is an authored statement of fact, not a guess.
         """
         if self.supported:
+            return
+        if self.unsupported_inferred and compat.forced():
+            from dev_setup import ui
+            ui.warn(
+                f"--force: installing {self.name} anyway, despite {self.unsupported_reason}"
+            )
             return
         msg = f"{self.name} is not available on this platform: {self.unsupported_reason}"
         if self.alternative:
@@ -318,7 +334,34 @@ def _install_script_url(tool: GenericTool) -> None:
         raise RuntimeError("script_url not set")
     ui.info(f"Running install script for {tool.name}...")
     script = _download_script(tool.script_url, expected_sha256=tool.sha256)
+    # The body of a `curl | sh` installer does not exist until now, so this is the
+    # first opportunity to check it against the host — and the last one before it
+    # starts making changes.
+    _check_downloaded_script(tool, script)
     _run_bash_script(script)
+
+
+def _check_downloaded_script(tool: GenericTool, script: str) -> None:
+    """Refuse a just-downloaded installer this host cannot run.
+
+    Skipped when the catalog already declared something about this platform, for the
+    same reason the registry's scan is (`compat.should_scan`) — and skipped under
+    `--force`, which is the escape hatch for a wrong inference.
+    """
+    if tool.compat_findings is None:
+        return  # the catalog spoke for this host; don't second-guess it
+    findings = compat.blocking(compat.scan_script(script))
+    if not findings:
+        return
+    if compat.forced():
+        from dev_setup import ui
+        ui.warn(f"--force: running {tool.name}'s installer anyway, despite "
+                f"{compat.summarise(findings)}")
+        return
+    raise RuntimeError(
+        f"the downloaded installer is not compatible with this platform: "
+        f"{compat.summarise(findings)}. Re-run with --force to try anyway."
+    )
 
 
 def _install_bash(tool: GenericTool) -> None:
