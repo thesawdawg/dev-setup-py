@@ -49,6 +49,12 @@ def _ensure_installed(key: str) -> None:
 @pytest.mark.parametrize("tool", _builtin_tools(), ids=lambda t: t.key)
 def test_install(tool):
     """Each builtin tool must install and report is_installed() == True afterwards."""
+    # A tool the catalog marks unavailable on this host is not a failure — install()
+    # is *expected* to refuse. The CI image is Ubuntu, so nothing should hit this;
+    # it exists so the suite stays meaningful if it is ever run elsewhere.
+    if not tool.supported:
+        pytest.skip(f"{tool.key} is unavailable on this platform: {tool.unsupported_reason}")
+
     # Satisfy declared inter-tool dependencies before attempting the install
     for dep_key in tool.requires:
         _ensure_installed(dep_key)

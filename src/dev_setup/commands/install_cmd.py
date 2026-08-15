@@ -48,6 +48,15 @@ def _install_one(tool: Tool) -> bool:
     if tool.is_installed():
         ui.success(f"{tool.name} is already installed: {tool.get_version()}")
         return True
+    # Checked before requires: a tool this host can't run is not a dependency
+    # problem, and telling the user to install prerequisites first would be a
+    # wild goose chase.
+    if not tool.supported:
+        ui.error(f"{tool.name} is not available on this platform")
+        ui.dim(tool.unsupported_reason)
+        if tool.alternative:
+            ui.dim(f"Try instead:  devstuff install {tool.alternative}")
+        return False
     missing = registry.missing_requires(tool)
     if missing:
         ui.error(f"Cannot install {tool.name} — missing required tools: {', '.join(missing)}")
@@ -95,12 +104,19 @@ def _install_interactive() -> None:
         ))
         for t in entries:
             is_inst = installed[t.key]
-            missing = [] if is_inst else registry.missing_requires(t)
+            missing = [] if (is_inst or not t.supported) else registry.missing_requires(t)
             desc = t.description
             if len(desc) > desc_width:
                 desc = desc[: desc_width - 1] + "…"
             if is_inst:
                 disabled = True
+            elif not t.supported:
+                # Ahead of the requires check: its dependencies don't matter if the
+                # tool itself can't run here.
+                disabled = (
+                    f"unavailable — use {t.alternative}" if t.alternative
+                    else "unavailable on this platform"
+                )
             elif missing:
                 disabled = f"requires {', '.join(missing)}"
             else:

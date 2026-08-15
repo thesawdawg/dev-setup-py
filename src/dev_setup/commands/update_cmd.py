@@ -52,7 +52,9 @@ def _update_one(tool: Tool, version: str | None) -> bool:
         return True
 
     if tool.install_type in ("bash", "script"):
-        ui.warn(f"Updating {tool.name} re-runs its full installer (may use sudo).")
+        from dev_setup import platforms
+        caveat = " (may use sudo)" if platforms.current().has(platforms.SUDO) else ""
+        ui.warn(f"Updating {tool.name} re-runs its full installer{caveat}.")
         if not ui.confirm(f"Continue updating {tool.name}?", default=False):
             ui.dim("Skipped.")
             return True

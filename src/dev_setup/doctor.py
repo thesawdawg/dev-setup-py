@@ -81,6 +81,40 @@ def check_runtime_deps() -> CheckResult:
     return CheckResult("runtime-deps", PASS, "All runtime dependencies importable")
 
 
+def check_platform() -> CheckResult:
+    """The host platform is recognised and has a usable package manager."""
+    from dev_setup import platforms
+
+    p = platforms.current()
+    detail = f"traits: {', '.join(sorted(p.traits)) or 'none'} · via {p.detected_from}"
+
+    if p.package_manager is None:
+        return CheckResult(
+            "platform",
+            WARN,
+            f"{p.name} — no system package manager found",
+            "Tools of type 'system'/'apt' cannot be installed. Everything else "
+            "(npm, uvx, git, script, bash) still works.",
+        )
+    if not p.package_manager.available():
+        # os-release named a family whose manager isn't actually installed. Worth
+        # saying out loud: system installs will fail with "command not found".
+        return CheckResult(
+            "platform",
+            WARN,
+            f"{p.name} — `{p.package_manager.binary}` is not on PATH",
+            detail,
+        )
+    if p.id == "unknown" or p.family == "unknown":
+        return CheckResult(
+            "platform",
+            WARN,
+            f"Unrecognised platform, using {p.package_manager.id}",
+            detail,
+        )
+    return CheckResult("platform", PASS, p.describe(), detail)
+
+
 def check_config_dir() -> CheckResult:
     """Config directory exists and is writable."""
     from dev_setup.catalog import CONFIG_DIR
@@ -279,6 +313,7 @@ def check_stale_bashrc_blocks() -> CheckResult:
 ALL_CHECKS: list[Callable[[], CheckResult]] = [
     check_python_version,
     check_runtime_deps,
+    check_platform,
     check_config_dir,
     check_bundled_tools_catalog,
     check_user_tools_catalog,

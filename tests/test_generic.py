@@ -105,9 +105,22 @@ def test_remove_script_type_without_remove_script_raises():
 
 
 def test_is_installed_uses_type_checker(monkeypatch):
-    monkeypatch.setattr(generic, "_apt_installed", lambda pkg: pkg == "good")
+    # dpkg -s <pkg>, with the status marker the apt manager looks for.
+    def fake_probe(cmd, **kwargs):
+        installed = cmd[-1] == "good"
+        return mock.Mock(
+            returncode=0 if installed else 1,
+            stdout="Status: install ok installed\n" if installed else "",
+        )
+
+    monkeypatch.setattr(generic.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(generic, "_probe", fake_probe)
     assert make_tool(install_type="apt", apt_packages="good extra").is_installed()
     assert not make_tool(install_type="apt", apt_packages="bad").is_installed()
+    # `system` is the canonical spelling of the same type, and `packages` of the
+    # same field — both dispatch to the identical checker.
+    assert make_tool(install_type="system", packages="good").is_installed()
+    assert not make_tool(install_type="system", packages="bad").is_installed()
 
 
 def test_is_installed_unknown_type_is_false():

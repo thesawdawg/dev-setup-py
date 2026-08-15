@@ -43,6 +43,19 @@ tools:
     check_cmd: aws
     help_cmd: aws help
     docs_url: https://docs.aws.amazon.com/cli/latest/userguide/
+    # The v2 installer ships a glibc bundle and unpacks it into /usr/local via sudo.
+    requires_traits:
+      - glibc
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        # Termux builds AWS CLI *v2* from source as the `awscli` package — same major
+        # version as the bundle above, so this is the real tool, not the v1 fallback.
+        requires_traits: []
+        type: system
+        packages: awscli
+        remove_script: ""
     install_script: |
       set -euo pipefail
       arch="$(uname -m)"
@@ -89,6 +102,18 @@ tools:
     check_cmd: bat
     help_cmd: bat --help
     docs_url: https://github.com/sharkdp/bat
+    # The release asset picked below is *-unknown-linux-gnu, so this needs glibc as
+    # well as a /usr/local/bin to sudo it into. Alpine is excluded by the same rule.
+    requires_traits:
+      - glibc
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        requires_traits: []
+        type: system
+        packages: bat
+        remove_script: ""
     install_script: |
       set -euo pipefail
       version="$(curl -fsSL https://api.github.com/repos/sharkdp/bat/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 0.24.0)"
@@ -129,6 +154,20 @@ tools:
     check_cmd: docker
     help_cmd: docker --help
     docs_url: https://docs.docker.com
+    # get.docker.com supports glibc distributions with a package manager it knows,
+    # and installs a system service. It has never supported musl (Alpine).
+    requires_traits:
+      - glibc
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        supported: false
+        reason: >-
+          Android's kernel does not expose the cgroup and namespace configuration the
+          Docker daemon requires, and there is no Termux docker package. Running a
+          Linux userland under proot-distro does not change this — proot cannot
+          provide the isolation primitives either.
     install_script: |
       set -euo pipefail
       tmp="$(mktemp --suffix=.sh)"
@@ -164,6 +203,17 @@ tools:
     check_cmd: gh
     help_cmd: gh --help
     docs_url: https://cli.github.com/manual/
+    # This adds a Debian apt repository and keyring — it is not a generic installer,
+    # and on Fedora/Arch it would fail after writing a sources.list.d entry.
+    requires_traits:
+      - apt
+      - sudo
+    platforms:
+      termux:
+        requires_traits: []
+        type: system
+        packages: gh
+        remove_script: ""
     install_script: |
       set -euo pipefail
       curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -185,6 +235,22 @@ tools:
     check_cmd: git-lfs
     help_cmd: git lfs --help
     docs_url: https://git-lfs.com/
+    # A static Go binary, so no glibc requirement — but install.sh copies it into
+    # /usr/local/bin as root.
+    requires_traits:
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        requires_traits: []
+        type: system
+        packages: git-lfs
+        # The git filter config outlives the binary, so it still has to be undone —
+        # only the "delete the file" half is replaced by the package manager.
+        remove_script: |
+          set -euo pipefail
+          git lfs uninstall || echo "warning: 'git lfs uninstall' failed — LFS filter hooks may remain in ~/.gitconfig." >&2
+          $DEVSTUFF_PKG_REMOVE git-lfs
     install_script: |
       set -euo pipefail
       version="$(curl -fsSL https://api.github.com/repos/git-lfs/git-lfs/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 3.5.1)"
@@ -217,6 +283,20 @@ tools:
     check_cmd: command -v go >/dev/null 2>&1 || test -x /usr/local/go/bin/go
     help_cmd: go help
     docs_url: https://go.dev/doc/
+    # go.dev's tarballs are statically linked (they run on musl), but they unpack
+    # into /usr/local as root.
+    requires_traits:
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        requires_traits: []
+        type: system
+        packages: golang
+        check_cmd: go
+        # $PREFIX/bin is already on PATH in Termux, so there is no bashrc line to
+        # add on install or strip on removal.
+        remove_script: ""
     install_script: |
       set -euo pipefail
       version="$(curl -fsSL https://go.dev/dl/?mode=json | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((r["version"].removeprefix("go") for r in data if r.get("stable")), "1.23.4"))' 2>/dev/null || echo 1.23.4)"
@@ -268,6 +348,17 @@ tools:
     check_cmd: command -v brew >/dev/null 2>&1 || test -x /home/linuxbrew/.linuxbrew/bin/brew
     help_cmd: brew --help
     docs_url: https://docs.brew.sh/Homebrew-on-Linux
+    requires_traits:
+      - glibc
+      - apt
+      - sudo
+    platforms:
+      termux:
+        supported: false
+        reason: >-
+          Homebrew on Linux requires glibc and installs into /home/linuxbrew; Termux
+          has neither. `pkg` is already the package manager here — `devstuff platform`
+          shows what it is wired to.
     install_script: |
       set -euo pipefail
       sudo apt-get update -q
@@ -305,23 +396,15 @@ tools:
     name: htop
     description: Interactive process and resource monitor
     category: tools
-    type: bash
+    # This entry used to be a bash script that tried apt-get, then yum, then dnf,
+    # then pacman, swallowing each failure — the hand-rolled version of what the
+    # `system` type now does properly. One package name, correct on every host that
+    # has htop under that name (including Termux and Homebrew).
+    type: system
     check_cmd: htop
+    packages: htop
     help_cmd: man htop
     docs_url: https://htop.dev/
-    install_script: |
-      set -euo pipefail
-      sudo apt-get update -q 2>/dev/null || true
-      sudo apt-get install -y htop 2>/dev/null \
-        || sudo yum install -y htop 2>/dev/null \
-        || sudo dnf install -y htop 2>/dev/null \
-        || sudo pacman -S --noconfirm htop 2>/dev/null
-    remove_script: |
-      set -euo pipefail
-      sudo apt-get remove -y htop 2>/dev/null \
-        || sudo yum remove -y htop 2>/dev/null \
-        || sudo dnf remove -y htop 2>/dev/null \
-        || sudo pacman -R --noconfirm htop 2>/dev/null
 
   ipython:
     name: IPython
@@ -337,15 +420,33 @@ tools:
     name: Java 21 (OpenJDK)
     description: OpenJDK 21 LTS - JDK and JRE
     category: languages
-    type: apt
+    type: system
     check_cmd: java
-    apt_packages: openjdk-21-jdk
+    # Debian/Ubuntu naming. Every other family spells it differently — see below.
+    # This is the worked example of why `packages` is per-platform overridable:
+    # nothing about "install OpenJDK 21" is portable except the intent.
+    packages: openjdk-21-jdk
     help_cmd: java --help
     docs_url: https://openjdk.org/
-    remove_script: |
-      set -euo pipefail
-      sudo apt-get remove -y openjdk-21-jdk openjdk-21-jre
-      sudo apt-get autoremove -y
+    platforms:
+      debian:
+        # The JRE comes in as a dependency and apt-get remove leaves it behind.
+        remove_script: |
+          set -euo pipefail
+          $DEVSTUFF_SUDO apt-get remove -y openjdk-21-jdk openjdk-21-jre
+          $DEVSTUFF_SUDO apt-get autoremove -y
+      fedora:
+        packages: java-21-openjdk-devel
+      rhel:
+        packages: java-21-openjdk-devel
+      arch:
+        packages: jdk21-openjdk
+      alpine:
+        packages: openjdk21
+      suse:
+        packages: java-21-openjdk-devel
+      termux:
+        packages: openjdk-21
 
   lazygit:
     name: lazygit
@@ -355,6 +456,15 @@ tools:
     check_cmd: lazygit
     help_cmd: lazygit --help
     docs_url: https://github.com/jesseduffield/lazygit
+    requires_traits:
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        requires_traits: []
+        type: system
+        packages: lazygit
+        remove_script: ""
     install_script: |
       set -euo pipefail
       version="$(curl -fsSL https://api.github.com/repos/jesseduffield/lazygit/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 0.44.1)"
@@ -383,6 +493,12 @@ tools:
     check_cmd: mkcert
     help_cmd: mkcert --help
     docs_url: https://github.com/FiloSottile/mkcert
+    # Static Go binary, but it is curl'd straight into /usr/local/bin as root.
+    # Termux has no mkcert package, so it falls out as unavailable via these traits
+    # rather than needing an entry of its own.
+    requires_traits:
+      - fhs
+      - sudo
     install_script: |
       set -euo pipefail
       version="$(curl -fsSL https://api.github.com/repos/FiloSottile/mkcert/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 1.4.4)"
@@ -408,6 +524,50 @@ tools:
     check_cmd: ls "$HOME/.local/share/fonts/JetBrainsMonoNerdFont"/*.ttf >/dev/null 2>&1 || fc-list 2>/dev/null | grep -qi "JetBrainsMono Nerd Font"
     help_cmd: fc-list | grep -i "nerd font"
     docs_url: https://www.nerdfonts.com/
+    platforms:
+      termux:
+        # Termux draws the terminal itself and reads exactly one font file,
+        # ~/.termux/font.ttf — there is no fontconfig directory to drop a family
+        # into and no font picker. So this is the one platform where installing the
+        # font *does* repoint the terminal at it, and the usual caveat is wrong.
+        check_cmd: test -s "$HOME/.termux/font.ttf"
+        help_cmd: echo "$HOME/.termux/font.ttf"
+        install_script: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          curl -fsSL -o "$tmpdir/font.zip" \
+            "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
+          mkdir -p "$HOME/.termux"
+          if [ -f "$HOME/.termux/font.ttf" ]; then
+            cp "$HOME/.termux/font.ttf" "$HOME/.termux/font.ttf.devstuff-backup"
+            echo "Existing font saved to ~/.termux/font.ttf.devstuff-backup"
+          fi
+          python3 - "$tmpdir/font.zip" "$HOME/.termux/font.ttf" <<'PY'
+          import sys
+          import zipfile
+
+          archive, dest = sys.argv[1:3]
+          want = "JetBrainsMonoNerdFont-Regular.ttf"
+          with zipfile.ZipFile(archive) as zf:
+              names = zf.namelist()
+              pick = next((n for n in names if n.endswith(want)), None)
+              if pick is None:
+                  pick = next(n for n in names if n.lower().endswith(".ttf"))
+              with zf.open(pick) as src, open(dest, "wb") as out:
+                  out.write(src.read())
+          PY
+          termux-reload-settings 2>/dev/null \
+            || echo "Restart Termux (or run termux-reload-settings) to pick up the new font."
+        remove_script: |
+          set -euo pipefail
+          if [ -f "$HOME/.termux/font.ttf.devstuff-backup" ]; then
+            mv "$HOME/.termux/font.ttf.devstuff-backup" "$HOME/.termux/font.ttf"
+            echo "Restored the font that was in place before installation."
+          else
+            rm -f "$HOME/.termux/font.ttf"
+          fi
+          termux-reload-settings 2>/dev/null || true
     install_script: |
       set -euo pipefail
       dest="$HOME/.local/share/fonts/JetBrainsMonoNerdFont"
@@ -454,6 +614,24 @@ tools:
     check_cmd: test -s "$HOME/.nvm/nvm.sh"
     help_cmd: nvm help
     docs_url: https://github.com/nvm-sh/nvm
+    # nvm installs official Node builds, which are glibc-linked.
+    requires_traits:
+      - glibc
+    platforms:
+      termux:
+        # The key stays `nvm` on purpose: it is what every npm-type tool lists in
+        # `requires`, and what this entry means is "the thing that provides node and
+        # npm". On Termux that is a package, and there is no version manager for it
+        # (nvm's binaries would not run). generic.py's npm helpers source
+        # ~/.nvm/nvm.sh with `|| true`, so npm from $PREFIX/bin is used as-is.
+        requires_traits: []
+        name: Node.js LTS
+        description: Node.js LTS runtime and npm (Termux package; nvm cannot run here)
+        type: system
+        packages: nodejs-lts
+        check_cmd: npm
+        help_cmd: node --help
+        remove_script: ""
     install_script: |
       set -euo pipefail
       tag="$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || echo v0.40.3)"
@@ -498,6 +676,20 @@ tools:
     check_cmd: ollama
     help_cmd: ollama --help
     docs_url: https://ollama.com/docs
+    requires_traits:
+      - glibc
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        # Termux builds ollama from source (aarch64/x86_64 only — the package is
+        # excluded on 32-bit arches, where the install will simply not be found).
+        # There is no systemd, so nothing registers a service: start it yourself
+        # with `ollama serve`.
+        requires_traits: []
+        type: system
+        packages: ollama
+        remove_script: ""
     install_script: |
       set -euo pipefail
       curl -fsSL https://ollama.com/install.sh | sh
@@ -517,6 +709,18 @@ tools:
     check_cmd: php
     help_cmd: php --help
     docs_url: https://www.php.net/docs.php
+    # An Ubuntu PPA — add-apt-repository has no meaning anywhere else.
+    requires_traits:
+      - apt
+      - sudo
+    platforms:
+      termux:
+        requires_traits: []
+        name: PHP
+        description: PHP from the Termux repositories (no PPA; whatever version is current)
+        type: system
+        packages: php
+        remove_script: ""
     install_script: |
       set -euo pipefail
       sudo apt-get update -q
@@ -549,6 +753,20 @@ tools:
     docs_url: https://docs.astral.sh/uv/guides/install-python/
     requires:
       - uv
+    platforms:
+      termux:
+        # uv's managed interpreters come from python-build-standalone, which has no
+        # Bionic target — `uv python install` cannot succeed here at any version. The
+        # Termux package is the only CPython for this platform, which also makes the
+        # uv dependency moot.
+        name: Python
+        description: CPython from the Termux repositories
+        type: system
+        packages: python
+        check_cmd: python3
+        help_cmd: python3 --help
+        requires: []
+        remove_script: ""
     install_script: |
       set -euo pipefail
       uv python install --default
@@ -595,6 +813,18 @@ tools:
     check_cmd: . "$HOME/.nvm/nvm.sh" 2>/dev/null && command -v pi >/dev/null 2>&1
     help_cmd: pi --help
     docs_url: https://pi.dev/docs/latest
+    platforms:
+      termux:
+        # No ~/.nvm here (see the nvm entry): npm comes from the nodejs-lts package
+        # and is already on PATH, so sourcing nvm.sh under `set -e` would abort the
+        # script before npm ever ran.
+        check_cmd: pi
+        install_script: |
+          set -euo pipefail
+          npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+        remove_script: |
+          set -euo pipefail
+          npm uninstall -g @earendil-works/pi-coding-agent
     install_script: |
       set -euo pipefail
       . "$HOME/.nvm/nvm.sh"
@@ -614,6 +844,21 @@ tools:
     check_cmd: test -x "$HOME/.rbenv/bin/rbenv"
     help_cmd: ruby --version
     docs_url: https://www.ruby-lang.org/en/documentation/
+    # The build dependencies are named as Debian packages and installed with apt-get.
+    requires_traits:
+      - apt
+      - sudo
+    platforms:
+      termux:
+        # rbenv would have to compile CPython-style from source against Bionic;
+        # Termux already ships a built Ruby, at one version rather than many.
+        requires_traits: []
+        name: Ruby
+        description: Ruby from the Termux repositories (single version, no rbenv)
+        type: system
+        packages: ruby
+        check_cmd: ruby
+        remove_script: ""
     install_script: |
       set -euo pipefail
       sudo apt-get update -q
@@ -668,6 +913,11 @@ tools:
     check_cmd: saml2aws
     help_cmd: saml2aws --help
     docs_url: https://github.com/Versent/saml2aws
+    # Static Go binary moved into /usr/local/bin as root. No Termux package exists,
+    # so the traits alone are what mark it unavailable there.
+    requires_traits:
+      - fhs
+      - sudo
     install_script: |
       set -euo pipefail
       version="$(curl -fsSL https://api.github.com/repos/Versent/saml2aws/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 2.36.6)"
@@ -697,6 +947,41 @@ tools:
     check_cmd: starship
     help_cmd: starship --help
     docs_url: https://starship.rs/guide/
+    # starship's install.sh picks a musl asset where appropriate, so no glibc
+    # requirement — but it sudo-installs into /usr/local/bin.
+    requires_traits:
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        requires_traits: []
+        type: system
+        packages: starship
+        # Not `remove_script: ""`: unlike the other package swaps, starship leaves a
+        # line in ~/.bashrc, and dropping the binary without it would leave every new
+        # shell evaluating a command that no longer exists. So the removal is
+        # spelled out here — the package manager half plus the same bashrc cleanup.
+        remove_script: |
+          set -euo pipefail
+          $DEVSTUFF_PKG_REMOVE starship
+          if [ -f "$HOME/.bashrc" ]; then
+            python3 - "$HOME/.bashrc" <<'PY'
+          import sys
+          path = sys.argv[1]
+          lines = open(path).read().splitlines()
+          out = []
+          skip = 0
+          for line in lines:
+              if skip:
+                  skip -= 1
+                  continue
+              if line == "# Starship prompt":
+                  skip = 1
+                  continue
+              out.append(line)
+          open(path, "w").write("\n".join(out) + ("\n" if out else ""))
+          PY
+          fi
     install_script: |
       set -euo pipefail
       curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
@@ -737,6 +1022,14 @@ tools:
     check_cmd: command -v uv >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1 || { test -x "$HOME/.local/bin/uv" && test -x "$HOME/.local/bin/uvx"; }
     help_cmd: uv --help
     docs_url: https://docs.astral.sh/uv/
+    platforms:
+      termux:
+        # astral.sh/uv/install.sh serves linux-gnu and linux-musl builds; neither
+        # links against Bionic. Termux builds uv from source instead, shipping both
+        # uv and uvx into $PREFIX/bin, which the base check_cmd already finds.
+        type: system
+        packages: uv
+        remove_script: ""
     install_script: |
       set -euo pipefail
       curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -774,6 +1067,17 @@ tools:
     check_cmd: command -v lms >/dev/null 2>&1 || test -x "$HOME/.lmstudio/bin/lms"
     help_cmd: lms --help
     docs_url: https://lmstudio.ai/docs/cli
+    requires_traits:
+      - glibc
+      - apt
+      - sudo
+    platforms:
+      termux:
+        supported: false
+        reason: >-
+          LM Studio is distributed as a glibc desktop application for x86_64 and
+          arm64 Linux; there is no Android build.
+        alternative: ollama
     install_script: |
       set -euo pipefail
       # LM Studio's installer hard-fails on a system without libatomic: it prints the
@@ -800,6 +1104,15 @@ tools:
     check_cmd: yq
     help_cmd: yq --help
     docs_url: https://mikefarah.gitbook.io/yq
+    requires_traits:
+      - fhs
+      - sudo
+    platforms:
+      termux:
+        requires_traits: []
+        type: system
+        packages: yq
+        remove_script: ""
     install_script: |
       set -euo pipefail
       version="$(curl -fsSL https://api.github.com/repos/mikefarah/yq/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || echo v4.44.3)"

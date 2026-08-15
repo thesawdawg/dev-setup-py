@@ -14,6 +14,15 @@ class Tool(ABC):
     help_cmd: str = ""
     docs_url: str = ""
     requires: list = []  # keys of tools that must be installed before this one
+    # Non-empty when the host platform can't install this tool at all; `alternative`
+    # optionally names a catalog key that does the same job here. Declared on the ABC
+    # so the command layer can ask any Tool without narrowing to GenericTool.
+    unsupported_reason: str = ""
+    alternative: str = ""
+
+    @property
+    def supported(self) -> bool:
+        return not self.unsupported_reason
 
     @abstractmethod
     def is_installed(self) -> bool: ...
