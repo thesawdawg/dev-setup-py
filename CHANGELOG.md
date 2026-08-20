@@ -1,3 +1,9 @@
+## v2.4.0 (2026-08-20)
+
+### Features
+
+- **ci**: publish build-patch updates as PEP 440 post-releases
+
 ## v2.3.0 (2026-08-13)
 
 ### Features
