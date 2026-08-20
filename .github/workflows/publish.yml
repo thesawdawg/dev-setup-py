@@ -1,5 +1,16 @@
 name: Publish to PyPI
 
+# A `v*` tag push triggers this workflow. Two release tracks share that
+# prefix, so they're routed by job-level `if` conditions on the tag name
+# rather than by disjoint trigger globs (GitHub Actions globs can't negate,
+# so `v*` would match both and a glob-only split would double-publish):
+#
+#   - Regular releases    vX.Y.Z          -> build / publish
+#   - Build-patch post    vX.Y.Z.postN    -> build_patch / publish_build_patch
+#
+# The post-release track exists so a PR that contains only `build`-type
+# commits still ships a publishable, PEP 440-distinct version. bump.yml
+# decides which tag to create; this file only reacts to whichever one lands.
 on:
   push:
     tags:
@@ -8,6 +19,7 @@ on:
 jobs:
   build:
     name: Build distribution
+    if: ${{ !contains(github.ref, '.post') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +38,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
+    if: ${{ !contains(github.ref, '.post') }}
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -38,6 +51,45 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  build_patch:
+    name: Build build-patch distribution
+    if: ${{ contains(github.ref, '.post') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build wheel and source distribution
+        run: uv build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-build-patch
+          path: dist/
+
+  publish_build_patch:
+    name: Publish build-patch to PyPI
+    if: ${{ contains(github.ref, '.post') }}
+    needs: build_patch
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/devstuff
+    permissions:
+      id-token: write  # required for OIDC trusted publishing
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-build-patch
           path: dist/
 
       - name: Publish to PyPI

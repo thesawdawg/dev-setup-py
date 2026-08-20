@@ -68,6 +68,91 @@ jobs:
             fi
           fi
 
+      # Build-only PRs: `cz bump` exits 21 because `build` is deliberately not
+      # in bump_map (we don't want it consuming a PATCH slot from the main
+      # release line). Instead, ship a PEP 440 post-release — vX.Y.Z.postN —
+      # which is publishable to PyPI, sorts after vX.Y.Z but before the next
+      # vX.(Y+1).0, and is still recognised by `cz bump` as the current
+      # version tag (tag_format is `v$version` and `X.Y.Z.postN` is valid
+      # PEP 440), so the next regular bump stays coherent. A PR mixing `build`
+      # with feat/fix/etc. is handled by the `cz bump` path above — the build
+      # commits just fold into that release's changelog — so this step only
+      # fires when there was nothing else to release.
+      - name: Build-patch post-release
+        id: buildpatch
+        if: steps.bump.outputs.bumped == 'false'
+        run: |
+          set -euo pipefail
+
+          last_tag="$(git describe --tags --abbrev=0)"
+          commits="$(git log "${last_tag}..HEAD" --pretty=format:%s)"
+
+          # No build commits -> genuinely nothing to release.
+          if ! printf '%s\n' "$commits" | grep -qE '^build(\(.+\))?!?:'; then
+            echo "No build commits since ${last_tag} — nothing to release."
+            echo "buildpatch=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Safety net: if a higher-precedence release type slipped through,
+          # bail rather than ship a competing post-release. (cz bump exiting 21
+          # already implies this, but guard against future bump_map changes.)
+          if printf '%s\n' "$commits" | grep -qE '^(feat|fix|refactor|perf|deps)(\(.+\))?!?:'; then
+            echo "Higher-precedence release commits present alongside build — deferring to the main release track."
+            echo "buildpatch=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Current version -> release segment (strip any existing post/dev).
+          current_version="$(grep -E '^version = ' pyproject.toml | head -1 | sed -E 's/^version = "(.*)"$/\1/')"
+          base="$(printf '%s' "$current_version" | sed -E 's/(\.post[0-9]+|\.dev[0-9]+).*$//')"
+
+          # Next post number for this base (vX.Y.Z.post1, .post2, ...).
+          prev_n="$(git tag --list "v${base}.post*" | sed -E 's/^v.*\.post([0-9]+)$/\1/' | sort -n | tail -1 || true)"
+          next_n=$(( ${prev_n:-0} + 1 ))
+          new_version="${base}.post${next_n}"
+          new_tag="v${new_version}"
+
+          echo "Bumping build patch: ${current_version} -> ${new_version} (${new_tag})"
+
+          # Bump version in pyproject.toml.
+          sed -i -E "s/^version = \".*\"/version = \"${new_version}\"/" pyproject.toml
+
+          # Prepend a Build section to the changelog (matches cz's heading style).
+          date="$(date +%Y-%m-%d)"
+          build_entries="$(
+            printf '%s\n' "$commits" | grep -E '^build(\(.+\))?!?:' | while IFS= read -r subject; do
+              msg="$(printf '%s' "$subject" | sed -E 's/^build(\([^)]+\))?(!)?: //')"
+              scope="$(printf '%s' "$subject" | sed -nE 's/^build\(([^)]+)\).*/\1/p')"
+              if [ -n "$scope" ]; then
+                printf -- '- **%s**: %s\n' "$scope" "$msg"
+              else
+                printf -- '- %s\n' "$msg"
+              fi
+            done
+          )"
+          {
+            printf '## %s (%s)\n\n### Build\n\n%s\n' "$new_tag" "$date" "$build_entries"
+            cat CHANGELOG.md
+          } > CHANGELOG.md.new
+          mv CHANGELOG.md.new CHANGELOG.md
+
+          # Sync the lockfile against the new version before committing so the
+          # tag points at a single self-contained commit (no amend/retag needed).
+          uv lock
+          git add pyproject.toml CHANGELOG.md uv.lock
+          git commit -m "bump: version ${current_version} → ${new_version} (build patch)"
+          git tag -a "$new_tag" -m "$new_tag" HEAD
+
+          git push --follow-tags
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${new_tag}" >/dev/null; then
+            echo "::error::${new_tag} was not found on origin after push --follow-tags (publish.yml build_patch job will not trigger)."
+            exit 1
+          fi
+
+          echo "buildpatch=true" >> "$GITHUB_OUTPUT"
+          echo "new_tag=${new_tag}" >> "$GITHUB_OUTPUT"
+
       - name: Sync lockfile
         if: steps.bump.outputs.bumped == 'true'
         run: |
