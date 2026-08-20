@@ -48,15 +48,19 @@ def _val(value: Any) -> str:
     return _multiline_lit(text) if "\n" in text else _lit(text)
 
 
-def _runs(sections: list[Section]) -> list[list[Section]]:
-    """Group *consecutive* sections that share a palette role.
+def _runs(sections: list[Section], *, color_of=None) -> list[list[Section]]:
+    """Group *consecutive* sections that share a resolved colour.
 
     Powerline draws one bar per run, so two adjacent language segments share a
-    background instead of getting an arrow between two identical colours.
+    background instead of getting an arrow between two identical colours. Grouping
+    by the *resolved* colour (override or role) means a per-section colour override
+    correctly splits a run that would otherwise share a bar — and two adjacent
+    sections overridden to the same colour still merge.
     """
     runs: list[list[Section]] = []
     for section in sections:
-        if runs and runs[-1][0].role == section.role:
+        color = color_of(section) if color_of else section.role
+        if runs and (color_of(runs[-1][0]) if color_of else runs[-1][0].role) == color:
             runs[-1].append(section)
         else:
             runs.append([section])
@@ -64,9 +68,10 @@ def _runs(sections: list[Section]) -> list[list[Section]]:
 
 
 def _module_style(cfg: StarshipConfig, section: Section) -> str:
+    color = cfg.section_color(section)
     if cfg.preset_spec.powerline:
-        return f"fg:bar_text bg:{section.role}"
-    return f"fg:{section.role}"
+        return f"fg:bar_text bg:{color}"
+    return f"fg:{color}"
 
 
 def _module_format(cfg: StarshipConfig, section: Section, *, right: bool) -> str:
@@ -86,14 +91,14 @@ def _left_format(cfg: StarshipConfig, left: list[Section]) -> list[str]:
     pieces: list[str] = []
     pl = cfg.preset_spec.powerline
     if pl and left:
-        runs = _runs(left)
-        pieces.append(f"[{pl.cap_left}](fg:{runs[0][0].role})")
+        runs = _runs(left, color_of=cfg.section_color)
+        pieces.append(f"[{pl.cap_left}](fg:{cfg.section_color(runs[0][0])})")
         for i, run in enumerate(runs):
             if i:
-                prev = runs[i - 1][0].role
-                pieces.append(f"[{pl.sep}](fg:{prev} bg:{run[0].role})")
+                prev = cfg.section_color(runs[i - 1][0])
+                pieces.append(f"[{pl.sep}](fg:{prev} bg:{cfg.section_color(run[0])})")
             pieces.extend(s.ref for s in run)
-        pieces.append(f"[{pl.sep}](fg:{runs[-1][0].role})")
+        pieces.append(f"[{pl.sep}](fg:{cfg.section_color(runs[-1][0])})")
     else:
         pieces.extend(s.ref for s in left)
 
@@ -110,14 +115,14 @@ def _right_format(cfg: StarshipConfig, right: list[Section]) -> str:
     if not pl:
         return "".join(s.ref for s in right)
 
-    runs = _runs(right)
-    parts = [f"[{pl.sep_left}](fg:{runs[0][0].role})"]
+    runs = _runs(right, color_of=cfg.section_color)
+    parts = [f"[{pl.sep_left}](fg:{cfg.section_color(runs[0][0])})"]
     for i, run in enumerate(runs):
         if i:
-            prev = runs[i - 1][0].role
-            parts.append(f"[{pl.sep_left}](fg:{run[0].role} bg:{prev})")
+            prev = cfg.section_color(runs[i - 1][0])
+            parts.append(f"[{pl.sep_left}](fg:{cfg.section_color(run[0])} bg:{prev})")
         parts.extend(s.ref for s in run)
-    parts.append(f"[{pl.cap_right}](fg:{runs[-1][0].role})")
+    parts.append(f"[{pl.cap_right}](fg:{cfg.section_color(runs[-1][0])})")
     return "".join(parts)
 
 
@@ -197,9 +202,19 @@ def to_toml(cfg: StarshipConfig) -> str:
 
 
 def _rich_color(color: str) -> str:
-    """Palette colour → Rich colour. Hex passes through; ANSI names differ only in
-    the separator (`bright-black` vs Rich's `bright_black`)."""
+    """A palette colour (hex or ANSI name) → Rich colour. Hex passes through; ANSI
+    names differ only in the separator (`bright-black` vs Rich's `bright_black`)."""
     return color if color.startswith("#") else color.replace("-", "_")
+
+
+def _resolve_for_rich(cfg: StarshipConfig, section: Section) -> str:
+    """The Rich colour string for this section. A role name (returned by
+    ``section_color`` when there is no override) is resolved through the palette;
+    a literal override (hex or ANSI name) is passed through ``_rich_color``."""
+    color = cfg.section_color(section)
+    if color in cfg.palette_spec.colors:
+        color = cfg.color(color)
+    return _rich_color(color)
 
 
 def _sample_parts(cfg: StarshipConfig, sections: list[Section]) -> list[tuple[str, str]]:
@@ -211,23 +226,23 @@ def _sample_parts(cfg: StarshipConfig, sections: list[Section]) -> list[tuple[st
     pl = cfg.preset_spec.powerline
     if pl:
         text = _rich_color(cfg.color("bar_text"))
-        runs = _runs(sections)
-        first = _rich_color(cfg.color(runs[0][0].role))
+        runs = _runs(sections, color_of=cfg.section_color)
+        first = _resolve_for_rich(cfg, runs[0][0])
         parts.append((f"[{first}]{pl.cap_left}[/]", pl.cap_left))
         for i, run in enumerate(runs):
-            bg = _rich_color(cfg.color(run[0].role))
+            bg = _resolve_for_rich(cfg, run[0])
             if i:
-                prev = _rich_color(cfg.color(runs[i - 1][0].role))
+                prev = _resolve_for_rich(cfg, runs[i - 1][0])
                 parts.append((f"[{prev} on {bg}]{pl.sep}[/]", pl.sep))
             for section in run:
                 body = cfg.sample_text(section)
                 parts.append((f"[{text} on {bg}] {escape(body)} [/]", f" {body} "))
-        last = _rich_color(cfg.color(runs[-1][0].role))
+        last = _resolve_for_rich(cfg, runs[-1][0])
         parts.append((f"[{last}]{pl.sep}[/]", pl.sep))
         return parts
 
     for i, section in enumerate(sections):
-        color = _rich_color(cfg.color(section.role))
+        color = _resolve_for_rich(cfg, section)
         body = cfg.sample_text(section)
         prefix = "" if i == 0 else " "
         parts.append((f"{prefix}[{color}]{escape(body)}[/]", f"{prefix}{body}"))

@@ -207,6 +207,15 @@ def checkbox(prompt: str, choices: list, **kwargs) -> list:
     return result or []
 
 
+def autocomplete(prompt: str, choices: list, **kwargs) -> str:
+    """A filterable text prompt. As the user types, the list narrows to matching
+    choices; Enter returns whatever is in the input buffer (a selected choice or
+    the typed text). ``choices`` are plain strings; ``meta_information`` is a
+    dict mapping choice → description shown for the highlighted row."""
+    result = _ask(questionary.autocomplete(prompt, choices=choices, style=_STYLE, **kwargs))
+    return result or ""
+
+
 def password(prompt: str) -> str:
     result = _ask(questionary.password(prompt, style=_STYLE))
     return result or ""

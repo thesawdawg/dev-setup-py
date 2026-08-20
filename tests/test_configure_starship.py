@@ -363,10 +363,12 @@ class FakePrompts:
     """Scripts the ui.* calls the wizard makes, in order."""
 
     def __init__(self, monkeypatch, *, selects=None, checkboxes=None, confirms=None,
-                 font_detected=True):
+                 texts=None, autocompletes=None, font_detected=True):
         self.selects = list(selects or [])
         self.checkboxes = list(checkboxes or [])
         self.confirms = list(confirms or [])
+        self.texts = list(texts or [])
+        self.autocompletes = list(autocompletes or [])
         self.select_prompts: list[str] = []
         # Default to "this machine has a Nerd Font": the font gate is a separate
         # concern with its own tests, and letting it fire here would eat a confirm.
@@ -375,6 +377,8 @@ class FakePrompts:
         monkeypatch.setattr(wizard.ui, "select", self._select)
         monkeypatch.setattr(wizard.ui, "checkbox", self._checkbox)
         monkeypatch.setattr(wizard.ui, "confirm", self._confirm)
+        monkeypatch.setattr(wizard.ui, "text_input", self._text)
+        monkeypatch.setattr(wizard.ui, "autocomplete", self._autocomplete)
         monkeypatch.setattr(wizard.ui, "code_block", lambda *a, **k: None)
         for name in ("section", "dim", "info", "success", "warn", "error"):
             monkeypatch.setattr(wizard.ui, name, lambda *a, **k: None)
@@ -392,6 +396,12 @@ class FakePrompts:
 
     def _confirm(self, prompt, default=False):
         return self.confirms.pop(0) if self.confirms else default
+
+    def _text(self, prompt, default="", required=False):
+        return self.texts.pop(0) if self.texts else default
+
+    def _autocomplete(self, prompt, choices, **kwargs):
+        return self.autocompletes.pop(0) if self.autocompletes else ""
 
 
 def test_wizard_writes_every_choice_it_was_given(tmp_path, monkeypatch):
@@ -680,3 +690,364 @@ def test_every_configurator_honours_the_module_contract():
         from dev_setup import registry
 
         assert registry.exists(spec.key), spec.key
+
+
+# -- per-section colour overrides ------------------------------------------------
+
+
+def test_color_override_emits_a_literal_color_instead_of_a_role():
+    """Without an override the style uses the role name (resolved via the palette);
+    with one it uses the literal colour, bypassing the palette for that section."""
+    plain = tomllib.loads(to_toml(cfg(sections=["directory"])))
+    assert plain["directory"]["style"] == "fg:dir"
+
+    overridden = tomllib.loads(to_toml(cfg(
+        sections=["directory"], color_overrides={"directory": "#ff0000"},
+    )))
+    assert overridden["directory"]["style"] == "fg:#ff0000"
+
+
+def test_color_override_with_ansi_name():
+    overridden = tomllib.loads(to_toml(cfg(
+        sections=["git_branch"], color_overrides={"git_branch": "bright-cyan"},
+    )))
+    assert overridden["git_branch"]["style"] == "fg:bright-cyan"
+
+
+def test_powerline_color_override_uses_literal_color_in_transitions():
+    """The bar transition into an overridden section uses the override, not the role
+    name — so the bar's background matches the section's text colour."""
+    sections = ["directory", "nodejs"]
+    plain = to_toml(cfg(preset="powerline", sections=sections))
+    overridden = to_toml(cfg(
+        preset="powerline", sections=sections,
+        color_overrides={"nodejs": "#ff0000"},
+    ))
+    # Without the override, the transition into nodejs uses `bg:lang`.
+    assert "bg:lang" in plain
+    # With it, the transition uses the literal hex instead.
+    assert "bg:#ff0000" in overridden
+    assert "bg:lang" not in overridden
+
+
+def test_color_override_splits_a_role_run_in_powerline():
+    """Two adjacent sections sharing a role normally share one bar. Overriding one
+    to a different colour should split them into two runs with a transition arrow."""
+    sections = ["nodejs", "python"]  # both role=lang
+    plain = tomllib.loads(to_toml(cfg(preset="powerline", sections=sections)))
+    PL_ARROW = POWERLINES["arrows"].sep
+    # Same role → one run → only the trailing arrow (1 total, since no dir→lang).
+    assert plain["format"].count(PL_ARROW) == 1
+
+    overridden = tomllib.loads(to_toml(cfg(
+        preset="powerline", sections=sections,
+        color_overrides={"python": "#ff0000"},
+    )))
+    # Different resolved colours → two runs → a transition arrow between them + trailing.
+    assert overridden["format"].count(PL_ARROW) == 2
+
+
+def test_two_overrides_to_the_same_color_still_merge_into_one_run():
+    sections = ["nodejs", "python"]
+    overridden = tomllib.loads(to_toml(cfg(
+        preset="powerline", sections=sections,
+        color_overrides={"nodejs": "#ff0000", "python": "#ff0000"},
+    )))
+    PL_ARROW = POWERLINES["arrows"].sep
+    assert overridden["format"].count(PL_ARROW) == 1
+
+
+def test_reset_color_override_removes_it_from_the_config():
+    cfg_obj = cfg(sections=["directory"], color_overrides={"directory": "#ff0000"})
+    cfg_obj.color_overrides.pop("directory")
+    data = tomllib.loads(to_toml(cfg_obj))
+    assert data["directory"]["style"] == "fg:dir"
+
+
+def test_color_override_appears_in_offline_preview():
+    """The offline preview uses the resolved colour, not the role name, so an
+    override is visible in the approximate render too."""
+    config = cfg(sections=["directory"], color_overrides={"directory": "#ff0000"})
+    markup = "".join(sample_markup(config, width=600))
+    assert "#ff0000" in markup
+
+
+# -- per-section icon overrides --------------------------------------------------
+
+
+def test_icon_override_emits_the_chosen_glyph():
+    """Without an override the symbol is the section's default; with one it is the
+    user's chosen string, regardless of preset."""
+    plain = tomllib.loads(to_toml(cfg(preset="icons", sections=["nodejs"])))
+    assert plain["nodejs"]["symbol"] == SECTIONS_BY_KEY["nodejs"].icon
+
+    overridden = tomllib.loads(to_toml(cfg(
+        preset="icons", sections=["nodejs"],
+        icon_overrides={"nodejs": "XX "},
+    )))
+    assert overridden["nodejs"]["symbol"] == "XX "
+
+
+def test_icon_override_applies_in_plain_preset_too():
+    """The override is the user's explicit choice — it persists across preset
+    switches, even into the plain preset where a glyph would show as boxes."""
+    overridden = tomllib.loads(to_toml(cfg(
+        preset="plain", sections=["git_branch"],
+        icon_overrides={"git_branch": ">>> "},
+    )))
+    assert overridden["git_branch"]["symbol"] == ">>> "
+
+
+def test_icon_override_respects_version_hiding():
+    """The rstrip that removes the symbol's trailing space when versions are hidden
+    applies to overrides too, since every versioned body is `$symbol$version`."""
+    overridden = tomllib.loads(to_toml(cfg(
+        sections=["nodejs"], show_versions=False,
+        icon_overrides={"nodejs": "XX "},
+    )))
+    assert overridden["nodejs"]["symbol"] == "XX"
+
+
+def test_reset_icon_override_falls_back_to_section_default():
+    cfg_obj = cfg(sections=["nodejs"], icon_overrides={"nodejs": "XX "})
+    cfg_obj.icon_overrides.pop("nodejs")
+    data = tomllib.loads(to_toml(cfg_obj))
+    assert data["nodejs"]["symbol"] == SECTIONS_BY_KEY["nodejs"].icon
+
+
+def test_icon_override_appears_in_offline_preview():
+    config = cfg(sections=["git_branch"], icon_overrides={"git_branch": ">>> "})
+    markup = "".join(sample_markup(config, width=600))
+    assert ">>> " in markup
+
+
+# -- the icon catalog ------------------------------------------------------------
+
+
+def test_icon_catalog_has_unique_keys():
+    from dev_setup.configure.starship.icons import ICONS, ICONS_BY_KEY
+    assert len(ICONS_BY_KEY) == len(ICONS), "duplicate icon keys"
+    for icon in ICONS:
+        assert icon.glyph, f"{icon.key} has an empty glyph"
+        assert icon.label, f"{icon.key} has an empty label"
+        assert icon.categories, f"{icon.key} has no categories"
+
+
+def test_icon_catalog_categories_are_known():
+    from dev_setup.configure.starship.icons import ICON_CATEGORIES, ICONS
+    known = set(ICON_CATEGORIES)
+    for icon in ICONS:
+        for cat in icon.categories:
+            assert cat in known, f"{icon.key} has unknown category {cat}"
+
+
+def test_find_icon_by_glyph_returns_the_matching_entry():
+    from dev_setup.configure.starship.icons import ICONS, find_icon_by_glyph
+    icon = ICONS[0]
+    assert find_icon_by_glyph(icon.glyph) is not None
+    assert find_icon_by_glyph(icon.glyph).key == icon.key
+    assert find_icon_by_glyph("nonexistent glyph") is None
+
+
+def test_every_section_default_icon_is_in_the_catalog_or_findable():
+    """The icon picker marks the current icon as '(current)' by looking it up in
+    the catalog. A section whose default glyph is not in the catalog still works
+    (find_icon_by_glyph returns None, and the picker shows it as 'Reset to default')."""
+    from dev_setup.configure.starship.icons import find_icon_by_glyph
+    for section in SECTIONS:
+        if section.icon:
+            # Either it's in the catalog, or it's an emoji/char not catalogued —
+            # both are valid, the picker handles None gracefully.
+            result = find_icon_by_glyph(section.icon)
+            assert result is None or result.glyph == section.icon
+
+
+# -- the wizard's colour and icon customizers ------------------------------------
+
+
+def test_wizard_records_a_color_override_from_the_review_menu(tmp_path, monkeypatch):
+    target = tmp_path / "starship.toml"
+    FakePrompts(
+        monkeypatch,
+        # style, palette, layout, then review menu: colors → pick "directory" →
+        # pick "#ff0000" (first hex) → Done → save
+        selects=["icons", "nord", "single",
+                 "colors", "directory", "#f38ba8", "__done__", "save"],
+        checkboxes=[["directory"]],
+        confirms=[True],
+    )
+    result = wizard.run(target=target)
+    assert result is not None
+    assert result.color_overrides["directory"] == "#f38ba8"
+    data = tomllib.loads(target.read_text())
+    assert data["directory"]["style"] == "fg:#f38ba8"
+
+
+def test_wizard_resets_a_color_override(tmp_path, monkeypatch):
+    target = tmp_path / "starship.toml"
+    FakePrompts(
+        monkeypatch,
+        selects=["icons", "nord", "single",
+                 "colors", "directory", "__reset__", "__done__", "save"],
+        checkboxes=[["directory"]],
+        confirms=[True],
+    )
+    result = wizard.run(target=target)
+    assert result is not None
+    assert "directory" not in result.color_overrides
+
+
+def test_wizard_records_a_custom_hex_color(tmp_path, monkeypatch):
+    target = tmp_path / "starship.toml"
+    FakePrompts(
+        monkeypatch,
+        selects=["icons", "nord", "single",
+                 "colors", "directory", "__custom__", "__done__", "save"],
+        checkboxes=[["directory"]],
+        confirms=[True],
+        texts=["#a1b2c3"],
+    )
+    result = wizard.run(target=target)
+    assert result.color_overrides["directory"] == "#a1b2c3"
+
+
+def test_wizard_records_an_icon_override_from_the_review_menu(tmp_path, monkeypatch):
+    target = tmp_path / "starship.toml"
+    # Pick a known glyph from the catalog to use as the override.
+    from dev_setup.configure.starship.icons import ICONS
+    chosen_glyph = ICONS[0].glyph
+    FakePrompts(
+        monkeypatch,
+        # style, palette, layout, then review menu: icons → pick "git_branch" →
+        # pick the chosen glyph → Done → save
+        selects=["icons", "nord", "single",
+                 "icons", "git_branch", chosen_glyph, "__done__", "save"],
+        checkboxes=[["directory", "git_branch"]],
+        confirms=[True],
+    )
+    result = wizard.run(target=target)
+    assert result is not None
+    assert result.icon_overrides["git_branch"] == chosen_glyph
+    data = tomllib.loads(target.read_text())
+    assert data["git_branch"]["symbol"] == chosen_glyph
+
+
+def test_wizard_resets_an_icon_override(tmp_path, monkeypatch):
+    target = tmp_path / "starship.toml"
+    FakePrompts(
+        monkeypatch,
+        selects=["icons", "nord", "single",
+                 "icons", "git_branch", "__reset__", "__done__", "save"],
+        checkboxes=[["directory", "git_branch"]],
+        confirms=[True],
+    )
+    result = wizard.run(target=target)
+    assert result is not None
+    assert "git_branch" not in result.icon_overrides
+
+
+def test_wizard_icon_search_uses_autocomplete(tmp_path, monkeypatch):
+    target = tmp_path / "starship.toml"
+    from dev_setup.configure.starship.icons import ICONS_BY_KEY
+    # Search for "Folder" and pick it — autocomplete returns the label.
+    folder = ICONS_BY_KEY["folder"]
+    FakePrompts(
+        monkeypatch,
+        selects=["icons", "nord", "single",
+                 "icons", "git_branch", "__search__", "__done__", "save"],
+        checkboxes=[["directory", "git_branch"]],
+        confirms=[True],
+        autocompletes=["Folder"],
+    )
+    result = wizard.run(target=target)
+    assert result is not None
+    assert result.icon_overrides["git_branch"] == folder.glyph
+
+
+def test_wizard_icon_custom_text(tmp_path, monkeypatch):
+    target = tmp_path / "starship.toml"
+    FakePrompts(
+        monkeypatch,
+        selects=["icons", "nord", "single",
+                 "icons", "git_branch", "__custom__", "__done__", "save"],
+        checkboxes=[["directory", "git_branch"]],
+        confirms=[True],
+        texts=[">>> "],
+    )
+    result = wizard.run(target=target)
+    assert result is not None
+    assert result.icon_overrides["git_branch"] == ">>> "
+
+
+def test_wizard_color_customizer_exits_immediately_via_done(tmp_path, monkeypatch):
+    """Entering the color customizer and immediately picking 'Done' changes nothing."""
+    FakePrompts(
+        monkeypatch,
+        selects=["icons", "nord", "single", "colors", "__done__", "save"],
+        checkboxes=[["directory"]],
+        confirms=[True],
+    )
+    result = wizard.run(target=tmp_path / "starship.toml")
+    assert result is not None
+    assert result.color_overrides == {}
+
+
+def test_icon_picker_ssh_note_warns_the_font_belongs_on_the_client(monkeypatch):
+    """Over SSH the glyphs are drawn by the client's terminal, so the note points
+    there — not at `devstuff install` on this machine, which would be useless."""
+    FakePrompts(monkeypatch)
+    monkeypatch.setattr(wizard.fonts, "is_remote_session", lambda: True)
+    monkeypatch.setattr(wizard.fonts, "detect", lambda: False)
+    messages: list[str] = []
+    monkeypatch.setattr(wizard.ui, "warn", lambda m: messages.append(m))
+    dims: list[str] = []
+    monkeypatch.setattr(wizard.ui, "dim", lambda m: dims.append(m))
+
+    wizard._font_note()
+    all_text = messages + dims
+    assert any("SSH" in m for m in messages), "should warn about SSH"
+    assert any("client" in t.lower() for t in all_text), "should point at the client machine"
+    assert any("nerdfonts.com" in d for d in dims), "should link the font URL"
+    # Must NOT offer `devstuff install` — installing here would never be used.
+    assert not any("devstuff install" in d for d in dims)
+
+
+def test_icon_picker_no_font_note_offers_the_local_install(monkeypatch):
+    """Not over SSH and no font detected → the note offers `devstuff install` here,
+    since a font installed on this machine is the one the terminal will use."""
+    FakePrompts(monkeypatch)
+    monkeypatch.setattr(wizard.fonts, "is_remote_session", lambda: False)
+    monkeypatch.setattr(wizard.fonts, "detect", lambda: False)
+    dims: list[str] = []
+    monkeypatch.setattr(wizard.ui, "warn", lambda m: None)
+    monkeypatch.setattr(wizard.ui, "dim", lambda m: dims.append(m))
+
+    wizard._font_note()
+    assert any("devstuff install" in d for d in dims), "should offer the local install"
+
+
+def test_icon_picker_says_nothing_when_a_font_is_present(monkeypatch):
+    """With a Nerd Font detected there is nothing to explain — the picker works."""
+    FakePrompts(monkeypatch)
+    monkeypatch.setattr(wizard.fonts, "is_remote_session", lambda: False)
+    monkeypatch.setattr(wizard.fonts, "detect", lambda: True)
+    calls: list = []
+    monkeypatch.setattr(wizard.ui, "warn", lambda m: calls.append(m))
+    monkeypatch.setattr(wizard.ui, "dim", lambda m: calls.append(m))
+
+    wizard._font_note()
+    assert calls == [], "no note when a font is present"
+
+
+def test_icon_picker_says_nothing_when_detection_is_inconclusive(monkeypatch):
+    """detect() returning None (no fontconfig) is not a reason to guess — same
+    reasoning as the _FontGate, which also stays quiet on None."""
+    FakePrompts(monkeypatch)
+    monkeypatch.setattr(wizard.fonts, "is_remote_session", lambda: False)
+    monkeypatch.setattr(wizard.fonts, "detect", lambda: None)
+    calls: list = []
+    monkeypatch.setattr(wizard.ui, "warn", lambda m: calls.append(m))
+    monkeypatch.setattr(wizard.ui, "dim", lambda m: calls.append(m))
+
+    wizard._font_note()
+    assert calls == [], "no note when detection is inconclusive"
