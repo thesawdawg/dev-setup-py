@@ -788,6 +788,13 @@ class StarshipConfig:
     # Off gives starship's own "no runtime versions" look: the language sections still
     # say *which* toolchain a project uses, without the number nobody reads.
     show_versions: bool = True
+    # Per-section overrides chosen in the wizard's "Customize" steps. A colour
+    # override is a literal starship colour (hex or ANSI name) that replaces the
+    # section's palette role; an icon override is a glyph/text string that replaces
+    # the section's default symbol. Both are keyed by section key and empty dicts
+    # mean "use the palette/section defaults" — the common path.
+    color_overrides: dict[str, str] = field(default_factory=dict)
+    icon_overrides: dict[str, str] = field(default_factory=dict)
 
     # -- resolved views the emitter and previews share ----------------------
 
@@ -818,13 +825,26 @@ class StarshipConfig:
         return left, right
 
     def symbol(self, section: Section) -> str:
-        """The glyph for this section under the current preset."""
-        symbol = section.icon if self.preset_spec.nerd_font else section.plain
+        """The glyph for this section under the current preset, honouring any
+        per-section icon override from the wizard's "Customize icons" step."""
+        if section.key in self.icon_overrides:
+            symbol = self.icon_overrides[section.key]
+        else:
+            symbol = section.icon if self.preset_spec.nerd_font else section.plain
         if section.takes_version and not self.show_versions:
             # Every versioned body is `$symbol$version`, so with the version gone the
             # symbol's trailing space would sit at the end of the segment.
             symbol = symbol.rstrip()
         return symbol
+
+    def section_color(self, section: Section) -> str:
+        """The colour this section renders in — a per-section override if one was
+        set in the wizard, otherwise the section's palette role name (which
+        starship resolves against the emitted ``[palettes.<name>]`` table). Both
+        forms are valid in a starship style string, so the emitter and the offline
+        preview can use this uniformly."""
+        override = self.color_overrides.get(section.key)
+        return override if override is not None else section.role
 
     def body(self, section: Section) -> str:
         """The module's format body under the current preset — what goes inside

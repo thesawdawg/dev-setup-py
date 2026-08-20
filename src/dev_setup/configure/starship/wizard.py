@@ -19,6 +19,7 @@ from rich.text import Text
 
 from dev_setup import base, ui
 from dev_setup.configure.starship import fonts
+from dev_setup.configure.starship import icons as icon_catalog
 from dev_setup.configure.starship import preview as live
 from dev_setup.configure.starship.model import (
     GROUPS,
@@ -26,6 +27,7 @@ from dev_setup.configure.starship.model import (
     PALETTES,
     PRESETS,
     SECTIONS,
+    SECTIONS_BY_KEY,
     StarshipConfig,
 )
 from dev_setup.configure.starship.render import sample_markup, to_toml
@@ -33,6 +35,64 @@ from dev_setup.configure.starship.render import sample_markup, to_toml
 BASHRC_MARKER = "Starship prompt"  # must match tools.yaml so `remove` still cleans up
 BASHRC_LINE = 'eval "$(starship init bash)"'
 GENERATED_HEADER = "# Starship prompt configuration"
+
+# ---------------------------------------------------------------------------
+# Colour and icon choices for the per-section customizers
+# ---------------------------------------------------------------------------
+
+# The 16 ANSI named colours starship accepts. These inherit the terminal's theme,
+# so they are the right pick for someone who wants the prompt to track their
+# terminal's colour scheme rather than a fixed palette.
+_ANSI_COLORS: tuple[tuple[str, str], ...] = (
+    ("black", "black"),
+    ("red", "red"),
+    ("green", "green"),
+    ("yellow", "yellow"),
+    ("blue", "blue"),
+    ("purple", "magenta"),
+    ("cyan", "cyan"),
+    ("white", "white"),
+    ("bright-black", "bright-black"),
+    ("bright-red", "bright-red"),
+    ("bright-green", "bright-green"),
+    ("bright-yellow", "bright-yellow"),
+    ("bright-blue", "bright-blue"),
+    ("bright-magenta", "bright-magenta"),
+    ("bright-cyan", "bright-cyan"),
+    ("bright-white", "bright-white"),
+)
+
+# A curated spread of hex colours — enough to find something close to any taste
+# without overwhelming the list. These are the same families the built-in palettes
+# draw from, so they sit well next to them.
+_HEX_COLORS: tuple[tuple[str, str], ...] = (
+    ("#f38ba8", "Red (soft)"),
+    ("#fb4934", "Red (bright)"),
+    ("#ff5555", "Red (vivid)"),
+    ("#fabd2f", "Yellow (warm)"),
+    ("#e0af68", "Yellow (muted)"),
+    ("#f9e2af", "Yellow (soft)"),
+    ("#a6e3a1", "Green (soft)"),
+    ("#b8bb26", "Green (warm)"),
+    ("#50fa7b", "Green (vivid)"),
+    ("#89b4fa", "Blue (soft)"),
+    ("#7aa2f7", "Blue (muted)"),
+    ("#1e66f5", "Blue (saturated)"),
+    ("#cba6f7", "Purple (soft)"),
+    ("#bb9af7", "Purple (muted)"),
+    ("#ff79c6", "Pink (vivid)"),
+    ("#ebbcba", "Pink (soft)"),
+    ("#94e2d5", "Teal (soft)"),
+    ("#7dcfff", "Cyan (vivid)"),
+    ("#88c0d0", "Cyan (muted)"),
+    ("#f5c2e7", "Mauve"),
+    ("#f9e2af", "Cream"),
+    ("#6c7086", "Grey (dark)"),
+    ("#9399b2", "Grey (light)"),
+    ("#cdd6f4", "Off-white"),
+    ("#1e1e2e", "Dark surface"),
+    ("#eff1f5", "Light surface"),
+)
 
 
 def default_config_path() -> Path:
@@ -183,6 +243,249 @@ def _ask_sections(cfg: StarshipConfig) -> list[str]:
     return list(selected)
 
 
+# ---------------------------------------------------------------------------
+# Per-section colour and icon customizers
+# ---------------------------------------------------------------------------
+
+
+def _swatch(color: str, text: str, *, pad: int = 2) -> list[tuple[str, str]]:
+    """A prompt_toolkit formatted title: a coloured block followed by text.
+
+    The block uses inline ``bg:``/``fg:`` styles so it renders as a real swatch in
+    any terminal that supports 256 colours. Hex and ANSI names both work as
+    prompt_toolkit colour values."""
+    fg = "#1e1e2e" if _is_light(color) else "#eff1f5"
+    return [(f"bg:{color} fg:{fg}", " " * pad), ("class:text", f" {text}")]
+
+
+def _is_light(color: str) -> bool:
+    """Rough luminance check for swatch text contrast — light backgrounds get dark
+    text, dark ones get light. Good enough for a swatch; not a colour science tool."""
+    hex_color = _ANSI_TO_HEX.get(color, color)
+    if not hex_color.startswith("#") or len(hex_color) != 7:
+        return False
+    r, g, b = int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16)
+    # Perceived luminance — the ITU-R BT.601 weighting.
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5
+
+
+# Approximate hex values for the 8 basic ANSI colours, for swatch contrast only.
+# `bright-*` variants are not mapped here; they default to the dark-text path,
+# which is readable on every common terminal theme's bright colours.
+_ANSI_TO_HEX: dict[str, str] = {
+    "black": "#000000", "red": "#cc0400", "green": "#19b400",
+    "yellow": "#cdcd00", "blue": "#0042cc", "purple": "#cc00cc",
+    "magenta": "#cc00cc", "cyan": "#00cccc", "white": "#cccccc",
+}
+
+
+def _ask_colors(cfg: StarshipConfig) -> None:
+    """The per-section colour customizer. Mutates ``cfg.color_overrides`` in place."""
+    selected = cfg.selected()
+    if not selected:
+        ui.warn("No sections selected — pick sections first.")
+        return
+
+    while True:
+        # Step 1: pick a section to recolour.
+        section_choices: list = []
+        for section in selected:
+            label = section.label
+            if section.key in cfg.color_overrides:
+                label += "  (custom)"
+            section_choices.append(questionary.Choice(
+                title=_swatch(_resolve_swatch_color(cfg, section), label),
+                value=section.key,
+            ))
+        section_choices.append(questionary.Separator())
+        section_choices.append(questionary.Choice(title="Done", value="__done__"))
+        picked = _select("Section to recolour:", section_choices, "__done__")
+        if picked == "__done__" or not picked:
+            return
+
+        section = SECTIONS_BY_KEY[picked]
+        current = cfg.section_color(section)
+        current_label = current if current.startswith("#") else current
+        if section.key not in cfg.color_overrides:
+            current_label += "  (palette default)"
+
+        # Step 2: pick a colour for that section.
+        color_choices: list = [
+            questionary.Choice(
+                title=_swatch(cfg.color(section.role), f"Reset to palette ({section.role})"),
+                value="__reset__",
+            ),
+            questionary.Separator("\n  ANSI (terminal theme)"),
+        ]
+        for value, label in _ANSI_COLORS:
+            color_choices.append(questionary.Choice(
+                title=_swatch(value, label), value=value,
+                description=current_label if value == current else "",
+            ))
+        color_choices.append(questionary.Separator("\n  Hex"))
+        for value, label in _HEX_COLORS:
+            color_choices.append(questionary.Choice(
+                title=_swatch(value, label), value=value,
+                description=current_label if value == current else "",
+            ))
+        color_choices.append(questionary.Separator())
+        color_choices.append(questionary.Choice(title="Custom hex…", value="__custom__"))
+
+        chosen = _select(f"Colour for {section.label}:", color_choices, "__reset__")
+        if chosen == "__custom__":
+            hex_default = current if current.startswith("#") else ""
+            hex_input = ui.text_input("Hex colour (e.g. #89b4fa):", default=hex_default)
+            if hex_input.strip():
+                cfg.color_overrides[section.key] = hex_input.strip()
+        elif chosen == "__reset__" or not chosen:
+            cfg.color_overrides.pop(section.key, None)
+        else:
+            cfg.color_overrides[section.key] = chosen
+
+
+def _resolve_swatch_color(cfg: StarshipConfig, section) -> str:
+    """The hex/ANSI colour for a section's swatch — resolves a role name through
+    the palette so the swatch matches what the prompt will actually draw."""
+    color = cfg.section_color(section)
+    if color in cfg.palette_spec.colors:
+        color = cfg.color(color)
+    return color
+
+
+def _font_note() -> None:
+    """A one-time note about where the font needs to be, shown at the top of the
+    icon picker. Over SSH the glyphs are drawn by the client's terminal, so a
+    Nerd Font installed here would never be used — the user needs to know that
+    before they stare at a list of boxes wondering what went wrong."""
+    if fonts.is_remote_session():
+        ui.console.print()
+        ui.warn("You are over SSH — icons render on the client, not here.")
+        ui.dim(f"  Install a Nerd Font on the machine your terminal runs on: {fonts.NERD_FONT_URL}")
+        ui.dim("  and set that terminal's font to it. The glyphs below will show as")
+        ui.dim("  boxes until then, but the choices still work once the font is in place.")
+    elif fonts.detect() is False:
+        ui.console.print()
+        ui.warn("No Nerd Font found — icons below will show as boxes.")
+        ui.dim(f"  Install one:  devstuff install {fonts.NERD_FONT_KEY}   ·   {fonts.NERD_FONT_URL}")
+        ui.dim("  The choices still work once the font is installed and your terminal")
+        ui.dim("  is set to use it.")
+    # detect() is True → say nothing; the picker just works.
+    # detect() is None → fontconfig unavailable; guessing wrong would be worse
+    # than silence, so stay quiet (mirrors _FontGate's reasoning).
+
+
+def _ask_icons(cfg: StarshipConfig) -> None:
+    """The per-section icon customizer. Mutates ``cfg.icon_overrides`` in place."""
+    selected = [s for s in cfg.selected() if s.takes_symbol]
+    if not selected:
+        ui.warn("No icon-bearing sections selected.")
+        return
+
+    _font_note()
+    while True:
+        # Step 1: pick a section to re-icon.
+        section_choices: list = []
+        for section in selected:
+            glyph = cfg.symbol(section)
+            label = section.label
+            if section.key in cfg.icon_overrides:
+                label += "  (custom)"
+            section_choices.append(questionary.Choice(
+                title=[("class:text", f"  {glyph} "),
+                       ("class:text", label)],
+                value=section.key,
+            ))
+        section_choices.append(questionary.Separator())
+        section_choices.append(questionary.Choice(title="Done", value="__done__"))
+        picked = _select("Section to re-icon:", section_choices, "__done__")
+        if picked == "__done__" or not picked:
+            return
+
+        section = SECTIONS_BY_KEY[picked]
+        current_glyph = cfg.symbol(section)
+
+        # Step 2: pick an icon — a rendered, grouped select with a search fallback.
+        chosen = _pick_icon(section, current_glyph)
+        if chosen is None:
+            continue  # cancelled the search, back to section picker
+        if chosen == "__reset__":
+            cfg.icon_overrides.pop(section.key, None)
+        else:
+            cfg.icon_overrides[section.key] = chosen
+
+
+def _pick_icon(section, current_glyph: str) -> str | None:
+    """The icon picker: a rendered, grouped select with a filterable search fallback.
+
+    Returns the chosen glyph string, ``"__reset__"`` to clear an override, or None
+    if the user backed out of both the select and the search."""
+    # Find the current icon in the catalog so we can auto-select it.
+    current_icon = icon_catalog.find_icon_by_glyph(current_glyph)
+    default_key = current_icon.key if current_icon else None
+
+    choices: list = [
+        questionary.Choice(
+            title=[("class:text", f"  {current_glyph} "),
+                   ("class:instruction", f"Reset to default ({section.plain or 'icon'})")],
+            value="__reset__",
+        ),
+        questionary.Separator(),
+        questionary.Choice(
+            title=[("class:instruction", "Search icons…")],
+            value="__search__",
+        ),
+        questionary.Separator(),
+    ]
+    for cat in icon_catalog.ICON_CATEGORIES:
+        entries = icon_catalog.icons_by_category().get(cat, [])
+        if not entries:
+            continue
+        choices.append(questionary.Separator(f"\n  {cat.upper()}"))
+        for icon in entries:
+            marker = "  (current)" if icon.key == default_key else ""
+            choices.append(questionary.Choice(
+                title=[("class:text", f"  {icon.glyph} "),
+                       ("class:text", icon.label),
+                       ("class:instruction", marker)],
+                value=icon.glyph,
+            ))
+    choices.append(questionary.Separator())
+    choices.append(questionary.Choice(
+        title=[("class:instruction", "Custom…")],
+        value="__custom__",
+    ))
+
+    picked = _select(f"Icon for {section.label}:", choices, "__reset__")
+    if picked == "__search__":
+        return _search_icon(current_glyph)
+    if picked == "__custom__":
+        custom = ui.text_input("Custom icon text:", default=current_glyph.strip())
+        return custom + " " if custom and not custom.endswith(" ") else custom or None
+    return picked or "__reset__"
+
+
+def _search_icon(current_glyph: str) -> str | None:
+    """The filterable icon search — autocomplete over the catalog's labels.
+
+    Returns the chosen glyph, or None if the user pressed Enter on empty input
+    (meaning "keep the current icon, go back to the section picker")."""
+    labels = [icon.label for icon in icon_catalog.ICONS]
+    meta = {icon.label: f"{icon.glyph}  ·  {' / '.join(icon.categories)}" for icon in icon_catalog.ICONS}
+    result = ui.autocomplete(
+        "Search icons (type to filter, Enter to pick):",
+        choices=labels,
+        meta_information=meta,
+    )
+    if not result:
+        return None  # empty — keep current, back to section picker
+    # Map the label back to the glyph; if it doesn't match a known label, treat
+    # the typed text as a custom icon.
+    for icon in icon_catalog.ICONS:
+        if icon.label == result:
+            return icon.glyph
+    return result
+
+
 def _select(prompt: str, choices: list, current: str) -> str:
     """A select whose cursor starts on the current value, so revisiting a step from
     the review menu shows what is already chosen."""
@@ -294,6 +597,8 @@ _MENU = {
     "style": "Change the prompt style",
     "palette": "Change the colour palette",
     "sections": "Change which sections show",
+    "colors": "Customize section colours",
+    "icons": "Customize section icons",
     "layout": "Change the layout",
     "versions": "Toggle language version numbers",
     "spacing": "Toggle the blank line between prompts",
@@ -351,6 +656,10 @@ def run(*, target: Path | None = None) -> StarshipConfig | None:
                 cfg.palette = _ask_palette(cfg)
             elif action == "sections":
                 cfg.sections = _ask_sections(cfg)
+            elif action == "colors":
+                _ask_colors(cfg)
+            elif action == "icons":
+                _ask_icons(cfg)
             elif action == "layout":
                 cfg.layout = _ask_layout(cfg)
             elif action == "versions":
