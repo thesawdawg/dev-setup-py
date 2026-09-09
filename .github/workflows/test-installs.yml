@@ -74,6 +74,7 @@ jobs:
           - pre-commit  # uvx tool, requires uv
           - python      # uv-managed CPython, requires uv
           - ruby        # compiles from source — this job takes ~15 minutes
+          - reptyr
           - saml2aws
           - starship
           - uv

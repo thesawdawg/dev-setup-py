@@ -1,5 +1,15 @@
 version: 1
 tools:
+  reptyr:
+    name: reptyr
+    description: Move a running process to another terminal (permission wizard available)
+    category: tools
+    type: apt
+    apt_packages: reptyr
+    check_cmd: reptyr
+    help_cmd: reptyr -h
+    docs_url: https://github.com/nelhage/reptyr
+
   ansible:
     name: Ansible
     description: Automation engine for configuration management and app deployment

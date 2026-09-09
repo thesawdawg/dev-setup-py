@@ -39,6 +39,12 @@ class Configurator:
 
 
 CONFIGURATORS: dict[str, Configurator] = {
+    "reptyr": Configurator(
+        key="reptyr",
+        label="reptyr",
+        description="Temporary or persistent ptrace permissions and command-line usage",
+        module="dev_setup.configure.reptyr.wizard",
+    ),
     "ansible": Configurator(
         key="ansible",
         label="Ansible",
