@@ -1,6 +1,33 @@
 # yaml-language-server: $schema=./functions.schema.json
 version: 1
 functions:
+  pids-of:
+    name: PIDs Of User
+    description: List process IDs owned by a user, one per line
+    category: system
+    type: script
+    params:
+      - name: username
+        description: User whose processes to list
+        required: true
+    script: |
+      set -uo pipefail
+      if ! command -v pgrep >/dev/null 2>&1; then
+        echo "pgrep is required (install the procps package)." >&2
+        exit 1
+      fi
+      if ! uid="$(id -u -- "$username" 2>/dev/null)"; then
+        echo "Unknown user: $username" >&2
+        exit 2
+      fi
+      pgrep -u "$uid"
+      status=$?
+      # pgrep returns 1 for no matches, which is a successful empty lookup.
+      if [ "$status" -eq 1 ]; then
+        exit 0
+      fi
+      exit "$status"
+
   ssh-agent-key:
     name: SSH Agent + Add Key
     description: Start ssh-agent in the current shell and add a key to it
