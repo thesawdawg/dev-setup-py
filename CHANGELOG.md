@@ -1,3 +1,9 @@
+## v2.5.0 (2026-09-09)
+
+### Features
+
+- **reptyr**: add tool and ptrace permission wizard
+
 ## v2.4.0 (2026-08-20)
 
 ### Features
