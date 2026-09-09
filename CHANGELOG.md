@@ -2,7 +2,9 @@
 
 ### Features
 
-- **functions**: add pids-of username lookup
+- **ci**: add a manual Codex agent for PR review and CI failure triage
+
+- **functions**: add `pids-of username` to list a user's process IDs
 
 ## v2.5.0 (2026-09-09)
 

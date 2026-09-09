@@ -6,6 +6,9 @@ A Python-based CLI for managing your Linux development environment. Install, rem
 
 ## Prerequisites
 
+Maintainers: see [Repository agent setup](docs/github-agent.md) for optional
+GitHub Actions PR review and CI failure triage.
+
 | Requirement | Notes |
 |-------------|-------|
 | **OS** | Ubuntu 20.04+ or Debian 11+ (amd64) |

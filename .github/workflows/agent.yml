@@ -1,0 +1,105 @@
+name: Repository agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+        type: string
+      run_id:
+        description: Optional CI run ID for this PR's head commit
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: repository-agent-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      review: ${{ steps.codex.outputs.final-message }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Collect PR and CI evidence
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          RUN_ID: ${{ inputs.run_id }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { owner, repo } = context.repo;
+            const number = process.env.PR_NUMBER;
+            const runId = process.env.RUN_ID;
+            if (!/^[1-9][0-9]*$/.test(number) ||
+                (runId && !/^[1-9][0-9]*$/.test(runId))) {
+              throw new Error('PR number and optional run ID must be positive integers.');
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              owner, repo, pull_number: Number(number)
+            });
+            fs.mkdirSync('agent-evidence', { recursive: true });
+            fs.writeFileSync('agent-evidence/pr.json', JSON.stringify({
+              number: pr.number, url: pr.html_url, title: pr.title,
+              body: pr.body, base: pr.base.sha, head: pr.head.sha,
+              changed_files: pr.changed_files
+            }, null, 2));
+            const { data: diff } = await github.rest.pulls.get({
+              owner, repo, pull_number: pr.number,
+              mediaType: { format: 'diff' }
+            });
+            fs.writeFileSync('agent-evidence/pr.diff', diff);
+            if (runId) {
+              const { data: run } = await github.rest.actions.getWorkflowRun({
+                owner, repo, run_id: Number(runId)
+              });
+              if (run.head_sha !== pr.head.sha) {
+                throw new Error('CI run must match the current PR head commit.');
+              }
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                owner, repo, run_id: run.id, per_page: 100
+              });
+              fs.writeFileSync('agent-evidence/ci.json', JSON.stringify({
+                url: run.html_url, conclusion: run.conclusion, jobs
+              }, null, 2));
+              for (const job of jobs.filter(job => job.conclusion === 'failure')) {
+                const response = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                  owner, repo, job_id: job.id
+                });
+                const logs = typeof response.data === 'string'
+                  ? response.data : Buffer.from(response.data).toString('utf8');
+                fs.writeFileSync(`agent-evidence/job-${job.id}.log`, logs.slice(-200000));
+              }
+            }
+
+      - name: Review with Codex
+        id: codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: .github/codex/review.md
+          sandbox: read-only
+          safety-strategy: drop-sudo
+
+  report:
+    needs: review
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Write review to Actions summary
+        env:
+          REVIEW: ${{ needs.review.outputs.review }}
+        run: printf '%s\n' "$REVIEW" >> "$GITHUB_STEP_SUMMARY"
