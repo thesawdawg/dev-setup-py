@@ -1,3 +1,9 @@
+## Unreleased
+
+### Features
+
+- **functions**: add `pids-of username` to list a user's process IDs
+
 ## v2.5.0 (2026-09-09)
 
 ### Features

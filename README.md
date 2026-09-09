@@ -1149,6 +1149,7 @@ ones tools already have — for now, custom functions are hand-edited YAML at
 
 | Key | Category | Type | Description | Args |
 |-----|----------|------|--------------|------|
+| `pids-of` | system | script | List process IDs owned by a user, one per line | `username` |
 | `ssh-agent-key` | auth | shell-eval (bashrc) | Start ssh-agent in the current shell and add a key to it | `key_path` |
 | `validate-docker-compose` | validation | script | Validate a docker-compose.yml file in the current directory | — |
 | `validate-yaml` | validation | script | Validate a YAML file's syntax using `yq` | `file` |
@@ -1156,6 +1157,16 @@ ones tools already have — for now, custom functions are hand-edited YAML at
 | `acc-check` | web-dev | script | Run the pi coding agent's `/dogfood` skill against a web URL | `url`, `instruction` (optional) |
 | `aws-saml-reauth` | web-dev | script | Reauthorize the AWS CLI via `saml2aws login --force` | `profile` (optional) |
 | `which-ansible` | validation | script | Show which ansible a directory will actually use — the project's uv venv or the global one | `path` (optional) |
+
+#### `pids-of`
+
+```bash
+devstuff run pids-of sawyer
+```
+
+Prints one PID per line for processes whose effective user matches `username`.
+Requires `pgrep` (the `procps` package). A user with no visible processes returns
+an empty result successfully; an unknown user produces an error.
 
 #### `whats-on-port`
 
