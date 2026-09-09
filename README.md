@@ -297,6 +297,7 @@ devstuff configure starship --output /tmp/try.toml   # write elsewhere, leave th
 
 | Tool | What it configures |
 |------|-------------------|
+| `reptyr` | Temporary or persistent Linux ptrace permissions; command-line usage guidance |
 | `ansible` | `ansible.cfg` — inventory paths, forks, pipelining, become and vault |
 | `bat` | Theme, decorations, paging, and the man-page/`cat` shell integration |
 | `commitizen` | Commit types, what each one bumps, git tags, and changelog sections |
@@ -305,7 +306,8 @@ devstuff configure starship --output /tmp/try.toml   # write elsewhere, leave th
 | `pre-commit` | Which git hooks run, when they run, and what they're allowed to rewrite |
 | `starship` | Prompt style, colour palette, which sections appear, and layout |
 
-Each wizard checks its result against the real tool before saving. What that check can prove
+The reptyr wizard verifies the live kernel setting after applying it. Other wizards check
+their result against the real tool before saving. What that check can prove
 varies a lot, and the wizards say so rather than implying more than they know:
 
 | Tool | What the tool itself checks | What the wizard has to check instead |
@@ -711,6 +713,43 @@ Values are written **unquoted**, deliberately: a quoted path becomes a path cont
 characters, and a quoted boolean is read as `False`. A retired section in an existing file is
 *preserved and reported*, never silently migrated — the wizard can't know whether an older
 ansible elsewhere is still reading it.
+
+#### reptyr wizard
+
+```bash
+devstuff install reptyr                  # apt package; offers setup after installation
+devstuff configure reptyr                # also works for an already-installed package
+devstuff configure reptyr --path         # /etc/sysctl.d/99-devstuff-reptyr.conf
+devstuff configure reptyr --output /tmp/reptyr.conf  # export only, no live changes
+```
+
+The wizard shows the current `kernel.yama.ptrace_scope` and offers keeping it unchanged,
+enabling same-user attach (`0`), restricted attach (`1`), or admin-only attach (`2`).
+Choose a change for this boot only, or save and apply a persistent sysctl drop-in. The
+preview and confirmation come before any write or sudo command. Persistent changes use
+`sudo install --backup=numbered` to preserve an existing drop-in, then load only that file
+with `sudo sysctl --load`. The wizard reads the live value back to verify success.
+
+Setting `0` relaxes protection **system-wide**, allowing same-user processes to inspect
+and control other dumpable processes. It does not grant cross-user access or bypass
+container/security policies. Mode `3` cannot be changed until reboot, so the wizard
+refuses live changes in that state. If Yama is unavailable or unreadable, it offers only
+guidance; offline `--output` export still works. Other sysctl files may override the saved
+value at boot. Temporary changes leave all boot configuration untouched.
+
+To return to restricted attach, select `1` and the persistent option. This sets a known
+policy rather than claiming to restore an unknown original value. Removing the reptyr
+package does not remove this system policy; rerun the wizard before uninstalling if needed.
+For unattended installs, run `devstuff configure reptyr` later in a terminal.
+
+reptyr has no rc file: its remaining options are per invocation, and the wizard explains
+them rather than inventing persistent defaults. Use `reptyr PID` inside the destination
+terminal; `-T` steals the whole TTY (SSH children require root); `-s` redirects standard
+streams even when they weren't attached to a terminal; `-l` creates a PTY, optionally
+running a command with `REPTYR_PTY` set; `-L` also attaches that command's streams and
+session; `-V` enables debug output, `-v` prints the version, and `-h` shows help.
+See the [upstream manual](https://github.com/nelhage/reptyr/blob/master/reptyr.1) and
+[Linux Yama documentation](https://docs.kernel.org/admin-guide/LSM/Yama.html).
 
 #### lazygit wizard
 
@@ -1203,6 +1242,7 @@ Optional utilities you may want on some machines.
 | `homebrew` | Homebrew | Package manager for Linux (and macOS) | `brew --help` |
 | `ipython` | IPython | Enhanced interactive Python shell with rich tab completion and magic commands | `ipython --help` |
 | `lazygit` | lazygit | TUI git client for fast, keyboard-driven git workflows (`devstuff configure lazygit`) | `lazygit --help` |
+| `reptyr` | reptyr | Move a running process to another terminal (`devstuff configure reptyr` for permissions) | `reptyr -h` |
 | `llm-checker` | llm-checker | Check LLM compatibility with your hardware | `llm-checker --help` |
 | `lmstudio` | LM Studio | Run large language models locally with a GUI | `lms --help` |
 | `mkcert` | mkcert | Zero-config local HTTPS certificates | `mkcert --help` |
