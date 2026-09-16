@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Stand-in for ssh. The remote command is the last argument, already shell-quoted."""
+import os
+import re
+import shlex
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import router  # noqa: E402
+
+argv = sys.argv[1:]
+if not argv:
+    sys.exit(2)
+
+remote = argv[-1]
+words = shlex.split(remote)
+router.record("SSH", remote)
+
+if os.environ.get("PVE_STUB_SSH_FAIL"):
+    print("ssh: connect to host port 22: Connection refused", file=sys.stderr)
+    sys.exit(255)
+
+# A hop to another node arrives as `ssh pve2 '<command>'`; unwrap and answer that.
+while words and words[0] == "ssh":
+    words = shlex.split(words[2]) if len(words) > 2 else []
+if words and words[0] == "sudo":
+    words = words[2:] if words[1:2] == ["-n"] else words[1:]
+
+if not words:
+    sys.exit(2)
+
+# What the node actually ends up running, with any cluster hop and sudo prefix peeled
+# off — the surface the tests assert against. The raw SSH record keeps the wire form.
+router.record("RUN", " ".join(words))
+
+if words[0] == "hostname":
+    print(os.environ.get("PVE_STUB_HOSTNAME", "pve1"))
+    sys.exit(0)
+
+if words[0] == "sh":
+    # The self-test's "are qm/pct/pvesh/vzdump there" probe. Silence means all present.
+    print(os.environ.get("PVE_STUB_MISSING_TOOLS", ""), end="")
+    sys.exit(0)
+
+if words[0] == "pvesh":
+    # pvesh get <path> [--key value ...] --output-format json
+    path = words[2]
+    query = {}
+    rest = words[3:]
+    for i, word in enumerate(rest):
+        if word.startswith("--") and word != "--output-format" and i + 1 < len(rest):
+            query[word[2:]] = rest[i + 1]
+    payload, status = router.route(path, query)
+    if status != 200:
+        print(f"pvesh: {payload}", file=sys.stderr)
+        sys.exit(2)
+    # pvesh unwraps the envelope; curl does not.
+    print(router.dumps(payload, envelope=False))
+    sys.exit(0)
+
+if words[0] in ("qm", "pct", "vzdump"):
+    if os.environ.get("PVE_STUB_CMD_FAIL"):
+        print(f"{words[0]}: something went wrong", file=sys.stderr)
+        sys.exit(1)
+    print(f"stub: ran {' '.join(words)}")
+    sys.exit(0)
+
+print(f"stub ssh: unexpected command {words!r}", file=sys.stderr)
+sys.exit(127)

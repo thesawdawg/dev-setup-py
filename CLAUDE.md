@@ -238,21 +238,74 @@ the test is false. `which-ansible` shipped that bug in its first draft: "no glob
 a correct answer, exited 1. Use a full `if`, and end such scripts with an explicit `exit 0`. It is
 only catchable by *running* every branch, not by reading them.
 
+**The proxmox functions (`pve-*`) are the one family that calls back into devstuff.** Fourteen
+functions need one transport layer, one confirmation helper and one guest resolver — far too
+much to duplicate fourteen times in YAML — so each one begins:
+
+```bash
+_pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+eval "$_pve_env"
+. "$PVE_LIB" || exit 1
+```
+
+Four things about that are load-bearing:
+
+- **`lib.sh` is sourced from the installed package, never copied to the user's config dir.**
+  A generated helper would let a new devstuff's functions meet an old devstuff's helper;
+  every fix for that (version markers, staleness checks) is machinery for a problem that
+  need not exist. Being a real `.sh` file in the repo also means `bash -n` and the tests can
+  read it directly.
+- **`--export` is a generic flag on `configure_cmd`**, calling an optional `export()` on the
+  configurator module — the mirror of `--path` calling `config_path()`. Like a `register:
+  eval` function, **stdout carries the assignments and nothing else**; every diagnostic goes
+  to stderr, or it would land in the caller's `eval`.
+- **The bridge exports where the secret lives, never the secret** (`PVE_SECRET_ENV` /
+  `PVE_SECRET_FILE`), so it is absent from the eval text, from `set -x` traces and from
+  `-vv` output. It also exports `PVE_PYTHON` (`sys.executable`), which is why the functions
+  need no `jq`/`yq`.
+- **The two-step assignment is not a style choice.** `eval "$(cmd)"` reports on the text it
+  ran, not on the command that produced it, so a failing export would be swallowed and the
+  script would carry on with unset variables. A test asserts no function uses that form.
+
+`function_runner.script_env()` exports `DEVSTUFF_BIN` for this, resolved from `sys.argv[0]`
+and falling back to PATH — needed because running from source through the bash wrapper means
+`devstuff` is `uv run devstuff` inside the project venv and is not on PATH at all. It is
+generic: any function may now call back into devstuff.
+
+`model.OPERATIONS` in `configure/proxmox/` is the single table of what these functions do,
+and `tests/test_configure_proxmox.py` checks it against `functions.yaml` **in both
+directions** — a parameter added in one place and not the other is a test failure, not a
+runtime surprise. Adding a `pve-*` function means an entry in both.
+
+Testing them without a Proxmox host is done by putting one on `PATH`:
+`tests/proxmox_stub/{ssh,curl,router.py}` answer the same API paths a real node would and
+record what they were asked, so every function runs end to end — including the confirmation
+gate, via a real pty. What that cannot prove is what Proxmox does with the command, which is
+what `devstuff run pve-check` is for.
+
 Not yet built: an `add` wizard and `catalog import`/`export` for functions, analogous to the
 ones tools already have.
 
 ## Configurators (`configure/`) — tool-specific wizards, deliberately *not* catalog-driven
 
 `src/dev_setup/configure/` holds per-tool setup wizards (`devstuff configure <tool>`), registered
-in a `CONFIGURATORS` dict keyed by catalog tool key. There are seven:
+in a `CONFIGURATORS` dict keyed by catalog tool key. There are eight:
 `configure/starship/{model,render,preview,fonts,wizard}.py`,
 `configure/commitizen/{model,render,detect,validate,wizard}.py`,
 `configure/precommit/{model,render,detect,validate,wizard}.py` (the package can't be named
 `pre-commit`, so the hyphenated catalog key maps to the `precommit` package in `CONFIGURATORS`),
 `configure/docker/{model,render,detect,validate,wizard}.py`,
 `configure/bat/{model,render,detect,preview,wizard}.py`,
-`configure/ansible/{model,render,detect,validate,wizard}.py` and
-`configure/lazygit/{model,render,detect,validate,wizard}.py`.
+`configure/ansible/{model,render,detect,validate,wizard}.py`,
+`configure/lazygit/{model,render,detect,validate,wizard}.py` and
+`configure/proxmox/{model,render,detect,validate,wizard}.py` + `lib.sh` + `fmt.py`.
+
+`proxmox` is the odd one out in two ways, both deliberate. It is registered
+`standalone=True` — there is no `proxmox` catalog tool, because what it configures is
+devstuff's *access to a machine somewhere else*, so `configure_cmd` skips the install
+gate rather than reporting a package that was never meant to exist. And it is the only
+one whose output is consumed by shell scripts, through `configure_cmd`'s generic
+`--export` flag (see "The proxmox functions" under Functions/scripts above).
 
 **The pattern they all share, and the one thing that matters most when adding another:**
 *measure the tool, don't recall it.* Every configurator's `model.py` was built by interrogating
@@ -515,8 +568,55 @@ Full reasoning in `docs/specs/lazygit-config/`.
 - **Icons reuse `configure/starship/fonts.detect()`**, including its `None` — "cannot tell" is
   not "no", and inverting that would nag every user without fontconfig.
 
+**Within the proxmox configurator, there was no binary to measure, so the API schema was
+measured instead.** Full reasoning in `docs/specs/proxmox-tools/`.
+
+**Things learned — don't "simplify" these away:**
+- **The vocabulary came out of `pve-docs/api-viewer/apidoc.js`** — the schema Proxmox
+  generates from its own source — extracted by script, not typed from memory. Four of the
+  findings below are invisible in prose documentation. If you add an operation, go back to
+  that file rather than to a wiki page.
+- **`GET /nodes/{node}/apt/update` requires `Sys.Modify`, not `Sys.Audit`.** Listing pending
+  updates is guarded as a *write*, so a `PVEAuditor` token — exactly what a careful person
+  creates for a read-only integration — gets a 403 from `pve-updates` and from nothing else.
+  Hence `PRIVILEGES` in `model.py`, the `PVE_PRIV_HINT` that function sets before its read,
+  and the per-operation token report in `pve_selftest`.
+- **`/cluster/resources?type=vm` returns containers too.** The `type` *filter* takes `vm`;
+  the `type` *field* that comes back is `qemu` or `lxc`. Two vocabularies in one call, and
+  one request is therefore the whole of name -> VMID -> node -> which binary to use.
+- **`qm migrate` takes `--online`, `pct migrate` takes `--restart`** (and `--targetstorage`
+  against `--target-storage`). A running container cannot live-migrate. Likewise the `lxc`
+  snapshot endpoint has no `vmstate` field where `qemu`'s does. These live in one table in
+  `model.py`, asserted by a test, rather than spread through the function bodies.
+- **`qm`/`pct`/`vzdump` are node-local.** Run `qm start 101` on pve1 for a guest on pve2 and
+  Proxmox says the config file does not exist. `pve_do` wraps the command in an `ssh <node>`
+  hop when the guest is elsewhere, and *shows the hop*, because that is the true command.
+- **Confirmation requires stdin AND stdout to be a TTY.** The obvious `-t 0` check passes
+  under `devstuff agent`, which runs script functions with stdout captured while stdin is
+  still the REPL's terminal — and the function then blocks forever on a prompt written into
+  a buffer nobody can see. `DEVSTUFF_PVE_ASSUME_YES=1` is the way through; it is an env var
+  and not a parameter specifically so the agent cannot set it.
+- **Declining is not a failure.** `run_cmd` flattens every non-zero exit to 1 and prints
+  "command failed", so answering "no" has to come back as 0 — that is all `PVE_DECLINED` and
+  `pve_finish` are for. Same family as the `whats-on-port` exit-code rule.
+- **No secret ever reaches `argv`.** The API token goes into `curl` through `-K -` on stdin;
+  an SSH password through a `SSHPASS="$secret" sshpass` *prefix*, never `env "SSHPASS=..."`,
+  which would put it in `env`'s argv for `ps` to publish. Both are asserted by tests that
+  read `lib.sh`.
+- **Nothing in `lib.sh` may call `exit`** except `pve_finish`. `exit` inside `$(...)` ends
+  only the subshell, so a helper that exits on failure hands its caller an empty string and
+  a zero status. A test walks the file and enforces it.
+- **`yq` is two different programs.** mikefarah's Go implementation (what `devstuff install
+  yq` installs) and python-yq, a jq wrapper packaged by most distros, which reports
+  `yq 0.0.0` and rejects `-p json` outright — this repo's own dev container has the second.
+  So JSON is parsed by `$PVE_PYTHON` (devstuff's own `sys.executable`, exported by the
+  bridge) and there is no `jq`/`yq` dependency at all.
+- **`fmt.py` must accept both response shapes**: `curl` returns `{"data": ...}` and
+  `pvesh get --output-format json` unwraps it. `_payload()` handles either, which is what
+  lets one set of views serve both transports.
+
 Not yet built: configurators for anything other than starship, commitizen, pre-commit, docker,
-bat, ansible and lazygit; `repo: local` pre-commit hook authoring and hooks outside the curated
+bat, ansible, lazygit and proxmox; `repo: local` pre-commit hook authoring and hooks outside the curated
 catalog; lazygit keybindings and `customCommands` authoring (both preserved, never edited);
 ansible fact-caching backends; and — for pre-commit and commitizen only — round-tripping an
 existing hand-edited config back into wizard state. The four newer configurators *do* round-trip,
