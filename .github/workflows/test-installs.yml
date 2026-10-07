@@ -55,10 +55,14 @@ jobs:
           - ansible-vault # shares ansible's tool environment
           - aws
           - bat
+          - claude-code # npm tool, installs nvm first via `requires`
+          - codex       # npm tool, installs nvm first via `requires`
           - commitizen  # uvx tool, requires uv
+          - devin       # curl|bash installer, ~/.local/bin
           - gh
           - git-lfs
           - go
+          - hey-dave    # uvx tool, requires uv + a managed Python 3.14
           - homebrew    # slow: builds from source
           - htop
           - ipython     # uvx tool, requires uv

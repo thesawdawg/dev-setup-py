@@ -119,6 +119,30 @@ tools:
       set -euo pipefail
       sudo rm -f /usr/local/bin/bat
 
+  claude-code:
+    name: Claude Code
+    description: Anthropic's agentic coding CLI
+    category: ai-tools
+    type: npm
+    npm_name: "@anthropic-ai/claude-code"
+    check_cmd: claude
+    help_cmd: claude --help
+    docs_url: https://code.claude.com/docs
+    requires:
+      - nvm
+
+  codex:
+    name: Codex CLI
+    description: OpenAI coding agent for the terminal
+    category: ai-tools
+    type: npm
+    npm_name: "@openai/codex"
+    check_cmd: codex
+    help_cmd: codex --help
+    docs_url: https://github.com/openai/codex
+    requires:
+      - nvm
+
   commitizen:
     name: Commitizen
     description: Conventional-commit prompt, semantic version bumping, and changelog generation
@@ -130,6 +154,49 @@ tools:
     docs_url: https://commitizen-tools.github.io/commitizen/
     requires:
       - uv
+
+  devin:
+    name: Devin CLI
+    description: Cognition's AI software engineer, in the terminal
+    category: ai-tools
+    type: bash
+    check_cmd: command -v devin >/dev/null 2>&1 || test -x "$HOME/.local/bin/devin"
+    help_cmd: devin --help
+    docs_url: https://docs.devin.ai/cli
+    install_script: |
+      set -euo pipefail
+      tmp="$(mktemp --suffix=.sh)"
+      trap 'rm -f "$tmp"' EXIT
+      curl -fsSL https://cli.devin.ai/install.sh -o "$tmp"
+      # The installer's last step runs `devin setup`, an interactive auth/MCP
+      # wizard with no flag to skip it. Strip the line (best-effort — if
+      # upstream renames it, stdin is /dev/null anyway so the wizard reads EOF
+      # instead of hanging on a prompt nobody can see). `devin auth login`
+      # covers the same ground whenever the user is ready.
+      sed -i 's|"$VERSION_DIR/bin/$COMPILED_BIN_NAME" setup.*|# &|' "$tmp"
+      bash "$tmp" </dev/null || true
+      # A swallowed wizard exit code means the script's own status can't be
+      # trusted — verify the ~/.local/bin/devin symlink it creates instead.
+      if [ ! -x "$HOME/.local/bin/devin" ]; then
+        echo "install failed — ~/.local/bin/devin is missing" >&2
+        exit 1
+      fi
+      echo "Run 'devin auth login' to authenticate."
+    remove_script: |
+      set -euo pipefail
+      if [ -x "$HOME/.local/bin/devin" ]; then
+        # `devin uninstall` removes the ~/.local/bin symlink and the versioned
+        # payload under ~/.local/share/devin; --force skips its confirmation
+        # prompt (devstuff already confirmed). Best-effort — the rm's below
+        # cover a partial or failed uninstall.
+        "$HOME/.local/bin/devin" uninstall --force </dev/null || true
+      fi
+      rm -f "$HOME/.local/bin/devin"
+      rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/devin"
+      # The installer also links man pages into the user man dir; they dangle
+      # once _versions is gone.
+      rm -f "${XDG_DATA_HOME:-$HOME/.local/share}"/man/man1/devin*.1
+      echo "Config and credentials under ~/.config/devin were left in place."
 
   docker:
     name: Docker
@@ -310,6 +377,23 @@ tools:
       open(path, "w").write("\n".join(out) + ("\n" if out else ""))
       PY
       fi
+
+  hey-dave:
+    name: hey-dave
+    description: Terminal coding-agent harness that runs D.A.V.E. natively
+    category: ai-tools
+    type: uvx
+    pip_name: hey-dave
+    # Requires-Python is >=3.14 — ask uv for it explicitly so the tool env is
+    # built on a managed 3.14 rather than whichever interpreter happens to win
+    # discovery on the host.
+    uv_python: "3.14"
+    # The console script is `dave`, not `hey-dave` — check what actually lands.
+    check_cmd: dave
+    help_cmd: dave --help
+    docs_url: https://pypi.org/project/hey-dave/
+    requires:
+      - uv
 
   htop:
     name: htop
