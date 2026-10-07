@@ -844,6 +844,18 @@ tools:
       set -euo pipefail
       rm -f "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx" "$HOME/.cargo/bin/uv" "$HOME/.cargo/bin/uvx"
 
+  llamactl:
+    name: llamactl
+    description: CLI for managing LlamaDeploy projects and deployments (LlamaIndex)
+    category: ai-tools
+    type: uvx
+    pip_name: llamactl
+    check_cmd: llamactl
+    help_cmd: llamactl --help
+    docs_url: https://github.com/run-llama/llama_deploy
+    requires:
+      - uv
+
   llm-checker:
     name: llm-checker
     description: Tool to check llm compatibility with hardware

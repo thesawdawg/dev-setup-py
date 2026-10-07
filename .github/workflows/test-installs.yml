@@ -68,6 +68,7 @@ jobs:
           - ipython     # uvx tool, requires uv
           - java
           - lazygit
+          - llamactl    # uvx tool, requires uv
           - llm-checker # npm tool, installs nvm first via `requires`
           - lmstudio
           - mkcert
