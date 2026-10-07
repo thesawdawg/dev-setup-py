@@ -1257,6 +1257,7 @@ Optional utilities you may want on some machines.
 | `ipython` | IPython | Enhanced interactive Python shell with rich tab completion and magic commands | `ipython --help` |
 | `lazygit` | lazygit | TUI git client for fast, keyboard-driven git workflows (`devstuff configure lazygit`) | `lazygit --help` |
 | `reptyr` | reptyr | Move a running process to another terminal (`devstuff configure reptyr` for permissions) | `reptyr -h` |
+| `llamactl` | llamactl | CLI for managing LlamaDeploy projects and deployments (LlamaIndex) | `llamactl --help` |
 | `llm-checker` | llm-checker | Check LLM compatibility with your hardware | `llm-checker --help` |
 | `lmstudio` | LM Studio | Run large language models locally with a GUI | `lms --help` |
 | `mkcert` | mkcert | Zero-config local HTTPS certificates | `mkcert --help` |
