@@ -67,7 +67,8 @@ def execute(session, call: ToolCall) -> ToolOutcome:
                 call.name, False, "the user declined this action. Ask what they would prefer."
             )
     else:
-        ui.dim(f"↳ {call.name}({', '.join(f'{k}={v!r}' for k, v in args.items())[:120]})")
+        preview = ", ".join(f"{k}={v!r}" for k, v in args.items())[:120]
+        ui.console.print(f"  [{ui.CYAN}]▸[/] [{ui.GRAY}]{call.name}({preview})[/]")
 
     try:
         output = _dispatch(session, tool, args)
@@ -122,7 +123,9 @@ def run_turn(session, user_text: str) -> Message | None:
                 }
             )
             if not outcome.ok:
-                ui.dim(f"  {outcome.content.splitlines()[0][:120]}")
+                ui.console.print(
+                    f"  [{ui.AMBER}]▸[/] [{ui.GRAY}]{outcome.content.splitlines()[0][:120]}[/]"
+                )
 
     ui.warn(f"Stopped after {session.config.max_iterations} tool calls without a final answer.")
     ui.dim("Ask again with a narrower request, or /reset to start over.")

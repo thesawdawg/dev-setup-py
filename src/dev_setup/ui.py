@@ -5,73 +5,156 @@ from contextlib import contextmanager
 
 import questionary
 from questionary import Style as QStyle
-from rich.console import Console
+from rich import box
+from rich.color import Color
+from rich.console import Console, RenderableType
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.syntax import Syntax
+from rich.table import Table
 from rich.text import Text
 
 console = Console(highlight=False)
 
+# ── palette ───────────────────────────────────────────────────────────────────
+# A violet→cyan accent ramp over neutral grays. Everything visible keys off these
+# constants so the theme lives in exactly one place.
+VIOLET = "#7C3AED"
+PURPLE = "#A78BFA"
+CYAN = "#22D3EE"
+GREEN = "#34D399"
+AMBER = "#FBBF24"
+RED = "#F87171"
+GRAY = "#6B7280"
+BORDER = "#4B4568"  # muted violet — boxes, rules, table frames
+
 _STYLE = QStyle([
-    ("qmark",       "fg:#7C3AED bold"),
+    ("qmark",       f"fg:{CYAN} bold"),
     ("question",    "bold"),
-    ("answer",      "fg:#A78BFA bold"),
-    ("pointer",     "fg:#7C3AED bold"),
-    ("highlighted", "fg:#A78BFA bold"),
-    ("selected",    "fg:#A78BFA"),
-    ("separator",   "fg:#6B7280"),
-    ("instruction", "fg:#6B7280 italic"),
-    ("check",       "fg:#22C55E bold"),
+    ("answer",      f"fg:{PURPLE} bold"),
+    ("pointer",     f"fg:{VIOLET} bold"),
+    ("highlighted", f"fg:{PURPLE} bold"),
+    ("selected",    f"fg:{CYAN}"),
+    ("separator",   f"fg:{PURPLE}"),
+    ("instruction", f"fg:{GRAY} italic"),
+    ("check",       f"fg:{GREEN} bold"),
+    ("disabled",    f"fg:{GRAY} italic"),
 ])
+
+# Left-edge-only border — the chat-block look (a coloured gutter bar, no frame).
+LEFT_BAR = box.Box(
+    "    \n"
+    "┃   \n"
+    "┃   \n"
+    "┃   \n"
+    "┃   \n"
+    "┃   \n"
+    "┃   \n"
+    "    \n"
+)
+
+# Rounded outer frame + header underline, no column dividers — the frame carries
+# the structure without turning every row into a grid.
+ROUNDED_OPEN = box.Box(
+    "╭──╮\n"
+    "│  │\n"
+    "├──┤\n"
+    "│  │\n"
+    "├──┤\n"
+    "├──┤\n"
+    "│  │\n"
+    "╰──╯\n"
+)
+
+
+def gradient(text: str, start: str = VIOLET, end: str = CYAN) -> Text:
+    """Render `text` in bold with a per-character colour ramp from `start` to `end`."""
+    c1 = Color.parse(start).triplet
+    c2 = Color.parse(end).triplet
+    out = Text()
+    n = max(len(text) - 1, 1)
+    for i, ch in enumerate(text):
+        r = round(c1.red + (c2.red - c1.red) * i / n)
+        g = round(c1.green + (c2.green - c1.green) * i / n)
+        b = round(c1.blue + (c2.blue - c1.blue) * i / n)
+        out.append(ch, style=f"bold #{r:02x}{g:02x}{b:02x}")
+    return out
 
 
 def info(msg: str) -> None:
-    console.print(f"  [cyan bold]❯[/]  {msg}")
+    console.print(f"  [{CYAN} bold]❯[/]  {msg}")
 
 
 def success(msg: str) -> None:
-    console.print(f"  [green bold]✔[/]  {msg}")
+    console.print(f"  [{GREEN} bold]✔[/]  {msg}")
 
 
 def warn(msg: str) -> None:
-    console.print(f"  [yellow bold]⚠[/]  {msg}")
+    console.print(f"  [{AMBER} bold]⚠[/]  {msg}")
 
 
 def error(msg: str) -> None:
-    console.print(f"  [red bold]✖[/]  {msg}")
+    console.print(f"  [{RED} bold]✖[/]  {msg}")
 
 
 def dim(msg: str) -> None:
-    console.print(f"  [dim]{msg}[/]")
+    console.print(f"  [{GRAY}]{msg}[/]")
 
 
 def section(title: str) -> None:
     console.print()
-    console.print(
-        Panel(f"[bold]{title}[/]", border_style="bright_magenta", expand=False, padding=(0, 1))
-    )
+    console.print(Panel(gradient(title), border_style=VIOLET, expand=False, padding=(0, 1)))
     console.print()
 
 
+def heading(title: str, note: str = "") -> None:
+    """A labelled rule: `── title ────────` with an optional dim annotation."""
+    text = f"[bold {PURPLE}]{title}[/]"
+    if note:
+        text += f"  [{GRAY}]{note}[/]"
+    console.print(Rule(text, style=BORDER, align="left"))
+
+
 def divider() -> None:
-    console.print(Rule(style="dim"))
+    console.print(Rule(style=BORDER))
 
 
 def print_banner() -> None:
     from dev_setup import __version__
-    t = Text()
-    t.append(" dev", style="bold bright_magenta")
-    t.append("-", style="dim")
-    t.append("setup", style="bold white")
-    t.append(f"  v{__version__}", style="dim")
+    t = gradient("devstuff")
+    t.append(f"  v{__version__}", style=GRAY)
     console.print()
-    console.print(Panel(t, border_style="bright_magenta", padding=(0, 2), expand=False))
+    console.print(Panel(t, border_style=VIOLET, padding=(0, 2), expand=False))
     console.print()
+
+
+def table(title: str = "", *, bordered: bool = True, **kwargs) -> Table:
+    """The shared table look: rounded muted-violet frame, purple headers.
+
+    `title` may contain markup and renders left-justified above the frame.
+    `bordered=False` drops the frame for contexts (like --help) where a box
+    would be chrome for its own sake. Extra kwargs pass through to `Table`.
+    """
+    return Table(
+        box=ROUNDED_OPEN if bordered else None,
+        border_style=BORDER,
+        title=title or None,
+        title_justify="left",
+        header_style=f"bold {PURPLE}",
+        padding=(0, 1),
+        pad_edge=bordered,
+        **kwargs,
+    )
+
+
+def gutter(renderable: RenderableType, style: str = VIOLET) -> Panel:
+    """Wrap `renderable` in a panel with only a coloured left bar."""
+    return Panel(renderable, box=LEFT_BAR, border_style=style, padding=(0, 1))
 
 
 @contextmanager
 def spinner(label: str) -> Generator[None, None, None]:
-    with console.status(f"  [dim]{label}[/]", spinner="dots"):
+    with console.status(f"  [{GRAY}]{label}[/]", spinner="arc", spinner_style=PURPLE):
         yield
 
 
@@ -118,11 +201,10 @@ def password(prompt: str) -> str:
 
 def code_block(code: str, language: str = "bash") -> None:
     """Print a syntax-highlighted code panel."""
-    from rich.syntax import Syntax
     console.print(
         Panel(
             Syntax(code, language, theme="monokai", line_numbers=False),
-            border_style="dim",
+            border_style=BORDER,
             padding=(0, 1),
         )
     )

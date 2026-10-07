@@ -106,7 +106,7 @@ def _install_interactive() -> None:
             else:
                 disabled = None
             title = [
-                ("class:check", "✔ " if is_inst else "  "),
+                ("class:check", "● " if is_inst else "  "),
                 ("class:text", f"{t.key:<{key_width}}{desc}"),
             ]
             choices.append(questionary.Choice(

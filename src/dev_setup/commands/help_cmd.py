@@ -1,5 +1,17 @@
+from rich.columns import Columns
+from rich.text import Text
+
 from dev_setup import ui
 from dev_setup.catalog import USER_CATALOG_PATH
+
+_CATEGORY_DESC = {
+    "core": "Always-installed tools (Docker, NVM, uv)",
+    "tools": "Optional utilities (lazygit, htop, bat)",
+    "ai-tools": "AI coding agents and assistants",
+    "customization": "Prompt and shell customization",
+    "languages": "Programming language runtimes",
+    "custom": "User-added packages",
+}
 
 
 def print_help() -> None:
@@ -25,10 +37,15 @@ def print_help() -> None:
         ("agent",   "[--setup] [--dir] [--model]",             "Chat with a local tool-using model"),
         ("version", "",                                        "Show version"),
     ]
+    tbl = ui.table(bordered=False, show_header=False)
+    tbl.add_column("cmd", style="bold cyan", no_wrap=True)
+    tbl.add_column("args", style=ui.GRAY, no_wrap=True)
+    tbl.add_column("desc", ratio=1)
     for cmd, args, desc in rows:
-        ui.console.print(
-            f"  [bold cyan]{cmd:<10}[/] [dim]{args:<40}[/]  {desc}"
-        )
+        # args goes in as Text: strings like "[category]" are valid Rich markup
+        # tags and would be silently swallowed from a plain str cell.
+        tbl.add_row(f"  {cmd}", Text(args), desc)
+    ui.console.print(tbl)
 
     ui.console.print()
     ui.console.print("[bold]EXAMPLES[/]")
@@ -55,15 +72,24 @@ def print_help() -> None:
         'devstuff agent --print "what node tools are available?"',
         "ssh-agent-key ~/.ssh/id_ed25519",
     ]
-    for ex in examples:
-        ui.console.print(f"  [dim]$[/] [green]{ex}[/]")
+    items = [
+        Text.assemble(("  $ ", ui.GRAY), (ex, "green")) for ex in examples
+    ]
+    ui.console.print(Columns(items, column_first=True, padding=(0, 3)))
+
+    from dev_setup import registry
 
     ui.console.print()
     ui.console.print("[bold]CATEGORIES[/]")
-    ui.console.print("  [cyan]core[/]    Always-installed tools (Docker, NVM, uv)")
-    ui.console.print("  [cyan]tools[/]   Optional utilities (PHP, Starship, htop)")
-    ui.console.print("  [cyan]languages[/] Programming language runtimes")
-    ui.console.print("  [cyan]custom[/]  User-added packages\n")
+    _ORDER = {"core": 0, "tools": 1, "custom": 999}
+    cats = sorted(
+        {t.category for t in registry.all_tools()},
+        key=lambda c: (_ORDER.get(c, 500), c),
+    )
+    for cat in cats:
+        desc = _CATEGORY_DESC.get(cat, "")
+        ui.console.print(f"  [cyan]{cat:<14}[/] [{ui.GRAY}]{desc}[/]")
 
+    ui.console.print()
     ui.console.print("[bold]CONFIG[/]")
-    ui.console.print(f"  User catalog: [dim]{USER_CATALOG_PATH}[/]\n")
+    ui.console.print(f"  User catalog: [{ui.GRAY}]{USER_CATALOG_PATH}[/]\n")

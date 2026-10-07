@@ -7,11 +7,12 @@ import click
 from dev_setup import doctor, ui
 
 _STATUS_ICON = {
-    doctor.PASS: "[green bold]✔[/]",
-    doctor.WARN: "[yellow bold]⚠[/]",
-    doctor.FAIL: "[red bold]✖[/]",
+    doctor.PASS: f"[{ui.GREEN} bold]✔[/]",
+    doctor.WARN: f"[{ui.AMBER} bold]⚠[/]",
+    doctor.FAIL: f"[{ui.RED} bold]✖[/]",
 }
-_STATUS_LABEL = {doctor.PASS: "pass", doctor.WARN: "warn", doctor.FAIL: "FAIL"}
+# pass needs no text label — the icon carries it. warn/fail get one for scanability.
+_STATUS_LABEL = {doctor.WARN: ui.AMBER, doctor.FAIL: ui.RED}
 
 
 @click.command("doctor")
@@ -32,8 +33,11 @@ def doctor_cmd(auto_fix: bool, check_only: bool) -> None:
     fixable: list[doctor.CheckResult] = []
     for r in results:
         icon = _STATUS_ICON.get(r.status, "[dim]?[/]")
-        label = _STATUS_LABEL.get(r.status, r.status)
-        ui.console.print(f"  {icon}  [bold]{r.name}[/]  [dim]({label})[/]  {r.message}")
+        line = f"  {icon}  [bold]{r.name}[/]  {r.message}"
+        color = _STATUS_LABEL.get(r.status)
+        if color:
+            line += f"  [{color} bold]{r.status.upper()}[/]"
+        ui.console.print(line)
         if r.detail:
             ui.dim(f"     {r.detail}")
         if r.status != doctor.PASS and r.fix is not None:
@@ -42,9 +46,19 @@ def doctor_cmd(auto_fix: bool, check_only: bool) -> None:
     passed = sum(1 for r in results if r.status == doctor.PASS)
     warned = sum(1 for r in results if r.status == doctor.WARN)
     failed = sum(1 for r in results if r.status == doctor.FAIL)
+
+    def _count(n: int, color: str, word: str) -> str:
+        style = color if n else ui.GRAY
+        return f"[{style}]{n} {word}[/]"
+
     ui.console.print()
     ui.console.print(
-        f"  [dim]{passed} passed, {warned} warning(s), {failed} failure(s)[/]"
+        "  "
+        + "  ·  ".join([
+            _count(passed, ui.GREEN, "passed"),
+            _count(warned, ui.AMBER, "warnings"),
+            _count(failed, ui.RED, "failed"),
+        ])
     )
 
     if check_only or not fixable:

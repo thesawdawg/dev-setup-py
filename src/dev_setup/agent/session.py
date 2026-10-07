@@ -91,16 +91,19 @@ def render(reply: Message | None) -> None:
         return
     if reply.content.strip():
         ui.console.print()
-        ui.console.print(Markdown(reply.content.strip()))
+        ui.console.print(ui.gutter(Markdown(reply.content.strip())))
     ui.console.print()
 
 
 def _print_banner(session: AgentSession) -> None:
     ui.section("devstuff agent")
-    ui.dim(f"model      {session.model}")
-    ui.dim(f"host       {session.client.host}")
-    ui.dim(f"workspace  {session.workspace.root}")
-    ui.dim(f"tools      {len(session.tools)} available")
+    for key, value in (
+        ("model", session.model),
+        ("host", session.client.host),
+        ("workspace", str(session.workspace.root)),
+        ("tools", f"{len(session.tools)} available"),
+    ):
+        ui.console.print(f"  [{ui.PURPLE}]{key:<10}[/] [{ui.GRAY}]{value}[/]")
     if session.policy.yolo:
         ui.console.print()
         ui.warn("--yolo: mutating tools run without confirmation (the denylist still applies).")
@@ -121,7 +124,7 @@ def _print_slash_help() -> None:
 
 def _print_tools(session: AgentSession) -> None:
     for key, tool in sorted(session.tools.items()):
-        marker = "[yellow]![/]" if tool.mutating else " "
+        marker = f"[{ui.AMBER}]![/]" if tool.mutating else " "
         ui.console.print(f"  {marker} [bold cyan]{key:<18}[/] [dim]{tool.description[:70]}[/]")
     ui.console.print()
     ui.dim("! = mutating, asks for confirmation before running")
@@ -151,15 +154,15 @@ def _summarise(message: dict[str, Any]) -> str | None:
     if role == "system":
         return None
     if role == "user":
-        return f"[bold]you[/]       {str(message.get('content', ''))[:80]}"
+        return f"[{ui.PURPLE} bold]you[/]     {str(message.get('content', ''))[:80]}"
     if role == "tool":
         first = str(message.get("content", "")).splitlines()[:1]
-        return f"[dim]tool[/]      {message.get('tool_name', '?')} → {(first[0] if first else '')[:60]}"
+        return f"[{ui.GRAY}]tool[/]     {message.get('tool_name', '?')} → {(first[0] if first else '')[:60]}"
     calls = message.get("tool_calls") or []
     if calls:
         names = ", ".join(c["function"]["name"] for c in calls)
-        return f"[cyan]agent[/]     calls {names}"
-    return f"[cyan]agent[/]     {str(message.get('content', ''))[:80]}"
+        return f"[{ui.CYAN}]agent[/]    calls {names}"
+    return f"[{ui.CYAN}]agent[/]    {str(message.get('content', ''))[:80]}"
 
 
 def _print_history(session: AgentSession) -> None:
@@ -282,6 +285,22 @@ def _continuation(width: int, line_number: int, is_soft_wrap: bool) -> str:
     return " " * max(0, width - 2) + "› "
 
 
+def _prompt_style():
+    """prompt_toolkit theme: violet prompt glyph, dark-violet completion menu."""
+    from prompt_toolkit.styles import Style as PTStyle
+
+    return PTStyle.from_dict({
+        "prompt": f"{ui.PURPLE} bold",
+        "completion-menu": "bg:#26223B #DDD6FE",
+        "completion-menu.completion": "bg:#26223B #DDD6FE",
+        "completion-menu.completion.current": f"bg:{ui.VIOLET} #FFFFFF bold",
+        "completion-menu.meta.completion": f"bg:#26223B {ui.GRAY}",
+        "completion-menu.meta.completion.current": "bg:#7C3AED #DDD6FE",
+        "scrollbar.background": "bg:#26223B",
+        "scrollbar.button": "bg:#4B4568",
+    })
+
+
 def build_prompt_session(session: AgentSession, **overrides):
     """Split out from run_repl so the input behaviour can be driven by tests with a
     pipe input rather than only exercised by hand."""
@@ -297,6 +316,7 @@ def build_prompt_session(session: AgentSession, **overrides):
         "multiline": True,
         "key_bindings": _key_bindings(),
         "prompt_continuation": _continuation,
+        "style": _prompt_style(),
     }
     kwargs.update(overrides)
     return PromptSession(**kwargs)
@@ -308,9 +328,11 @@ def run_repl(session: AgentSession) -> None:
 
     _print_banner(session)
 
+    from prompt_toolkit.formatted_text import HTML
+
     while True:
         try:
-            line = prompt_session.prompt("you ❯ ").strip()
+            line = prompt_session.prompt(HTML("<prompt>you ❯</prompt> ")).strip()
         except KeyboardInterrupt:
             continue  # Ctrl-C clears the current line, like a shell
         except EOFError:

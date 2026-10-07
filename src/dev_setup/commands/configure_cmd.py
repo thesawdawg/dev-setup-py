@@ -101,11 +101,14 @@ def _is_installed(key: str) -> bool:
 
 def _print_list() -> None:
     ui.console.print()
-    ui.console.print("  [bold]CONFIGURABLE TOOLS[/]")
-    width = max(len(s.key) for s in configure.CONFIGURATORS.values()) + 2
+    tbl = ui.table(title="[bold]configurable tools[/]")
+    tbl.add_column("", width=2, justify="center")
+    tbl.add_column("Tool", style="bold cyan", no_wrap=True)
+    tbl.add_column("Description", ratio=1)
     for spec in configure.CONFIGURATORS.values():
-        mark = "[green]✔[/]" if _is_installed(spec.key) else "[dim]·[/]"
-        ui.console.print(f"  {mark} [bold cyan]{spec.key:<{width}}[/] {spec.description}")
+        mark = f"[{ui.GREEN}]●[/]" if _is_installed(spec.key) else f"[{ui.GRAY}]○[/]"
+        tbl.add_row(mark, spec.key, spec.description)
+    ui.console.print(tbl)
     ui.console.print()
     ui.dim("  devstuff configure <tool>")
     ui.console.print()
