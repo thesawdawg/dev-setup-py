@@ -1,3 +1,10 @@
+## v2.7.0 (2026-10-07)
+
+### Features
+
+- **tools**: add llamactl (LlamaDeploy CLI) to ai-tools
+- **tools**: add devin, claude-code, codex, and hey-dave to ai-tools
+
 ## v2.6.0 (2026-09-09)
 
 ### Features
