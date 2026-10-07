@@ -124,11 +124,11 @@ def add_cmd() -> None:
     )
 
     ui.console.print()
-    ui.console.print("[bold]Summary[/]")
+    ui.heading("Summary")
     for k, v in kwargs.items():
         if v:
             display = _truncate_script(v) if k.endswith("_script") else v
-            ui.console.print(f"  [dim]{k:<18}[/] {display}")
+            ui.console.print(f"  [{ui.PURPLE}]{k:<18}[/] {display}")
     ui.console.print()
 
     if not ui.confirm("Save this package?"):

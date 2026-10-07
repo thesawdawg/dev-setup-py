@@ -21,7 +21,7 @@ def _write_file_preview(args: dict[str, Any], ws: Workspace) -> Panel:
     except SandboxError:
         # The sandbox will reject this before it runs; show the raw request rather
         # than crashing the prompt.
-        return Panel(str(args.get("path", "")), title="write_file", border_style="yellow")
+        return Panel(str(args.get("path", "")), title="write_file", border_style=ui.AMBER)
 
     new = args.get("content", "")
     old = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
@@ -29,7 +29,7 @@ def _write_file_preview(args: dict[str, Any], ws: Workspace) -> Panel:
 
     if not path.exists():
         body = Syntax(new, "text", theme="monokai", line_numbers=False, word_wrap=True)
-        return Panel(body, title=f"create {label}", border_style="green")
+        return Panel(body, title=f"create {label}", border_style=ui.GREEN)
 
     diff = "".join(
         difflib.unified_diff(
@@ -41,11 +41,11 @@ def _write_file_preview(args: dict[str, Any], ws: Workspace) -> Panel:
         )
     )
     if not diff:
-        return Panel("(no change)", title=f"write {label}", border_style="dim")
+        return Panel("(no change)", title=f"write {label}", border_style=ui.BORDER)
     return Panel(
         Syntax(diff, "diff", theme="monokai", line_numbers=False),
         title=f"edit {label}",
-        border_style="yellow",
+        border_style=ui.AMBER,
     )
 
 
@@ -59,11 +59,11 @@ def preview(tool: AgentTool, args: dict[str, Any], ws: Workspace) -> Panel:
         return Panel(
             Syntax(str(args.get("command", "")), "bash", theme="monokai", line_numbers=False),
             title=f"run in {ws.display(ws.cwd)}",
-            border_style="yellow",
+            border_style=ui.AMBER,
         )
 
     rendered = "\n".join(f"{k}: {v}" for k, v in args.items()) or "(no arguments)"
-    return Panel(rendered, title=tool.key, border_style="yellow")
+    return Panel(rendered, title=tool.key, border_style=ui.AMBER)
 
 
 class ApprovalPolicy:

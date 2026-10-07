@@ -3,7 +3,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 
 import click
-from rich.table import Table
 
 from dev_setup import registry, ui
 from dev_setup.base import Tool
@@ -53,24 +52,26 @@ def list_cmd(show_filter: str, category: str) -> None:
         if not entries:
             continue
 
-        ui.console.print(f"  [bold magenta]{cat.upper()}[/]")
-        ui.divider()
-
-        tbl = Table(box=None, padding=(0, 1), show_header=True, header_style="dim")
-        tbl.add_column("", width=2)
-        tbl.add_column("Package", style="bold", min_width=12)
-        tbl.add_column("Description", min_width=36)
-        tbl.add_column("Type", style="dim", min_width=8)
-        tbl.add_column("Version", style="dim")
+        n_inst = sum(1 for _, is_inst, _ in entries if is_inst)
+        tbl = ui.table(
+            title=f"[bold]{cat}[/]  [{ui.GRAY}]{n_inst}/{len(entries)} installed[/]"
+        )
+        tbl.add_column("", width=2, justify="center")
+        tbl.add_column("Package", style="bold", no_wrap=True)
+        tbl.add_column("Description", ratio=1)
+        tbl.add_column("Type", style=ui.CYAN, no_wrap=True)
+        tbl.add_column("Version", style=ui.GRAY, no_wrap=True, max_width=28, overflow="ellipsis")
 
         for tool, is_inst, version in entries:
-            missing = registry.missing_requires(tool) if not is_inst else []
-            icon = "[green bold]✔[/]" if is_inst else "[red bold]✘[/]"
-            tbl.add_row(icon, tool.key, tool.description, tool.install_type, version)
+            icon = f"[{ui.GREEN}]●[/]" if is_inst else f"[{ui.GRAY}]○[/]"
+            desc = tool.description
             if tool.help_cmd:
-                tbl.add_row("", "", f"[dim cyan]  ? {tool.help_cmd}[/]", "", "")
-            if missing:
-                tbl.add_row("", "", f"[yellow]  ⚠ requires: {', '.join(missing)}[/]", "", "")
+                desc += f"\n[{ui.GRAY}]  ↳ {tool.help_cmd}[/]"
+            if not is_inst:
+                missing = registry.missing_requires(tool)
+                if missing:
+                    desc += f"\n[{ui.AMBER}]  ⚠ requires: {', '.join(missing)}[/]"
+            tbl.add_row(icon, tool.key, desc, tool.install_type, version)
 
         ui.console.print(tbl)
         ui.console.print()

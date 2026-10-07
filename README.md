@@ -903,7 +903,7 @@ devstuff agent --print "which node tools do I have?"   # one-shot, non-interacti
 ```
 you ❯ create a python project called xyz-project with a hello world main.py
 
-  ↳ run_command(command='mkdir xyz-project')
+  ▸ run_command(command='mkdir xyz-project')
 
   ╭─ run in ./xyz-project ──────────────────────╮
   │ mkdir xyz-project                           │

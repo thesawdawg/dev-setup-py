@@ -25,7 +25,7 @@ def docs_cmd(package: str) -> None:
         sys.exit(1)
 
     ui.console.print(f"\n  [bold]{tool.name}[/] docs")
-    ui.console.print(f"  [cyan]{tool.docs_url}[/]\n")
+    ui.console.print(f"  [cyan underline link={tool.docs_url}]{tool.docs_url}[/]\n")
 
     opened = webbrowser.open(tool.docs_url)
     if opened:

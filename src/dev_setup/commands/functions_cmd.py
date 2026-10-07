@@ -26,17 +26,21 @@ def list_cmd() -> None:
     for f in fns:
         by_cat.setdefault(f.category, []).append(f)
 
-    key_width = max((len(f.key) for f in fns), default=12) + 2
     for cat in sorted(by_cat, key=lambda c: (c == "custom", c)):
-        ui.console.print(f"\n  [bold]{cat.upper()}[/]")
-        for f in sorted(by_cat[cat], key=lambda f: f.key):
+        entries = sorted(by_cat[cat], key=lambda f: f.key)
+        tbl = ui.table(
+            title=f"[bold]{cat}[/]  [{ui.GRAY}]{len(entries)} function(s)[/]"
+        )
+        tbl.add_column("Function", style="bold cyan", no_wrap=True)
+        tbl.add_column("Type", style=ui.CYAN, no_wrap=True)
+        tbl.add_column("Args", style=ui.GRAY, no_wrap=True)
+        tbl.add_column("Description", ratio=1)
+        for f in entries:
             mode = f.type if f.type == "script" else f"{f.type} ({f.register})"
-            ui.console.print(
-                f"  [bold cyan]{f.key:<{key_width}}[/] [dim]{mode:<22}[/] {f.description}"
-            )
             params = " ".join(f"<{p.name}>" for p in f.params)
-            if params:
-                ui.dim(f"    args: {params}")
+            tbl.add_row(f.key, mode, params, f.description)
+        ui.console.print(tbl)
+        ui.console.print()
 
 
 @functions_cmd.command("enable")
