@@ -1264,6 +1264,10 @@ Optional utilities you may want on some machines.
 | `ollama` | Ollama | Run large language models locally | `ollama --help` |
 | `php` | PHP 8.4 | PHP 8.4 + common extensions via ondrej/php PPA | `php --help` |
 | `pi` | Pi Coding Agent | AI coding agent npm package | `pi --help` |
+| `claude-code` | Claude Code | Anthropic's agentic coding CLI | `claude --help` |
+| `codex` | Codex CLI | OpenAI coding agent for the terminal | `codex --help` |
+| `devin` | Devin CLI | Cognition's AI software engineer, in the terminal | `devin --help` |
+| `hey-dave` | hey-dave | Terminal coding-agent harness that runs D.A.V.E. natively | `dave --help` |
 | `pre-commit` | pre-commit | Git hook manager for automated code quality checks (`devstuff configure pre-commit`) | `pre-commit --help` |
 | `saml2aws` | saml2aws | SAML → AWS STS credentials CLI (Versent) | `saml2aws --help` |
 | `starship` | Starship | Fast, cross-shell customizable prompt (`devstuff configure starship`) | `starship --help` |
