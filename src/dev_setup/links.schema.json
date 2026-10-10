@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/thesawdawg/dev-setup-py/links.schema.json",
+  "title": "devstuff links catalog",
+  "description": "Schema for links.yaml (bundled at src/dev_setup/links.yaml, user overrides at ~/.config/devstuff/links.yaml). Defines bookmarks to other tools' sites and docs, listed, searched, and opened via `devstuff links`. Mirrors the validation in links_catalog.py — keep both in sync.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "links"],
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Catalog schema version. Currently always 1."
+    },
+    "links": {
+      "type": "object",
+      "description": "Map of link key -> link definition.",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9_-]*$",
+        "description": "Lowercase letters, digits, hyphens, underscores; must start with a letter or digit."
+      },
+      "additionalProperties": { "$ref": "#/definitions/link" }
+    }
+  },
+  "definitions": {
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Title shown in listings and matched by `links search`. Defaults to the catalog key."
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description shown in listings and matched by `links search`. Defaults to an empty string."
+        },
+        "category": {
+          "type": "string",
+          "description": "Freeform grouping label used by `links list`. Defaults to 'custom'."
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://[^/\\s]+",
+          "description": "Absolute http(s) URL opened in the browser. Other schemes (file:, javascript:, ...) are rejected."
+        }
+      }
+    }
+  }
+}

@@ -72,6 +72,8 @@ The checks cover:
 | `user-tools-catalog` | user `tools.yaml` (if present) is valid | — |
 | `bundled-functions-catalog` | bundled `functions.yaml` loads and validates | — |
 | `user-functions-catalog` | user `functions.yaml` (if present) is valid | — |
+| `bundled-links-catalog` | bundled `links.yaml` loads and validates | — |
+| `user-links-catalog` | user `links.yaml` (if present) is valid | — |
 | `bundled-agent-catalog` | bundled `agent_tools.yaml` loads and validates | — |
 | `user-agent-catalog` | user `agent_tools.yaml` (if present) is valid | — |
 | `registry` | effective catalog builds into tool objects; `is_installed()` probes don't crash | — |
@@ -1248,6 +1250,45 @@ Optional utilities you may want on some machines.
 | `ansible` | Ansible | Automation engine for configuration management and app deployment (`devstuff configure ansible`) | `ansible --help` |
 | `ansible-vault` | Ansible Vault | Encrypt and manage secrets within Ansible projects (bundled with Ansible) | `ansible-vault --help` |
 | `aws` | AWS CLI | Amazon Web Services CLI v2 | `aws help` |
+## Links
+
+A catalog of bookmarks to other tools' sites and docs — `devstuff links` lists them, searches
+them, and opens one in your browser. Same bundled + user precedence merge as the other
+catalogs (`~/.config/devstuff/links.yaml` overrides matching keys and appends new ones).
+
+```bash
+devstuff links                      # interactive picker: type to filter, Enter to open
+devstuff links list [category]      # all links, grouped by category
+devstuff links search docker images # title + description, case-insensitive, every word must match
+devstuff links open uv-docs         # open in your browser (alias: devstuff link ...)
+devstuff links path                 # print ~/.config/devstuff/links.yaml
+```
+
+`search` matches the title and description only (title matches rank first) and exits 0 when
+nothing matches. `open` prints the URL as well, so over SSH — where there is no browser on the
+machine devstuff runs on — you still get a clickable link; in that case it exits non-zero.
+
+```yaml
+version: 1
+links:
+  my-wiki:
+    name: Team Wiki
+    description: Runbooks and onboarding notes
+    category: work        # optional, defaults to "custom"
+    url: https://wiki.example.com
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `url` | yes | Absolute `http(s)` URL. Other schemes (`file:`, `javascript:`, …) are rejected at load time. |
+| `name` | no | Title shown in listings and matched by `search`. Defaults to the key. |
+| `description` | no | Shown in listings and matched by `search`. |
+| `category` | no | Grouping label for `list`. Defaults to `custom`. |
+
+`src/dev_setup/links.schema.json` documents these fields for editor tooling.
+
+---
+
 | `bat` | bat | cat replacement with syntax highlighting and git integration (`devstuff configure bat`) | `bat --help` |
 | `commitizen` | Commitizen | Conventional-commit prompt, semantic version bumping, and changelog generation (`devstuff configure commitizen`) | `cz --help` |
 | `gh` | GitHub CLI | GitHub's official CLI | `gh --help` |

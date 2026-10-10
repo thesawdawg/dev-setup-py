@@ -99,10 +99,23 @@ def text_input(prompt: str, default: str = "", required: bool = False) -> str:
         error("This field is required.")
 
 
-def select(prompt: str, choices: list, default: object | None = None) -> str:
+def select(
+    prompt: str, choices: list, default: object | None = None, *, searchable: bool = False
+) -> str:
     """Single-choice prompt. `choices` may be plain strings or questionary.Choice
-    objects; `default` is the choice (or value) the cursor starts on."""
-    result = _ask(questionary.select(prompt, choices=choices, default=default, style=_STYLE))
+    objects; `default` is the choice (or value) the cursor starts on. `searchable`
+    lets the user type to filter the list — which turns off the j/k movement keys,
+    since those would otherwise be swallowed as search text."""
+    result = _ask(
+        questionary.select(
+            prompt,
+            choices=choices,
+            default=default,
+            style=_STYLE,
+            use_search_filter=searchable,
+            use_jk_keys=not searchable,
+        )
+    )
     return result or ""
 
 
