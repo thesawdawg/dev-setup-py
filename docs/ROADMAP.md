@@ -19,7 +19,7 @@ M5 is independent polish that can be slotted in anywhere.
 |---|-----------|--------|------------|----------------|
 | M1 | `devstuff outdated` | Low | — | `outdated/` |
 | M2 | `devstuff profile snapshot` / `diff` | Medium | M1 | `profile/` |
-| M3 | `devstuff profile apply` + bundled bundles | Medium–high | M2 | `profile/` (same) |
+| M3 | `devstuff profile apply` + bundled bundles | Medium–high | M2 | `profile-apply/` |
 | M4 | Agent tools for `doctor` / `outdated` | Low | M1 | `agent/` (amend) |
 | M5 | Shell completion | Low | — | `completion/` |
 | — | git / tmux configurator | Medium | — | `git-config/` (unscheduled) |
@@ -64,7 +64,7 @@ over an existing probe and an existing collector, not new probing.
 
 ## M2 — `devstuff profile snapshot` and `diff`
 
-**Spec:** [`specs/profile/`](specs/profile/) — **done** (v1, 2026-10-10): `snapshot` and `diff`. `apply` (M3) gets its own requirements.
+**Spec:** [`specs/profile/`](specs/profile/) — **done** (v1, 2026-10-10): `snapshot` and `diff`. `apply` (M3) has its own spec, [`specs/profile-apply/`](specs/profile-apply/) (approved 2026-10-10).
 
 A profile is a YAML file: catalog keys and optional pinned versions. Configurator output is **not** part of it
 (several configurators don't round-trip); capturing it is a separate, later decision.
@@ -114,9 +114,7 @@ Turn a profile into an install plan and run it.
 - **Pins on `git`/`script`/`bash` tools cannot be honoured at all** — `update(version=…)` raises for them
   (spec F-2) — and `diff` already reports them `unpinnable`. `apply` must say so rather than quietly
   install latest.
-- **A pinned install is install-then-update**: `install()` takes no version (spec F-4), so applying a pin
-  means installing the latest and then calling `update(version=…)` — two installs, and for `apt` a
-  downgrade. Whether to teach the `npm`/`uvx`/`apt` installers a version instead is an M3 decision.
+- **A pinned install is one step, not install-then-update** (measured 2026-10-10, apply spec F-3): `update(version=…)` works on a tool that isn't installed yet, so the installers need no version parameter. `apt` is the exception that matters: an older-than-candidate pin fails on version-locked dependencies whatever flags are passed (F-2), and is reported as a failure rather than worked around.
 - **Bundled bundles** (`@backend`, `@devops`, …) are profile files shipped in the package. They are
   data, so they get a validation test and a CI check that every key they name exists in the
   bundled catalog — the same two-direction enforcement as the CI-matrix test.
