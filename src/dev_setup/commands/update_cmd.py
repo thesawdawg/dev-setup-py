@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import sys
-from concurrent.futures import ThreadPoolExecutor
 
 import click
 import questionary
 
 from dev_setup import registry, ui
 from dev_setup.base import Tool
-from dev_setup.generic import UpdateStatus
+from dev_setup.updates import collect_candidates
 
 
 @click.command("update")
@@ -74,28 +73,11 @@ def _update_one(tool: Tool, version: str | None) -> bool:
         return False
 
 
-def _collect_update_candidates() -> list[tuple[Tool, UpdateStatus]]:
-    """Return (tool, UpdateStatus) for every installed tool, probed concurrently.
-
-    Pure data-gathering, kept free of any UI/prompt code so it can be exercised
-    directly without a terminal.
-    """
-    tools = registry.all_tools()
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        installed_flags = list(pool.map(lambda t: t.is_installed(), tools))
-    installed = [t for t, flag in zip(tools, installed_flags, strict=True) if flag]
-    if not installed:
-        return []
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        statuses = list(pool.map(lambda t: t.check_for_update(), installed))  # type: ignore[attr-defined]
-    return list(zip(installed, statuses, strict=True))
-
-
 def _update_interactive() -> None:
     ui.print_banner()
 
     with ui.spinner("Checking installed packages for available updates..."):
-        candidates = _collect_update_candidates()
+        candidates = collect_candidates()
 
     if not candidates:
         ui.info("No installed packages to update.")
