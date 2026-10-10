@@ -17,7 +17,9 @@ nothing to recover and the only safe move is to refuse (SD-6).
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -200,3 +202,155 @@ def dumps(profile: Profile) -> str:
         allow_unicode=True,
     )
     return _HEADER + body
+
+
+# -- Comparing a machine to a profile ---------------------------------------------------------------
+# Pure, like the rest of this module: `compare` takes *facts* about the machine (`MachineTool`)
+# rather than tool objects, so every rule below is testable without a registry or a subprocess.
+# Gathering the facts is the caller's job.
+
+
+class DiffState(StrEnum):
+    """What can honestly be said about one key. Values are the `--json` spellings (FR-16)."""
+
+    OK = "ok"
+    MISSING = "missing"
+    DRIFT = "drift"
+    # The three ways the comparison could not be made. None of them is ever `ok` (FR-17), and
+    # each has a different remedy, which is why they are three states and not one "unknown".
+    UNVERIFIABLE = "unverifiable"  # pinned and installed, but the version cannot be read
+    UNPINNABLE = "unpinnable"      # pinned, but this install type cannot honour a pin
+    UNKNOWN_KEY = "unknown-key"    # this machine's catalog has no such key
+    EXTRA = "extra"
+
+
+@dataclass(frozen=True)
+class MachineTool:
+    """What this machine says about one catalog key. Present in the mapping = the catalog knows it."""
+
+    install_type: str
+    installed: bool
+    pinnable: bool
+    # The installed version, if it was read ("" otherwise). Only read for pinned, pinnable tools.
+    version: str = ""
+    # Why `version` is empty, when it is — shown on an `unverifiable` row.
+    why_unreadable: str = ""
+
+
+@dataclass(frozen=True)
+class DiffRow:
+    key: str
+    state: DiffState
+    type: str | None            # None for `unknown-key`: the catalog doesn't say
+    pinned: str | None          # what the profile asked for
+    installed: str | None       # the installed version, where it was read
+    note: str = ""
+
+    def to_json(self) -> dict[str, str | None]:
+        return {
+            "key": self.key,
+            "state": self.state.value,
+            "type": self.type,
+            "pinned": self.pinned,
+            "installed": self.installed,
+            "note": self.note,
+        }
+
+
+def _row(
+    key: str, state: DiffState, tool: MachineTool | None, entry: Entry | None, note: str = ""
+) -> DiffRow:
+    return DiffRow(
+        key,
+        state,
+        tool.install_type if tool else None,
+        entry.version if entry else None,
+        (tool.version or None) if tool else None,
+        note,
+    )
+
+
+def _compare_one(key: str, entry: Entry, tool: MachineTool | None) -> DiffRow:
+    if tool is None:
+        return _row(
+            key, DiffState.UNKNOWN_KEY, None, entry,
+            "not in this machine's catalog — if it is a custom tool, bring its definition over "
+            "with `devstuff catalog import`",
+        )
+    if not tool.installed:
+        # Dominates a pin that couldn't be honoured: there is nothing to compare yet.
+        return _row(key, DiffState.MISSING, tool, entry)
+    if entry.version is None:
+        return _row(key, DiffState.OK, tool, entry)
+    if not tool.pinnable:
+        # Decided before the version is looked at: a tool that cannot be pinned must not read
+        # as `ok` just because some version text happens to equal the pin.
+        return _row(
+            key, DiffState.UNPINNABLE, tool, entry,
+            f"a {tool.install_type} install can't be pinned, so the pin is ignored",
+        )
+    if not tool.version:
+        return _row(
+            key, DiffState.UNVERIFIABLE, tool, entry,
+            tool.why_unreadable or "couldn't read the installed version",
+        )
+    # String equality, no ordering and no normalisation (FR-18): `0.45` is not `0.45.0`.
+    state = DiffState.OK if tool.version == entry.version else DiffState.DRIFT
+    return _row(key, state, tool, entry)
+
+
+def compare(profile: Profile, machine: Mapping[str, MachineTool]) -> list[DiffRow]:
+    """One row per profile key, plus one per installed catalog tool the profile doesn't name.
+
+    `machine` holds the keys this machine's catalog knows; a profile key absent from it is
+    `unknown-key`. A tool that is neither in the profile nor installed is not a row at all.
+    """
+    rows = [_compare_one(key, entry, machine.get(key)) for key, entry in profile.tools.items()]
+    rows += [
+        _row(key, DiffState.EXTRA, tool, None)
+        for key, tool in machine.items()
+        if key not in profile.tools and tool.installed
+    ]
+    return rows
+
+
+# Display order (FR-19): what needs attention first, `ok` last.
+_DIFF_ORDER = {
+    state: i
+    for i, state in enumerate(
+        (
+            DiffState.MISSING,
+            DiffState.DRIFT,
+            DiffState.UNVERIFIABLE,
+            DiffState.UNPINNABLE,
+            DiffState.UNKNOWN_KEY,
+            DiffState.EXTRA,
+            DiffState.OK,
+        )
+    )
+}
+
+
+def sort_diff_rows(rows: Iterable[DiffRow]) -> list[DiffRow]:
+    return sorted(rows, key=lambda r: (_DIFF_ORDER[r.state], r.key))
+
+
+def summarize_diff(rows: Iterable[DiffRow]) -> dict[DiffState, int]:
+    """Count per state. Every state is present, so the counts always sum to the rows (FR-17)."""
+    counts = dict.fromkeys(DiffState, 0)
+    for r in rows:
+        counts[r.state] += 1
+    return counts
+
+
+def differs(rows: Iterable[DiffRow], *, ignore_extras: bool) -> bool:
+    """Whether `--exit-code` should report a difference (FR-22, OQ-2).
+
+    Anything other than `ok` is one. `extra` counts too unless the caller opted out — "is this
+    machine exactly what the profile says" is what a gate asks — but opting out of extras never
+    hides a real difference.
+    """
+    return any(
+        r.state is not DiffState.OK and not (ignore_extras and r.state is DiffState.EXTRA)
+        for r in rows
+    )

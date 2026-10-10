@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — P1–P3 done
+**Status:** Approved (2026-10-10) — P1–P4 done
 
 ---
 
@@ -15,7 +15,7 @@ are tested before any command exists — the order that worked for `outdated`.
 | P1 | `dev_setup/profile.py`: `Profile` model, strict loader (duplicate-key detecting), deterministic dumper | FR-1–6, FR-9, FR-24, NFR-4 | **Done** 2026-10-10 |
 | P2 | `GenericTool.installed_version()` (local readers factored out of the checkers), `supports_pin`, and the test tying it to `update(version=…)` | FR-10–12, FR-25–26, SD-3/4/10 | **Done** 2026-10-10 |
 | P3 | `devstuff profile snapshot` (group + command, `-o`, `--versions`, `--force`, stderr notes), registered in the CLI and help table | FR-7–8, 13–14, 23, NFR-1/2 | **Done** 2026-10-10 |
-| P4 | Diff classifier — pure function over (profile, installed state, catalog) → seven states, counts, ordering | FR-16–18, 20 | Not started |
+| P4 | Diff classifier — pure function over (profile, installed state, catalog) → seven states, counts, ordering | FR-16–18, 20 | **Done** 2026-10-10 |
 | P5 | `devstuff profile diff` (table, footer, `--all`, `--json`, `--exit-code`, `--ignore-extras`, exit 2 on bad profile) | FR-15, 19, 21–22, NFR-1 | Not started |
 | P6 | README command reference, CLAUDE.md rules, roadmap + specs index | — | Not started |
 
@@ -84,6 +84,13 @@ nothing exercised the guard — now tested. Live on a real machine: default outp
 readable tools and writes `commitizen` bare with a warning naming it and why; a second `-o` is refused with exit 2; with the network
 blocked it succeeds in 1.9 s with output byte-identical to online; three runs hash identically; no hostname, user, home path or
 year appears in the output.
+
+**P4 verification, 2026-10-10.** 109 tests in `test_profile_diff.py`, 72 of them one parametrized case per valid combination of
+(in profile, pin, catalog knows, installed, pinnable, version read) — 96 raw, less the 24 that would pin a key not in the profile: each asserts the spec's rule for that combination, and a
+second test asserts the grid reaches all seven states, so a state the table never produces cannot hide. The FR-17 property is
+also stated directly — `ok` implies the comparison genuinely succeeded. 18 deliberate breakages, all caught first time: each
+"could not compare" state rendered as `ok`, the precedence between `missing`/`unpinnable`/`unknown-key`, version comparison made
+to normalise or to order, extras handling in `differs`, and a summary that omits zero counts.
 
 ## Risks
 
