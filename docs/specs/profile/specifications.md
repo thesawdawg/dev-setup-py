@@ -1,7 +1,7 @@
 # Specification: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — open questions resolved, implementation in progress
+**Status:** Implemented (v1: snapshot, diff), 2026-10-10 — see development-plan.md
 **Authors:** Sawyer + Claude
 **Roadmap:** [M2](../../ROADMAP.md) — `snapshot` and `diff`. `apply` is M3 and gets its own
 requirements before it starts; §6 records what is already known about it.
