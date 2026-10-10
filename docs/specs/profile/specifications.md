@@ -123,7 +123,8 @@ to compare a machine against it.
   documented `==`.)
 - **FR-19** By default only differences are shown; `ok` rows are summarised in the closing line and
   listed with `--all`. `extra` rows are shown as a single collapsed footer line naming the tools,
-  because a deliberately small profile will have many.
+  because a deliberately small profile will have many; `--all` lists them as rows instead
+  (settled in P5 — the spec was silent on what `--all` does to extras).
 - **FR-20** The closing summary lists every non-zero state count, e.g.
   `2 missing · 1 drift · 1 unknown-key · 31 ok`.
 - **FR-21** `--json` writes one array to stdout and nothing else: objects with `key`, `state`,
@@ -131,7 +132,8 @@ to compare a machine against it.
   includes `ok` and `extra` rows, always — filtering is a display concern.
 - **FR-22** **Exit status.** By default `0` whenever the comparison ran, whatever it found.
   `--exit-code` makes it `1` if any key is in a state other than `ok`; `extra` counts unless
-  `--ignore-extras` is given (OQ-2, OQ-4). An unreadable or invalid profile is `2`, so `1` stays
+  `--ignore-extras` is given (OQ-2, OQ-4). `--ignore-extras` affects **only** this exit status: the rows,
+  the footer, the summary and `--json` still show extras (FR-21), so relaxing the gate never hides what is there. An unreadable or invalid profile is `2`, so `1` stays
   unambiguous as "differs".
 
 ### Structure

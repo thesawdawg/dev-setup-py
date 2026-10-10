@@ -314,25 +314,22 @@ def compare(profile: Profile, machine: Mapping[str, MachineTool]) -> list[DiffRo
     return rows
 
 
-# Display order (FR-19): what needs attention first, `ok` last.
-_DIFF_ORDER = {
-    state: i
-    for i, state in enumerate(
-        (
-            DiffState.MISSING,
-            DiffState.DRIFT,
-            DiffState.UNVERIFIABLE,
-            DiffState.UNPINNABLE,
-            DiffState.UNKNOWN_KEY,
-            DiffState.EXTRA,
-            DiffState.OK,
-        )
-    )
-}
+# Display order (FR-19): what needs attention first, `ok` last. Public so the summary line
+# the command prints uses the same order as the rows, not a second copy of it.
+DIFF_ORDER: tuple[DiffState, ...] = (
+    DiffState.MISSING,
+    DiffState.DRIFT,
+    DiffState.UNVERIFIABLE,
+    DiffState.UNPINNABLE,
+    DiffState.UNKNOWN_KEY,
+    DiffState.EXTRA,
+    DiffState.OK,
+)
+_DIFF_RANK = {state: i for i, state in enumerate(DIFF_ORDER)}
 
 
 def sort_diff_rows(rows: Iterable[DiffRow]) -> list[DiffRow]:
-    return sorted(rows, key=lambda r: (_DIFF_ORDER[r.state], r.key))
+    return sorted(rows, key=lambda r: (_DIFF_RANK[r.state], r.key))
 
 
 def summarize_diff(rows: Iterable[DiffRow]) -> dict[DiffState, int]:

@@ -14,18 +14,22 @@ from dataclasses import dataclass, field
 from dev_setup import registry
 from dev_setup.base import Tool
 from dev_setup.generic import supports_pin
-from dev_setup.profile import Entry, Profile, ProfileError
+from dev_setup.profile import Entry, MachineTool, Profile, ProfileError
 
 _MAX_WORKERS = 8
 
-# Why a pinnable tool's version couldn't be read, by install type — so the warning says what
-# to look at instead of "version unreadable".
+# Why a pinnable tool's version couldn't be read, by install type — so a warning or a diff note
+# says what to look at instead of "version unreadable".
 _WHY_UNREADABLE = {
     "npm": "npm doesn't list it as a global package",
     "pip": "uv doesn't list it as a tool (is it installed another way?)",
     "uvx": "uv doesn't list it as a tool (is it installed another way?)",
     "apt": "dpkg doesn't report a version for it",
 }
+
+
+def why_unreadable(install_type: str) -> str:
+    return _WHY_UNREADABLE.get(install_type, "no reader for this type")
 
 
 @dataclass(frozen=True)
@@ -80,7 +84,7 @@ def take(tools: Sequence[Tool] | None = None, *, versions: bool = False) -> Snap
                 version = ""  # a value the profile format would refuse: treat as unreadable
             if not version:
                 unreadable.append(tool.key)
-                why[tool.key] = _WHY_UNREADABLE.get(tool.install_type, "no reader for this type")
+                why[tool.key] = why_unreadable(tool.install_type)
         entries[tool.key] = entry
         if not getattr(tool, "builtin", True):
             custom.append(tool.key)
@@ -91,3 +95,37 @@ def take(tools: Sequence[Tool] | None = None, *, versions: bool = False) -> Snap
         custom=tuple(sorted(custom)),
         why=why,
     )
+
+
+def _facts_one(tool: Tool, entry: Entry | None) -> MachineTool:
+    """Facts about one catalog tool for `profile.compare`. Never raises."""
+    try:
+        installed = bool(tool.is_installed())
+    except Exception:
+        installed = False  # cannot claim it is installed (as `snapshot` and `outdated` do)
+    pinnable = supports_pin(tool)  # type: ignore[arg-type]
+    version = why = ""
+    # A version is only worth a subprocess when the profile pins this tool, the tool is there
+    # to be read, and a pin could be honoured at all. Everything else is decided without one.
+    if installed and pinnable and entry is not None and entry.version is not None:
+        reader = getattr(tool, "installed_version", None)
+        try:
+            version = (reader() if reader else "") or ""
+        except Exception:
+            version = ""
+        if not version:
+            why = why_unreadable(tool.install_type)
+    return MachineTool(tool.install_type, installed, pinnable, version, why)
+
+
+def machine_facts(profile: Profile, tools: Sequence[Tool] | None = None) -> dict[str, MachineTool]:
+    """Facts about every catalog tool, keyed for `profile.compare`.
+
+    Local reads only, on a worker pool; a key absent from the result is a key this machine's
+    catalog does not have.
+    """
+    if tools is None:
+        tools = registry.all_tools()
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+        facts = list(pool.map(lambda t: _facts_one(t, profile.tools.get(t.key)), tools))
+    return {tool.key: fact for tool, fact in zip(tools, facts, strict=True)}

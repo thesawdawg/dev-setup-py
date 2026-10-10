@@ -26,7 +26,7 @@ def print_help() -> None:
         ("remove",  "<package ...>",                          "Uninstall installed packages"),
         ("update",  "[package ...] [--version]",              "Update packages (interactive if no args)"),
         ("outdated", "[package ...] [--json]",               "Show which installed packages have updates"),
-        ("profile", "snapshot [-o FILE] [--versions]",      "Save this machine's tools as a portable file"),
+        ("profile", "<snapshot|diff> [...]",               "Save this machine's tools, or compare to a file"),
         ("configure", "[tool] [--list] [--path]",             "Set up a tool with a guided wizard"),
         ("add",     "",                                        "Add a custom package (guided wizard)"),
         ("delete",  "<key>",                                  "Remove a custom package from the registry"),
