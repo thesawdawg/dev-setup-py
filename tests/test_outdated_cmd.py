@@ -290,3 +290,42 @@ def test_command_is_registered_and_advertises_verbose():
     assert result.exit_code == 0
     assert "--json" in result.output and "--updates-only" in result.output
     assert "-v" in result.output
+
+
+# -- notes (FR-23) ----------------------------------------------------------------------
+
+
+def _with_note(monkeypatch, note):
+    tools = [fake("flaky", "uvx", status=UpdateStatus(current="1.0", note=note))]
+    monkeypatch.setattr(registry, "all_tools", lambda: tools)
+
+
+def test_a_note_is_shown_after_the_state_in_the_table(monkeypatch):
+    _with_note(monkeypatch, "not installed via `uv tool`")
+
+    out = run().output
+
+    assert "? unknown" in out
+    assert "not installed via `uv tool`" in out
+
+
+def test_a_note_is_carried_in_json(monkeypatch):
+    _with_note(monkeypatch, "couldn't reach the package index")
+
+    assert rows(run("--json"))["flaky"]["note"] == "couldn't reach the package index"
+
+
+def test_a_note_containing_brackets_is_printed_literally_not_parsed_as_markup(monkeypatch):
+    _with_note(monkeypatch, "see [docs] and [/nonsense]")
+
+    result = run()
+
+    assert result.exit_code == 0
+    assert "see [docs] and [/nonsense]" in result.output
+
+
+def test_rows_without_a_note_print_no_extra_line(catalog):
+    out = run().output
+
+    assert out.count("? unknown") == 1
+    assert "None" not in out
