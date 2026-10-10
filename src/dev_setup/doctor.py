@@ -150,6 +150,30 @@ def check_user_functions_catalog() -> CheckResult:
     )
 
 
+def check_bundled_links_catalog() -> CheckResult:
+    """Bundled links.yaml loads and validates."""
+    from dev_setup import links_catalog as lc
+
+    try:
+        links = lc.load_bundled_catalog()
+    except lc.CatalogError as exc:
+        return CheckResult("bundled-links-catalog", FAIL, f"Bundled links.yaml invalid: {exc}")
+    return CheckResult("bundled-links-catalog", PASS, f"Bundled links.yaml valid ({len(links)} links)")
+
+
+def check_user_links_catalog() -> CheckResult:
+    """User links.yaml (if present) loads and validates."""
+    from dev_setup import links_catalog as lc
+
+    if not lc.USER_CATALOG_PATH.exists():
+        return CheckResult("user-links-catalog", PASS, "No user links.yaml")
+    try:
+        links = lc.read_user_catalog()
+    except lc.CatalogError as exc:
+        return CheckResult("user-links-catalog", FAIL, f"User links.yaml invalid: {exc}")
+    return CheckResult("user-links-catalog", PASS, f"User links.yaml valid ({len(links)} links)")
+
+
 def check_bundled_agent_catalog() -> CheckResult:
     """Bundled agent_tools.yaml loads and validates."""
     from dev_setup.agent import catalog as ac
@@ -284,6 +308,8 @@ ALL_CHECKS: list[Callable[[], CheckResult]] = [
     check_user_tools_catalog,
     check_bundled_functions_catalog,
     check_user_functions_catalog,
+    check_bundled_links_catalog,
+    check_user_links_catalog,
     check_bundled_agent_catalog,
     check_user_agent_catalog,
     check_registry_loads,

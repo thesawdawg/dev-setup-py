@@ -61,6 +61,7 @@ src/dev_setup/
 ├── registry.py      # Loads the effective catalog into a live in-memory Tool registry
 ├── generic.py       # GenericTool — the ONE engine that implements every install type
 ├── tools.yaml       # Bundled built-in catalog (core/tools/languages categories)
+├── links.yaml       # Bundled link catalog (+ links_catalog.py / links_registry.py / links.schema.json)
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
 ├── verbose.py      # Process-wide -v/-vv level + the stderr logger built on it
 ├── configure/       # Per-tool setup wizards (see "Configurators" below)
@@ -178,6 +179,19 @@ installing PHP packages via Composer as their own first-class type (analogous to
    `tests/integration/test_tools.py`'s parametrization (add to CI matrix / `_SKIP` as above).
 
 ## Functions/scripts (a separate subsystem from tools)
+
+## Links (`devstuff links`) — a fourth, deliberately tiny catalog
+
+`links.yaml` + `links_catalog.py` + `links_registry.py` + `commands/links_cmd.py` follow the
+functions pattern (bundled → user override, validated at load) for bookmarks to other tools' sites.
+`links list|search|open|path`, plus a type-to-filter picker on a bare `devstuff links` in a TTY.
+`links.schema.json` is hand-maintained for editors and checked against `SUPPORTED_FIELDS` by a test.
+- **`url` is restricted to `http(s)` in `validate_catalog`.** The URL goes to `webbrowser.open` from a
+  user-editable file; `file:`/`javascript:`/custom handlers would let a catalog launch local programs.
+- **`search` matches title and description only, not the key**, terms ANDed, title hits ranked first.
+  It is a pure function in `links_registry` so it is tested without a terminal.
+- **"No matches" exits 0; "could not open a browser" exits 1** — same found-nothing vs. could-not-act
+  split as `run_cmd`. `open` always prints the URL first, since over SSH there is no browser to find.
 
 `src/dev_setup/functions.yaml` + `functions_catalog.py` + `functions_registry.py` +
 `function_runner.py` are a parallel, independent catalog/registry from tools — functions

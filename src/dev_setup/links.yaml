@@ -1,0 +1,116 @@
+# yaml-language-server: $schema=./links.schema.json
+version: 1
+links:
+  devstuff-repo:
+    name: devstuff Repository
+    description: Source code, issues, and releases for devstuff
+    category: devstuff
+    url: https://github.com/thesawdawg/dev-setup-py
+
+  devstuff-pypi:
+    name: devstuff on PyPI
+    description: Published releases of the devstuff package
+    category: devstuff
+    url: https://pypi.org/project/devstuff/
+
+  uv-docs:
+    name: uv Documentation
+    description: Python package and project manager, tool installs, and Python provisioning
+    category: python
+    url: https://docs.astral.sh/uv/
+
+  ruff-docs:
+    name: Ruff Documentation
+    description: Python linter and formatter rules and configuration
+    category: python
+    url: https://docs.astral.sh/ruff/
+
+  pypi:
+    name: PyPI
+    description: Search the Python Package Index
+    category: python
+    url: https://pypi.org/
+
+  npm-registry:
+    name: npm
+    description: Search the npm package registry for Node.js packages
+    category: node
+    url: https://www.npmjs.com/
+
+  nvm-repo:
+    name: nvm Repository
+    description: Node Version Manager install instructions and usage
+    category: node
+    url: https://github.com/nvm-sh/nvm
+
+  docker-docs:
+    name: Docker Documentation
+    description: Docker Engine, Compose, and CLI reference
+    category: containers
+    url: https://docs.docker.com/
+
+  docker-hub:
+    name: Docker Hub
+    description: Search public container images
+    category: containers
+    url: https://hub.docker.com/
+
+  ollama-library:
+    name: Ollama Model Library
+    description: Browse local LLM models that can be pulled with ollama
+    category: ai
+    url: https://ollama.com/library
+
+  claude-code-docs:
+    name: Claude Code Documentation
+    description: Anthropic's agentic coding CLI, settings, hooks, and MCP servers
+    category: ai
+    url: https://docs.claude.com/en/docs/claude-code/overview
+
+  starship-docs:
+    name: Starship Documentation
+    description: Cross-shell prompt configuration and module reference
+    category: shell
+    url: https://starship.rs/config/
+
+  conventional-commits:
+    name: Conventional Commits
+    description: The commit message specification used by commitizen
+    category: git
+    url: https://www.conventionalcommits.org/
+
+  github-cli-manual:
+    name: GitHub CLI Manual
+    description: Reference for the gh command line tool
+    category: git
+    url: https://cli.github.com/manual/
+
+  devtoys:
+    name: DevToys
+    description: Offline developer utilities — converters, encoders, formatters, and generators
+    category: utilities
+    url: https://devtoys.app/
+
+  linux-command-library:
+    name: Linux Command Library
+    description: Searchable reference of Linux commands with examples and cheat sheets
+    category: reference
+    url: https://linuxcommandlibrary.com/
+
+  devhints:
+    name: Devhints
+    description: Community cheatsheets for languages, tools, and frameworks
+    category: reference
+    url: https://devhints.io/
+
+  awesome-open-source:
+    name: Awesome Open Source
+    description: Curated open source projects browsable by topic and language
+    category: discovery
+    url: https://awesomeopensource.com/
+
+  fmhy-developer-tools:
+    name: FMHY Developer Tools
+    description: Curated list of free developer tools, editors, hosting, and resources
+    category: discovery
+    url: https://fmhy.net/developer-tools
