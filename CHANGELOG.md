@@ -1,3 +1,9 @@
+## v2.10.0 (2026-10-10)
+
+### Features
+
+- **starship**: add per-section color and icon customization
+
 ## v2.9.0 (2026-10-10)
 
 ### Features
