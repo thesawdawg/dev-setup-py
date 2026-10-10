@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Draft — not started; blocked on the open questions in `specifications.md` §5
+**Status:** Approved (2026-10-10) — in progress
 
 ---
 

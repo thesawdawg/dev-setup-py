@@ -1,7 +1,7 @@
 # Specification: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Draft — open questions await a decision (§5)
+**Status:** Approved (2026-10-10) — open questions resolved, implementation in progress
 **Authors:** Sawyer + Claude
 **Roadmap:** [M2](../../ROADMAP.md) — `snapshot` and `diff`. `apply` is M3 and gets its own
 requirements before it starts; §6 records what is already known about it.
@@ -179,16 +179,16 @@ Per the project convention (*measure the tool, don't recall it*). Date: 2026-10-
 
 ---
 
-## 5. Open questions
+## 5. Open questions (all resolved)
 
 | # | Question | Recommendation | Status |
 |---|----------|----------------|--------|
-| OQ-1 | Should `snapshot` record versions by default, or only with `--versions`? | **Keys only by default.** Most people want "the same tools", and a pinned-by-default profile goes stale the day a tool updates, then reports drift nobody intended. `--versions` is one flag away when reproducibility is the point. | Open |
-| OQ-2 | Do `extra` tools count as a difference for `--exit-code`? | **Yes**, with `--ignore-extras` to relax. "Is this machine exactly what the profile says" is the question a gate asks; a partial profile is the case `--ignore-extras` is for. | Open |
-| OQ-3 | Include tools from the user's own catalog in a snapshot? | **Yes**, plus the stderr note in FR-13. Omitting them would make the snapshot silently incomplete; embedding their definitions would break the "keys only" rule (SD-2). | Open |
-| OQ-4 | Ship `--exit-code` in v1? | **Yes.** `outdated` deferred it for lack of a concrete user; here drift-gating is the headline use case. Off by default, so FR-22's default holds. | Open |
-| OQ-5 | A named-profile directory (`~/.config/devstuff/profiles/<name>.yaml`) so `diff work` works? | **No in v1** — paths only. It adds a lookup order and a place for files to hide; add it if typing paths becomes the complaint. | Open |
-| OQ-6 | Should `apt` entries with several packages be pinnable? | **No** — `unpinnable`. `update` supports a pin for a single package only (F-2), and a profile entry has one `version`. | Open |
+| OQ-1 | Should `snapshot` record versions by default, or only with `--versions`? | **Keys only by default.** Most people want "the same tools", and a pinned-by-default profile goes stale the day a tool updates, then reports drift nobody intended. `--versions` is one flag away when reproducibility is the point. | **Resolved 2026-10-10: approved as recommended** — keys only by default; `--versions` opts in. |
+| OQ-2 | Do `extra` tools count as a difference for `--exit-code`? | **Yes**, with `--ignore-extras` to relax. "Is this machine exactly what the profile says" is the question a gate asks; a partial profile is the case `--ignore-extras` is for. | **Resolved 2026-10-10: approved as recommended** — `extra` counts as a difference for `--exit-code`; `--ignore-extras` relaxes it. |
+| OQ-3 | Include tools from the user's own catalog in a snapshot? | **Yes**, plus the stderr note in FR-13. Omitting them would make the snapshot silently incomplete; embedding their definitions would break the "keys only" rule (SD-2). | **Resolved 2026-10-10: approved as recommended** — custom-catalog tools are included, with the FR-13 stderr note. |
+| OQ-4 | Ship `--exit-code` in v1? | **Yes.** `outdated` deferred it for lack of a concrete user; here drift-gating is the headline use case. Off by default, so FR-22's default holds. | **Resolved 2026-10-10: approved as recommended** — `--exit-code` ships in v1 (FR-22). |
+| OQ-5 | A named-profile directory (`~/.config/devstuff/profiles/<name>.yaml`) so `diff work` works? | **No in v1** — paths only. It adds a lookup order and a place for files to hide; add it if typing paths becomes the complaint. | **Resolved 2026-10-10: approved as recommended** — no named-profile directory in v1; paths only. |
+| OQ-6 | Should `apt` entries with several packages be pinnable? | **No** — `unpinnable`. `update` supports a pin for a single package only (F-2), and a profile entry has one `version`. | **Resolved 2026-10-10: approved as recommended** — multi-package `apt` entries are `unpinnable`. |
 
 ---
 
