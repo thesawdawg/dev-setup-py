@@ -64,7 +64,10 @@ over an existing probe and an existing collector, not new probing.
 
 ## M2 — `devstuff profile snapshot` and `diff`
 
-A profile is a YAML file: catalog keys, optional pinned versions, optional configurator output.
+**Spec:** [`specs/profile/`](specs/profile/) (draft, 2026-10-10) — covers `snapshot` and `diff`; `apply` (M3) gets its own requirements.
+
+A profile is a YAML file: catalog keys and optional pinned versions. Configurator output is **not** part of it
+(several configurators don't round-trip); capturing it is a separate, later decision.
 
 ```yaml
 version: 1
