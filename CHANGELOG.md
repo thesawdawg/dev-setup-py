@@ -1,3 +1,13 @@
+## v2.12.0 (2026-10-10)
+
+### Features
+
+- **profile**: add `devstuff profile diff`
+- **profile**: add the diff classifier
+- **profile**: add `devstuff profile snapshot`
+- **generic**: add installed_version() and supports_pin() for profiles
+- **profile**: add the profile file model, strict loader and dumper
+
 ## v2.11.0 (2026-10-10)
 
 ### Features
