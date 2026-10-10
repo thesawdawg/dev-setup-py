@@ -35,18 +35,23 @@ that answer against real machines before anything is built on top of it.
 
 A read-only, non-interactive table of installed vs. latest version per tool.
 
+**Spec:** [`specs/outdated/`](specs/outdated/) (approved, 2026-10-10).
+
 **Why it is small.** `GenericTool.check_for_update()` already returns an `UpdateStatus`
 (`current`, `latest`, `available`) for `npm`, `pip`, `uvx`, `apt` and `git`, and `devstuff update`
-already uses it for its recommended-updates picker. This milestone is a new command over an
-existing probe, not a new probe.
+already probes every installed tool concurrently for its picker. This milestone is a new command
+over an existing probe and an existing collector, not new probing.
 
-**What is actually hard.**
-- **`available is None` is "unknown", not "current".** `script` and `bash` tools have no update
-  checker, and a failed probe (offline) also yields `None`. The table must render these as
-  unknown. Rendering them as up-to-date would make the command lie on exactly the tools it
-  cannot see, which is a large share of the catalog.
-- **Cost.** `check_for_update()` shells out to the network per tool. Probe concurrently with a
-  bounded pool, and show progress; a serial loop over the full catalog will feel hung.
+**What is actually hard** (revised after measuring the existing path — see the spec's §4).
+- **Two thirds of the bundled catalog cannot be checked.** 23 of 35 tools are `bash` installers
+  with no update checker. `available is None` is "unknown", never "current", and a *missing*
+  checker must be told apart from a *failed* probe — hence five states, not three. Making `bash`
+  tools checkable is the real fix and is a follow-up spec, not part of M1.
+- **The existing uv probes are redundant and racy.** One run issued 6 `uv tool list` calls where
+  4 suffice: `lru_cache` does not stop concurrent first callers from each computing the value.
+  Fix this before building on it.
+- **The collector is private to `update_cmd.py`.** It has to move somewhere both commands can
+  import, as a pure refactor with a parity test.
 - **Probes go through `_probe`**, per the verbosity rules in `CLAUDE.md` — no direct
   `subprocess.run`.
 
