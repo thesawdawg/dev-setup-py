@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — P1–P2 done
+**Status:** Approved (2026-10-10) — P1–P3 done
 
 ---
 
@@ -14,7 +14,7 @@ are tested before any command exists — the order that worked for `outdated`.
 |---|-----------|-----------|-------|
 | P1 | `dev_setup/profile.py`: `Profile` model, strict loader (duplicate-key detecting), deterministic dumper | FR-1–6, FR-9, FR-24, NFR-4 | **Done** 2026-10-10 |
 | P2 | `GenericTool.installed_version()` (local readers factored out of the checkers), `supports_pin`, and the test tying it to `update(version=…)` | FR-10–12, FR-25–26, SD-3/4/10 | **Done** 2026-10-10 |
-| P3 | `devstuff profile snapshot` (group + command, `-o`, `--versions`, `--force`, stderr notes), registered in the CLI and help table | FR-7–8, 13–14, 23, NFR-1/2 | Not started |
+| P3 | `devstuff profile snapshot` (group + command, `-o`, `--versions`, `--force`, stderr notes), registered in the CLI and help table | FR-7–8, 13–14, 23, NFR-1/2 | **Done** 2026-10-10 |
 | P4 | Diff classifier — pure function over (profile, installed state, catalog) → seven states, counts, ordering | FR-16–18, 20 | Not started |
 | P5 | `devstuff profile diff` (table, footer, `--all`, `--json`, `--exit-code`, `--ignore-extras`, exit 2 on bad profile) | FR-15, 19, 21–22, NFR-1 | Not started |
 | P6 | README command reference, CLAUDE.md rules, roadmap + specs index | — | Not started |
@@ -77,6 +77,13 @@ could not, so this step is not optional.
 never reached the outer guard because the inner readers swallow their own errors; and a get_version() trap raised inside
 a function that swallows exceptions. Live on a real machine: `commitizen` is pinnable by type but unreadable (not a `uv tool`),
 which is precisely the `unverifiable` state; results are identical with the network blocked.
+
+**P3 verification, 2026-10-10.** 42 tests (`test_snapshot.py`, `test_profile_snapshot_cmd.py`); 17 deliberate breakages, 16 caught
+first time. The survivor was real: `snapshot` guards against an `installed_version()` that raises, but the real one never does, so
+nothing exercised the guard — now tested. Live on a real machine: default output is keys only; `--versions` pins exactly the four
+readable tools and writes `commitizen` bare with a warning naming it and why; a second `-o` is refused with exit 2; with the network
+blocked it succeeds in 1.9 s with output byte-identical to online; three runs hash identically; no hostname, user, home path or
+year appears in the output.
 
 ## Risks
 
