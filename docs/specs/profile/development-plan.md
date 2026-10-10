@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — P1 done
+**Status:** Approved (2026-10-10) — P1–P2 done
 
 ---
 
@@ -13,14 +13,14 @@ are tested before any command exists — the order that worked for `outdated`.
 | # | Milestone | Satisfies | State |
 |---|-----------|-----------|-------|
 | P1 | `dev_setup/profile.py`: `Profile` model, strict loader (duplicate-key detecting), deterministic dumper | FR-1–6, FR-9, FR-24, NFR-4 | **Done** 2026-10-10 |
-| P2 | `GenericTool.installed_version()` (local readers factored out of the checkers), `supports_pin`, and the test tying it to `update(version=…)` | FR-10–12, FR-25–26, SD-3/4/10 | Not started |
+| P2 | `GenericTool.installed_version()` (local readers factored out of the checkers), `supports_pin`, and the test tying it to `update(version=…)` | FR-10–12, FR-25–26, SD-3/4/10 | **Done** 2026-10-10 |
 | P3 | `devstuff profile snapshot` (group + command, `-o`, `--versions`, `--force`, stderr notes), registered in the CLI and help table | FR-7–8, 13–14, 23, NFR-1/2 | Not started |
 | P4 | Diff classifier — pure function over (profile, installed state, catalog) → seven states, counts, ordering | FR-16–18, 20 | Not started |
 | P5 | `devstuff profile diff` (table, footer, `--all`, `--json`, `--exit-code`, `--ignore-extras`, exit 2 on bad profile) | FR-15, 19, 21–22, NFR-1 | Not started |
 | P6 | README command reference, CLAUDE.md rules, roadmap + specs index | — | Not started |
 
-P2 is the only milestone that changes existing behaviour (it factors local reads out of
-`_check_update_npm` / `_uv_tool_versions` / `_check_update_apt`). It lands before any command uses
+P2 is the only milestone that changes existing behaviour (it factors the `dpkg-query` read out of
+`_check_update_apt`; the npm and uv reads were already separate functions). It lands before any command uses
 it, and its parity test pins that `check_for_update` returns what it did before.
 
 ## Testing strategy
@@ -69,6 +69,14 @@ a bogus key, and check the report shows exactly `drift` and `unknown-key` and ex
 `--exit-code`. Repeat `snapshot` with the network blocked — it must succeed, since it asks the
 network nothing (NFR-2). `outdated`'s equivalent step found a real bug (its F-7) that the unit tests
 could not, so this step is not optional.
+
+**P2 verification, 2026-10-10.** 65 tests across `test_update_checker_parity.py` (baseline written and run against the
+*unrefactored* code first), `test_pin_support.py` and `test_installed_version.py`. Twelve deliberate breakages were each caught
+— but only after strengthening three tests that the first round let survive: the pin test treated *any* `RuntimeError` as
+"refused the pin" (so an updater that quietly accepted one, then failed on a missing clone, passed); the never-raises test
+never reached the outer guard because the inner readers swallow their own errors; and a get_version() trap raised inside
+a function that swallows exceptions. Live on a real machine: `commitizen` is pinnable by type but unreadable (not a `uv tool`),
+which is precisely the `unverifiable` state; results are identical with the network blocked.
 
 ## Risks
 
