@@ -222,6 +222,20 @@ class GenericTool(Tool):
 
         return ""
 
+    def installed_version(self) -> str:
+        """The installed version as a clean string, read locally; "" if it cannot be had.
+
+        Unlike `get_version()` this is meant for machine use: no free text, no network, never
+        raises. Types with no reader (git, script, bash) return "" without running anything.
+        """
+        reader = _VERSION_READERS.get(self.install_type)
+        if reader is None:
+            return ""
+        try:
+            return reader(self)
+        except Exception:
+            return ""
+
 
 # -- Install strategies --------------------------------------------------------
 
@@ -553,17 +567,22 @@ def _check_update_uvx(tool: GenericTool) -> UpdateStatus:
     return UpdateStatus(current=current, latest=latest, available=True)
 
 
-def _check_update_apt(tool: GenericTool) -> UpdateStatus:
-    if not tool.apt_packages:
-        return UpdateStatus()
-    pkg = tool.apt_packages.split()[0]
+def _apt_installed_version(pkg: str) -> str:
+    """The installed version of an apt package, or "" — a local dpkg read, no network."""
     try:
         r = _probe(
             ["dpkg-query", "-W", "-f=${Version}", pkg], capture_output=True, text=True, timeout=10,
         )
-        current = r.stdout.strip() if r.returncode == 0 else ""
+        return r.stdout.strip() if r.returncode == 0 else ""
     except Exception:
-        current = ""
+        return ""
+
+
+def _check_update_apt(tool: GenericTool) -> UpdateStatus:
+    if not tool.apt_packages:
+        return UpdateStatus()
+    pkg = tool.apt_packages.split()[0]
+    current = _apt_installed_version(pkg)
     try:
         r = _probe(["apt-cache", "policy", pkg], capture_output=True, text=True, timeout=10)
     except Exception:
@@ -625,6 +644,59 @@ def supports_update_check(install_type: str) -> bool:
     "cannot be checked" from "the check failed".
     """
     return install_type in _UPDATE_CHECKERS
+
+
+# -- Local installed-version readers ---------------------------------------------------------
+# `get_version()` is the first line of `--version` output — free text such as
+# 'bat 0.26.1 (979ba22)' — and the update checkers return a clean version only alongside a
+# network lookup. A profile needs a clean version without either (docs/specs/profile, F-1, F-3),
+# so these read it locally, per type, and say "" when they cannot. A type that cannot be pinned
+# (git, script, bash) has no reader on purpose: a version we could not act on is not recorded.
+
+
+def _read_npm(tool: GenericTool) -> str:
+    return _npm_installed_version(tool.npm_name) if tool.npm_name else ""
+
+
+def _read_uv(tool: GenericTool) -> str:
+    # Shares the once-per-run `uv tool list` parse with the update checker.
+    if not tool.pip_name:
+        return ""
+    return (_uv_tool_versions().data or {}).get(tool.pip_name, "")
+
+
+def _read_apt(tool: GenericTool) -> str:
+    packages = (tool.apt_packages or "").split()
+    # With several packages there is no single "the version" (and such a tool cannot be pinned).
+    return _apt_installed_version(packages[0]) if len(packages) == 1 else ""
+
+
+_VERSION_READERS: dict[str, Callable[[GenericTool], str]] = {
+    "npm": _read_npm,
+    "pip": _read_uv,
+    "uvx": _read_uv,
+    "apt": _read_apt,
+}
+
+# Install types whose `update(version=...)` really installs that version. Explicit rather than
+# discovered by calling `update` and catching the error — a read must not attempt a mutation to
+# learn what it can do — and tied to the updaters by tests/test_pin_support.py, so it cannot
+# quietly drift from them.
+_PINNABLE_TYPES = frozenset({"npm", "pip", "uvx", "apt"})
+
+
+def supports_pin(tool: GenericTool) -> bool:
+    """Whether `update(version=...)` can install a specific version of this tool.
+
+    npm, pip/uvx and apt can; git (shallow clone), script and bash cannot. An apt tool pins
+    only when it names exactly one package — `update` refuses otherwise, and a profile entry
+    has a single version to apply.
+    """
+    if tool.install_type not in _PINNABLE_TYPES:
+        return False
+    if tool.install_type == "apt":
+        return len((tool.apt_packages or "").split()) == 1
+    return True
 
 
 # -- Remove strategies -----------------------------------------------------------
