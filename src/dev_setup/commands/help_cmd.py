@@ -17,6 +17,7 @@ def print_help() -> None:
         ("add",     "",                                        "Add a custom package (guided wizard)"),
         ("delete",  "<key>",                                  "Remove a custom package from the registry"),
         ("doctor",  "[--fix] [--check-only]",                 "Diagnose and repair the installation"),
+        ("platform", "[--json]",                              "Show the detected host platform"),
         ("catalog", "<path|export|import>",                   "Manage YAML tool catalogs"),
         ("docs",    "<package>",                              "Open documentation in browser"),
         ("run",     "<function> [args...]",                   "Run a function/script"),

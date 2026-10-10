@@ -60,6 +60,8 @@ src/dev_setup/
 ├── catalog.py       # YAML load/validate/merge/import/export — the schema is enforced here
 ├── registry.py      # Loads the effective catalog into a live in-memory Tool registry
 ├── generic.py       # GenericTool — the ONE engine that implements every install type
+├── platforms.py     # Host detection + the system-package-manager abstraction
+├── compat.py        # Reads an install source for things this host can't do
 ├── tools.yaml       # Bundled built-in catalog (core/tools/languages categories)
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
 ├── verbose.py      # Process-wide -v/-vv level + the stderr logger built on it
@@ -113,6 +115,72 @@ load-bearing:
   tear out the shared environment. Extras need no field: `pip_name` reaches `subprocess` as one
   argv element, never a shell, so `pip_name: "ansible-lint[lock]"` already works.
 
+**Platform compatibility** (`platforms.py`, spec in `docs/specs/platform-compat/`): one
+process-wide `Platform` record, detected once and cached, that answers *which package manager*,
+*whether to sudo*, and *what this host cannot do*. Nothing else may assume a host shape — a
+literal `sudo` or `apt-get` outside this module is the bug it exists to prevent. Five things are
+load-bearing:
+- **`type: system` + `packages:` is the canonical system-package type; `apt`/`apt_packages` are
+  permanent aliases** of it in all four dispatch tables. `type: apt` no longer means apt — it is
+  `dnf` on Fedora and `pkg` on Termux. Don't "clean up" the aliases: catalogs are user data in
+  `~/.config`, and the two spellings cost one dict entry each.
+- **Capabilities, not platform names.** A tool declares `requires_traits: [glibc, fhs, sudo]`,
+  and platforms declare what they provide. This is why Alpine came out correct for free: the same
+  trait that excludes Termux excludes musl, because a `*-unknown-linux-gnu` tarball fails on both
+  for the same reason. Reach for `platforms: {<id>: {supported: false, reason: …}}` only when the
+  reason is specific rather than structural (Docker needs kernel features Android lacks).
+- **`platforms:` overrides merge literally, per key** — base → family → id. That means an
+  override replacing the install mechanism **must restate `requires_traits`**, and
+  `catalog.py` makes it a load error if it doesn't (`MECHANISM_FIELDS`). Without that rule, an
+  override written specifically to support a platform inherits the traits of the mechanism it
+  replaced and reports itself unavailable *there* — silent, and it reads as "the override didn't
+  take". For the same reason a block swapping `type` to `system` needs `remove_script: ""`
+  whenever the base has one, or uninstall still runs `sudo apt-get`; a catalog test enforces it.
+- **Resolution happens in `registry.py`, not the catalog loader.** `catalog export` and the user's
+  YAML keep their `platforms:` blocks, so a catalog written on a phone still works on a laptop.
+  Only the live `GenericTool` objects are host-specific, like `builtin` already was.
+- **Every script body gets the platform prelude** (`$DEVSTUFF_SUDO`, `$DEVSTUFF_PKG_INSTALL`,
+  `$DEVSTUFF_BIN`, …) injected after any shebang. `$DEVSTUFF_SUDO` is the empty *string*, never
+  unset — scripts run under `set -u`, and `$DEVSTUFF_SUDO cmd` has to degrade to `cmd`. Existing
+  scripts were deliberately *not* rewritten: what most of them do genuinely isn't portable, and
+  the traits say so. The prelude is for new ones.
+
+**Source inspection** (`compat.py`, same spec): `requires_traits`/`platforms:` are *declarations*,
+and nothing a user adds via `devstuff add`/`catalog import`/hand-edited YAML declares anything —
+so devstuff also reads the install source and refuses what clearly cannot run. Four things are
+load-bearing:
+- **It only runs where the catalog declared nothing about this host** (`ResolvedTool.declared` —
+  an explicit `requires_traits`, even `[]`, or a matching `platforms:` block). A declaration is a
+  decision someone made with the tool in front of them; a regex over a shell script is a guess,
+  and the guess must never overrule the decision. Say something about the platform and you own
+  the answer; say nothing and your script gets read.
+- **The whole design follows from the false-positive cost.** A missed finding leaves behaviour
+  where it was; a false one blocks a working install. So blocking findings are *measured* where
+  possible (`shutil.which` — a command not on PATH under `set -e` is not a heuristic), and
+  signals that commonly appear guarded are advisory-only. `systemctl` is the case that forced
+  the split: `systemctl enable x 2>/dev/null || true` is ordinary, and blocking on it would have
+  taken out half the catalog in a container.
+- **`sudo` is judged by the trait, not by `shutil.which`** — the one command where PATH lies,
+  for the Termux reason below.
+- **`--force` overrides an inferred refusal and never a declared one**, and the refusal message
+  says which kind it is. Don't "simplify" that to one flag covering both: forcing past
+  `supported: false` means running what the author already documented cannot work.
+  `compat.set_force()` is process-wide like `verbose`, because four callers reach `install()`.
+
+**Termux specifics that a plausible memory gets wrong** (all verified against termux-tools and
+termux-packages sources; the citations are in the spec's Measured findings):
+- **`pkg` fronts apt *or* pacman**, per `$TERMUX_APP_PACKAGE_MANAGER`. Both builds ship.
+- **`pkg` hard-exits as root** (`id -u == 0`), so a root session must drive the backend directly.
+- **`pkg install` already selects a mirror and refreshes the cache**, which is why `TERMUX_PKG`
+  declares no refresh command — a preceding `pkg update` would re-run the whole mirror probe.
+- **Termux's `sudo` package is agnostic-apollo's root-device wrapper**, not an escalation path.
+  Finding it via `shutil.which` must never grant the `sudo` trait; Termux hardcodes it off.
+- **uv's managed interpreters can never work** (python-build-standalone has no Bionic target), so
+  the platform exports `UV_PYTHON_DOWNLOADS=never` into every child process via `Platform.env`.
+- **More of the catalog is packaged natively than you'd guess** — including AWS CLI v2 (`awscli`)
+  and `ollama`. Check `termux-packages/packages/<name>/build.sh` before marking anything
+  unsupported.
+
 **Verbosity** (`verbose.py`, spec in `docs/specs/verbose-mode/`): one process-wide level —
 `0` / `-v` / `-vv` — set by a Click callback and read by the subprocess helpers, never threaded
 through call signatures. Three things about it are load-bearing:
@@ -139,9 +207,19 @@ difference is which file the key lives in and `category`.
 
 ## Adding a new built-in tool
 
-Add an entry to `src/dev_setup/tools.yaml` using an existing `type` (`npm`, `pip`, `uvx`, `apt`,
-`git`, `script`, `bash`) — see README.md "Custom packages → YAML schema" for the full field list
-and per-type examples. Then:
+Add an entry to `src/dev_setup/tools.yaml` using an existing `type` (`npm`, `pip`, `uvx`,
+`system`, `git`, `script`, `bash`) — see README.md "Custom packages → YAML schema" for the full
+field list and per-type examples. Then:
+- **Say where it works.** If it is a `bash`/`script` entry that downloads a binary or shells out
+  to a distro-specific command, give it `requires_traits` (`glibc` for `*-linux-gnu` assets — a
+  static Go binary does *not* need it; `fhs` + `sudo` for anything landing in `/usr/local/bin`;
+  `apt` for anything touching `add-apt-repository` or `sources.list.d`). Then check whether
+  Termux packages it (`termux-packages/packages/<key>/build.sh`) and add a `platforms.termux`
+  override if so. Preview the result with `DEVSTUFF_PLATFORM=termux devstuff platform`.
+  Prefer `type: system` outright when the tool exists under one name across managers — that is
+  what turned `htop`'s four-way `apt||yum||dnf||pacman` shell fallback into one line.
+  A builtin that trips `compat.py`'s scanner on the platform it was written for is a bug in the
+  entry — it should be declaring that with `requires_traits`. There is a test for it.
 - Add the key to `.github/workflows/test-installs.yml`'s matrix (or to `_SKIP` in
   `tests/integration/test_tools.py` with a reason, if it can't run in CI).
   `test_ci_matrix_covers_every_builtin_tool` enforces this, in both directions — a stale matrix
@@ -161,6 +239,9 @@ and per-type examples. Then:
 installing PHP packages via Composer as their own first-class type (analogous to how `npm` and
 `uvx`/`pip` are first-class today). Adding a type like `composer` touches every layer:
 
+0. **Check it isn't already `type: system`.** "Install PHP packages with Composer" is a new
+   mechanism; "install a distro package on Fedora" is not — `system` covers every host package
+   manager, and adding a `dnf` type would be the mistake `htop`'s old shell fallback was.
 1. **`catalog.py`** — add any new field names (e.g. `composer_name`) to `SUPPORTED_FIELDS`, and
    if the type implies an auto-`requires` (like `npm` → `["nvm"]`, `pip`/`uvx` → `["uv"]`), add
    that inference in both `validate_catalog()` and `GenericTool.__init__`/`to_dict()` (`generic.py`)
@@ -598,7 +679,14 @@ Not yet built: an `add` wizard for agent tools, and `catalog import`/`export` fo
 ## Key design decisions (don't relitigate these)
 
 - **uv owns Python provisioning.** The bash wrapper only guarantees `uv` is present; Python
-  version and virtualenv management is delegated entirely to `uv run`.
+  version and virtualenv management is delegated entirely to `uv run`. The one host where this
+  cannot hold is Termux (no Bionic build exists), which is why `platforms.py` turns uv's managed
+  downloads off there and the `python` entry resolves to `pkg install python`.
+- **Host differences are data, not branches.** `platforms.py` is the only module that knows what
+  a host is; everything else asks it. Per-tool differences live in `tools.yaml` as
+  `requires_traits`/`platforms:`, never as an `if termux:` in Python. The test for whether a new
+  difference belongs in code is whether it is about a *mechanism* (`escalate`, the argv for a
+  package manager) or about *one tool* (bat's tarball is glibc-only) — the second is always YAML.
 - **Catalogs are the source of truth, not Python classes.** There is deliberately no per-tool
   subclass — everything is `GenericTool` driven by YAML data, so adding a tool is a data change.
 - **`install()`/`remove()` raise, they don't return status codes.** No `InstallResult` enum;

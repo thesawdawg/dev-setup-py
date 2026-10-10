@@ -11,9 +11,18 @@ from dev_setup.base import Tool
 
 
 @click.command("install")
+@click.option(
+    "--force", is_flag=True,
+    help="Install even when the install source looks incompatible with this platform. "
+         "Only overrides reasons devstuff inferred by reading the source — never one "
+         "the catalog declares.",
+)
 @click.argument("packages", nargs=-1)
-def install_cmd(packages: tuple[str, ...]) -> None:
+def install_cmd(packages: tuple[str, ...], force: bool) -> None:
     """Install packages. Interactive picker when called with no arguments."""
+    from dev_setup import compat
+    compat.set_force(force)
+
     if not packages:
         _install_interactive()
     else:
@@ -48,6 +57,31 @@ def _install_one(tool: Tool) -> bool:
     if tool.is_installed():
         ui.success(f"{tool.name} is already installed: {tool.get_version()}")
         return True
+    # Checked before requires: a tool this host can't run is not a dependency
+    # problem, and telling the user to install prerequisites first would be a
+    # wild goose chase.
+    from dev_setup import compat
+    if not tool.supported and not (tool.unsupported_inferred and compat.forced()):
+        ui.error(f"{tool.name} is not available on this platform")
+        ui.dim(tool.unsupported_reason)
+        if tool.alternative:
+            ui.dim(f"Try instead:  devstuff install {tool.alternative}")
+        if tool.unsupported_inferred:
+            # Say where the verdict came from. This one was read out of the install
+            # source rather than declared, so it can be wrong — and the user is the
+            # only one who can tell.
+            ui.dim(
+                "This was determined by reading the install source, not from the "
+                "package definition. If it is wrong, re-run with --force."
+            )
+        return False
+
+    # Non-blocking findings are worth mentioning on the way past — `systemctl` in an
+    # installer usually degrades gracefully, but not always.
+    for finding in (tool.compat_findings or []):
+        if not finding.blocking:
+            ui.warn(finding.reason)
+
     missing = registry.missing_requires(tool)
     if missing:
         ui.error(f"Cannot install {tool.name} — missing required tools: {', '.join(missing)}")
@@ -95,12 +129,19 @@ def _install_interactive() -> None:
         ))
         for t in entries:
             is_inst = installed[t.key]
-            missing = [] if is_inst else registry.missing_requires(t)
+            missing = [] if (is_inst or not t.supported) else registry.missing_requires(t)
             desc = t.description
             if len(desc) > desc_width:
                 desc = desc[: desc_width - 1] + "…"
             if is_inst:
                 disabled = True
+            elif not t.supported:
+                # Ahead of the requires check: its dependencies don't matter if the
+                # tool itself can't run here.
+                disabled = (
+                    f"unavailable — use {t.alternative}" if t.alternative
+                    else "unavailable on this platform"
+                )
             elif missing:
                 disabled = f"requires {', '.join(missing)}"
             else:

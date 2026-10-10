@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-from dev_setup import verbose
+from dev_setup import compat, platforms, verbose
 from dev_setup.base import Tool
 
 # Auto-inferred requires per install type (re-derived on load, not persisted)
@@ -24,8 +24,13 @@ AUTO_REQUIRES = {
 _YAML_KEY = {"install_type": "type"}
 # fields that are identity/metadata, always persisted
 _ALWAYS_PERSIST = ("name", "description", "category", "install_type")
-# fields never read from / written to the catalog
-_NON_CATALOG = ("key", "builtin")
+# fields never read from / written to the catalog. `unsupported_reason`/`alternative`
+# are decided per host by catalog.resolve_for_platform and set by the registry, so
+# they must never be written back into a catalog file.
+_NON_CATALOG = (
+    "key", "builtin",
+    "unsupported_reason", "alternative", "unsupported_inferred", "compat_findings",
+)
 
 
 @dataclass
@@ -49,16 +54,17 @@ def _run(cmd: list, *, cwd: Path | None = None) -> None:
     quiet mode can say anything useful about what went wrong.
     """
     verbose.command(cmd, cwd=cwd)
+    env = platforms.child_env()
     if verbose.enabled():
         try:
-            subprocess.run(cmd, check=True, cwd=cwd)
+            subprocess.run(cmd, check=True, cwd=cwd, env=env)
         except subprocess.CalledProcessError as e:
             # The output already streamed past; repeating the whole argv in the error
             # adds nothing the user can't see directly above it.
             raise RuntimeError(f"exit code {e.returncode}") from e
     else:
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=cwd)
+            subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=cwd, env=env)
         except subprocess.CalledProcessError as e:
             msg = e.stderr.strip() if e.stderr else f"exit code {e.returncode}"
             raise RuntimeError(msg) from e
@@ -74,6 +80,9 @@ def _probe(cmd: list, *, log_at: int = verbose.TRACE, **kwargs) -> subprocess.Co
     marks the ones that are real actions the user should see at -v.
     """
     kwargs.setdefault("capture_output", True)
+    env = platforms.child_env()
+    if env is not None:
+        kwargs.setdefault("env", env)
     verbose.command(cmd, cwd=kwargs.get("cwd"), minimum=log_at)
     proc = subprocess.run(cmd, **kwargs)
     if verbose.enabled(verbose.TRACE):
@@ -104,6 +113,10 @@ class GenericTool(Tool):
     git_url: str = ""
     git_install_cmd: str = ""
     git_remove_cmd: str = ""
+    # `packages` is the canonical field for the system install type; `apt_packages`
+    # is the original spelling and still honoured. Read them through
+    # `system_packages`, never directly.
+    packages: str = ""
     apt_packages: str = ""
     script_url: str = ""
     sha256: str = ""
@@ -113,6 +126,13 @@ class GenericTool(Tool):
     docs_url: str = ""
     requires: list | None = None
     builtin: bool = False
+    # Non-empty when this host cannot install the tool at all. Set by the registry
+    # from the catalog's `platforms:`/`requires_traits:` resolution, or — for entries
+    # that declared nothing — from scanning the install source (`compat.py`).
+    unsupported_reason: str = ""
+    alternative: str = ""
+    unsupported_inferred: bool = False
+    compat_findings: list | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -154,6 +174,11 @@ class GenericTool(Tool):
         from dev_setup import catalog
         catalog.save_user_tool(self.key, self.to_dict())
 
+    @property
+    def system_packages(self) -> list[str]:
+        """Packages to hand the host package manager, from either spelling."""
+        return (self.packages or self.apt_packages).split()
+
     # -- Strategy dispatch ----------------------------------------------------
 
     def is_installed(self) -> bool:
@@ -163,6 +188,7 @@ class GenericTool(Tool):
         return checker(self) if checker else False
 
     def install(self) -> str | None:
+        self._require_supported()
         installer = _INSTALLERS.get(self.install_type)
         if installer is None:
             raise RuntimeError(f"Unsupported install type: {self.install_type!r}")
@@ -175,8 +201,33 @@ class GenericTool(Tool):
             raise RuntimeError(f"Unsupported remove type: {self.install_type!r}")
         remover(self)
 
+    def _require_supported(self) -> None:
+        """Refuse an install this host can't complete, before anything is run.
+
+        Enforced here rather than only in the command layer because every other
+        entry point — a configurator installing a prerequisite, the agent's catalog
+        bridge, `update` re-running an installer — goes through these methods too.
+
+        `--force` overrides a reason that was *inferred* from the install source,
+        because inference can be wrong. It never overrides one the catalog declared:
+        that is an authored statement of fact, not a guess.
+        """
+        if self.supported:
+            return
+        if self.unsupported_inferred and compat.forced():
+            from dev_setup import ui
+            ui.warn(
+                f"--force: installing {self.name} anyway, despite {self.unsupported_reason}"
+            )
+            return
+        msg = f"{self.name} is not available on this platform: {self.unsupported_reason}"
+        if self.alternative:
+            msg += f". Try '{self.alternative}' instead: devstuff install {self.alternative}"
+        raise RuntimeError(msg)
+
     def update(self, version: str | None = None) -> str | None:
         """Update an already-installed tool to the latest (or a specified) version."""
+        self._require_supported()
         updater = _UPDATERS.get(self.install_type)
         if updater is None:
             raise RuntimeError(f"Unsupported update type: {self.install_type!r}")
@@ -266,13 +317,15 @@ def _install_git(tool: GenericTool) -> None:
             _run(["bash", "-c", tool.git_install_cmd], cwd=dest)
 
 
-def _install_apt(tool: GenericTool) -> None:
+def _install_system(tool: GenericTool) -> None:
     from dev_setup import ui
-    if not tool.apt_packages:
-        raise RuntimeError("apt_packages not set")
-    ui.info(f"Installing {tool.name} via apt...")
-    _run_apt_update()
-    _run(["sudo", "apt-get", "install", "-y"] + tool.apt_packages.split())
+    packages = tool.system_packages
+    if not packages:
+        raise RuntimeError("packages not set")
+    pm = platforms.package_manager()
+    ui.info(f"Installing {tool.name} via {pm.id}...")
+    _refresh_package_index()
+    _run(platforms.escalate(pm.install_argv(packages)))
 
 
 def _install_script_url(tool: GenericTool) -> None:
@@ -281,7 +334,34 @@ def _install_script_url(tool: GenericTool) -> None:
         raise RuntimeError("script_url not set")
     ui.info(f"Running install script for {tool.name}...")
     script = _download_script(tool.script_url, expected_sha256=tool.sha256)
+    # The body of a `curl | sh` installer does not exist until now, so this is the
+    # first opportunity to check it against the host — and the last one before it
+    # starts making changes.
+    _check_downloaded_script(tool, script)
     _run_bash_script(script)
+
+
+def _check_downloaded_script(tool: GenericTool, script: str) -> None:
+    """Refuse a just-downloaded installer this host cannot run.
+
+    Skipped when the catalog already declared something about this platform, for the
+    same reason the registry's scan is (`compat.should_scan`) — and skipped under
+    `--force`, which is the escape hatch for a wrong inference.
+    """
+    if tool.compat_findings is None:
+        return  # the catalog spoke for this host; don't second-guess it
+    findings = compat.blocking(compat.scan_script(script))
+    if not findings:
+        return
+    if compat.forced():
+        from dev_setup import ui
+        ui.warn(f"--force: running {tool.name}'s installer anyway, despite "
+                f"{compat.summarise(findings)}")
+        return
+    raise RuntimeError(
+        f"the downloaded installer is not compatible with this platform: "
+        f"{compat.summarise(findings)}. Re-run with --force to try anyway."
+    )
 
 
 def _install_bash(tool: GenericTool) -> None:
@@ -338,22 +418,21 @@ def _update_uvx(tool: GenericTool, version: str | None) -> None:
         _run(cmd)
 
 
-def _update_apt(tool: GenericTool, version: str | None) -> None:
+def _update_system(tool: GenericTool, version: str | None) -> None:
     from dev_setup import ui
-    if not tool.apt_packages:
-        raise RuntimeError("apt_packages not set")
-    packages = tool.apt_packages.split()
-    _run_apt_update()
+    packages = tool.system_packages
+    if not packages:
+        raise RuntimeError("packages not set")
+    pm = platforms.package_manager()
+    _refresh_package_index()
+    # upgrade_argv raises for a pin the manager cannot express (pacman) or for a pin
+    # spread over several packages — both before anything is run.
+    argv = pm.upgrade_argv(packages, version=version)
     if version:
-        if len(packages) != 1:
-            raise RuntimeError(
-                "Version pinning is only supported for apt tools with a single package."
-            )
-        ui.info(f"Updating {tool.name} to version {version} via apt...")
-        _run(["sudo", "apt-get", "install", "-y", f"{packages[0]}={version}"])
+        ui.info(f"Updating {tool.name} to version {version} via {pm.id}...")
     else:
-        ui.info(f"Updating {tool.name} via apt...")
-        _run(["sudo", "apt-get", "install", "--only-upgrade", "-y"] + packages)
+        ui.info(f"Updating {tool.name} via {pm.id}...")
+    _run(platforms.escalate(argv))
 
 
 def _update_git(tool: GenericTool, version: str | None) -> None:
@@ -476,10 +555,15 @@ def _check_update_uvx(tool: GenericTool) -> UpdateStatus:
     return UpdateStatus(current=current, latest=latest, available=True)
 
 
-def _check_update_apt(tool: GenericTool) -> UpdateStatus:
-    if not tool.apt_packages:
+def _check_update_system(tool: GenericTool) -> UpdateStatus:
+    # dpkg-query/apt-cache only exist on the Debian-family path (including Termux,
+    # whose apt is Debian's). Everywhere else this returns "unknown" rather than
+    # guessing — the same contract the script/bash types already have.
+    packages = tool.system_packages
+    pm = platforms.current().package_manager
+    if not packages or pm is None or pm.query[0] != "dpkg":
         return UpdateStatus()
-    pkg = tool.apt_packages.split()[0]
+    pkg = packages[0]
     try:
         r = _probe(
             ["dpkg-query", "-W", "-f=${Version}", pkg], capture_output=True, text=True, timeout=10,
@@ -535,7 +619,8 @@ _UPDATE_CHECKERS: dict[str, Callable[[GenericTool], UpdateStatus]] = {
     "npm": _check_update_npm,
     "pip": _check_update_uvx,
     "uvx": _check_update_uvx,
-    "apt": _check_update_apt,
+    "system": _check_update_system,
+    "apt": _check_update_system,
     "git": _check_update_git,
 }
 
@@ -576,13 +661,14 @@ def _remove_git(tool: GenericTool) -> None:
         shutil.rmtree(dest)
 
 
-def _remove_apt(tool: GenericTool) -> None:
+def _remove_system(tool: GenericTool) -> None:
     from dev_setup import ui
     ui.info(f"Removing {tool.name}...")
     if tool.remove_script:
         _run_bash_script(tool.remove_script)
-    else:
-        _run(["sudo", "apt-get", "remove", "-y"] + tool.apt_packages.split())
+        return
+    pm = platforms.package_manager()
+    _run(platforms.escalate(pm.remove_argv(tool.system_packages)))
 
 
 def _remove_script_url(tool: GenericTool) -> None:
@@ -622,16 +708,36 @@ def _installed_git(tool: GenericTool) -> bool:
     return bool(tool.git_url) and _git_clone_dest(tool.git_url).exists()
 
 
-def _installed_apt(tool: GenericTool) -> bool:
-    return bool(tool.apt_packages) and _apt_installed(tool.apt_packages.split()[0])
+def _installed_system(tool: GenericTool) -> bool:
+    """Ask the host package manager whether the first named package is installed.
+
+    Runs through `_probe` like every other read-only check, so `-vv` sees it — this
+    fires once per system-type tool on every `devstuff list`.
+    """
+    packages = tool.system_packages
+    pm = platforms.current().package_manager
+    if not packages or pm is None:
+        return False
+    argv = pm.query_argv(packages[0])
+    if shutil.which(argv[0]) is None:
+        return False
+    try:
+        r = _probe(argv, capture_output=True, text=True, timeout=15)
+    except Exception:
+        return False
+    return pm.query_ok(packages[0], r.returncode, r.stdout or "")
 
 
+# "apt" is the original name for the system-package type and stays a first-class
+# alias of "system" in every dispatch table — user catalogs are full of it, and the
+# handlers no longer assume apt in any case.
 _INSTALLERS: dict[str, Callable[[GenericTool], None]] = {
     "npm": _install_npm,
     "pip": _install_uvx,
     "uvx": _install_uvx,
     "git": _install_git,
-    "apt": _install_apt,
+    "system": _install_system,
+    "apt": _install_system,
     "script": _install_script_url,
     "bash": _install_bash,
 }
@@ -641,7 +747,8 @@ _REMOVERS: dict[str, Callable[[GenericTool], None]] = {
     "pip": _remove_uvx,
     "uvx": _remove_uvx,
     "git": _remove_git,
-    "apt": _remove_apt,
+    "system": _remove_system,
+    "apt": _remove_system,
     "script": _remove_script_url,
     "bash": _remove_bash,
 }
@@ -651,7 +758,8 @@ _CHECKERS: dict[str, Callable[[GenericTool], bool]] = {
     "pip": _installed_uvx,
     "uvx": _installed_uvx,
     "git": _installed_git,
-    "apt": _installed_apt,
+    "system": _installed_system,
+    "apt": _installed_system,
 }
 
 _UPDATERS: dict[str, Callable[[GenericTool, str | None], None]] = {
@@ -659,7 +767,8 @@ _UPDATERS: dict[str, Callable[[GenericTool, str | None], None]] = {
     "pip": _update_uvx,
     "uvx": _update_uvx,
     "git": _update_git,
-    "apt": _update_apt,
+    "system": _update_system,
+    "apt": _update_system,
     "script": _update_script_url,
     "bash": _update_bash,
 }
@@ -680,22 +789,23 @@ def _npm_global_installed(pkg: str) -> bool:
         return False
 
 
-def _run_apt_update() -> None:
-    """Refresh apt's package lists. Deliberately non-fatal: a failing mirror shouldn't
-    stop an install of a package that may already be cached."""
-    _probe(["sudo", "apt-get", "update", "-q"], log_at=verbose.VERBOSE)
+def _refresh_package_index() -> None:
+    """Refresh the host package manager's lists, if it has a separate command for it.
+
+    Deliberately non-fatal: a failing mirror shouldn't stop an install of a package
+    that may already be cached. Termux's `pkg` returns None here — its install verb
+    already does mirror selection and a cache refresh of its own, so a second pass
+    would only re-run the mirror probe.
+    """
+    pm = platforms.current().package_manager
+    argv = pm.refresh_argv() if pm else None
+    if argv is None:
+        return
+    _probe(platforms.escalate(argv), log_at=verbose.VERBOSE)
 
 
 def _npm_init() -> str:
     return '. "$HOME/.nvm/nvm.sh" 2>/dev/null || true'
-
-
-def _apt_installed(pkg: str) -> bool:
-    try:
-        r = _probe(["dpkg", "-s", pkg], capture_output=True, text=True)
-        return "Status: install ok installed" in r.stdout
-    except Exception:
-        return False
 
 
 def _git_clone_dest(url: str) -> Path:
@@ -729,11 +839,16 @@ def _run_bash_script(script: str) -> None:
     import os
     import tempfile
 
+    # Every script body gets the platform prelude ($DEVSTUFF_SUDO, $DEVSTUFF_BIN,
+    # $DEVSTUFF_PKG_INSTALL, …) so a catalog entry can be written once and adapt,
+    # instead of hardcoding `sudo apt-get` and failing on Termux/Fedora/Alpine.
+    # It goes *after* any shebang so the first line stays the first line.
+    body = platforms.with_prelude(script)
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-        f.write(script)
+        f.write(body)
         tmp = f.name
     verbose.trace(f"script → {tmp}")
-    verbose.block(script)
+    verbose.block(body)
     try:
         # -x at -vv traces each expanded command to stderr as the script runs, which is
         # the only way to see where a downloaded installer actually failed.

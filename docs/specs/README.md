@@ -47,3 +47,4 @@ They are most useful when they capture:
 | [`ansible-config/`](ansible-config/) — `devstuff configure ansible`, the ansible.cfg wizard | Complete (v1) |
 | [`lazygit-config/`](lazygit-config/) — `devstuff configure lazygit`, the icons/pager/panels wizard | Complete (v1) |
 | [`verbose-mode/`](verbose-mode/) — `-v`/`-vv`, the process-wide verbosity level | Complete (v1) |
+| [`platform-compat/`](platform-compat/) — host detection, the system-package abstraction, and per-platform catalog overrides (Termux, Fedora, Arch, Alpine, macOS) | Complete (v1) |

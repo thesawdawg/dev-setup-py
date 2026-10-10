@@ -64,11 +64,23 @@ def list_cmd(show_filter: str, category: str) -> None:
         tbl.add_column("Version", style="dim")
 
         for tool, is_inst, version in entries:
-            missing = registry.missing_requires(tool) if not is_inst else []
-            icon = "[green bold]✔[/]" if is_inst else "[red bold]✘[/]"
-            tbl.add_row(icon, tool.key, tool.description, tool.install_type, version)
+            unavailable = not tool.supported and not is_inst
+            missing = registry.missing_requires(tool) if not (is_inst or unavailable) else []
+            if is_inst:
+                icon = "[green bold]✔[/]"
+            elif unavailable:
+                icon = "[dim]–[/]"
+            else:
+                icon = "[red bold]✘[/]"
+            name = f"[dim]{tool.key}[/]" if unavailable else tool.key
+            tbl.add_row(icon, name, tool.description, tool.install_type, version)
             if tool.help_cmd:
                 tbl.add_row("", "", f"[dim cyan]  ? {tool.help_cmd}[/]", "", "")
+            if unavailable:
+                note = tool.unsupported_reason
+                if tool.alternative:
+                    note += f" — use '{tool.alternative}'"
+                tbl.add_row("", "", f"[dim]  – {note}[/]", "", "")
             if missing:
                 tbl.add_row("", "", f"[yellow]  ⚠ requires: {', '.join(missing)}[/]", "", "")
 

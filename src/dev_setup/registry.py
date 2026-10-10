@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dev_setup import catalog
+from dev_setup import catalog, compat
 from dev_setup.base import Tool
 from dev_setup.generic import GenericTool
 
@@ -18,10 +18,31 @@ def _register(tool: Tool) -> None:
 
 
 def _load_builtins() -> None:
+    """Build the live registry, resolving each entry against the current platform.
+
+    Resolution happens here rather than in `catalog.load_effective_catalog` so that
+    `catalog export` and the user's own YAML keep their `platforms:` blocks intact —
+    only the runtime objects are host-specific.
+    """
     effective, bundled, user = catalog.load_effective_catalog()
     for key, data in effective.items():
-        tool = GenericTool.from_dict(data, key=key)
+        resolved = catalog.resolve_for_platform(data)
+        tool = GenericTool.from_dict(resolved.data, key=key)
+        tool.unsupported_reason = resolved.unsupported_reason
+        tool.alternative = resolved.alternative
         tool.builtin = key in bundled and key not in user
+
+        # Declarations only cover entries whose author thought about portability.
+        # For everything else — every user-added tool — read the install source and
+        # see whether this host can actually run it.
+        if tool.supported and compat.should_scan(resolved):
+            findings = compat.scan(tool)
+            tool.compat_findings = findings
+            blockers = compat.blocking(findings)
+            if blockers:
+                tool.unsupported_reason = compat.summarise(findings)
+                tool.unsupported_inferred = True
+
         _register(tool)
 
 

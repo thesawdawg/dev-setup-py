@@ -272,6 +272,55 @@ def test_check_old_config_dirs_warns_with_fix(monkeypatch, tmp_path):
     assert (tmp_path / "new-cfg").exists()
 
 
+# ─── check_platform ───────────────────────────────────────────────────────────
+
+
+def test_check_platform_passes_on_a_known_host():
+    from dev_setup import platforms
+
+    platforms.set_current(platforms.Platform(
+        id="ubuntu", name="Ubuntu", family="debian",
+        package_manager=platforms.APT_GET, traits=frozenset({platforms.SUDO}),
+        detected_from="os-release",
+    ))
+    try:
+        r = mod.check_platform()
+    finally:
+        platforms.reset()
+    assert r.name == "platform"
+    assert r.status == PASS
+    assert "apt" in r.message
+
+
+def test_check_platform_warns_with_no_package_manager():
+    from dev_setup import platforms
+
+    platforms.set_current(platforms.Platform(id="weird", name="Weird OS", family="unknown"))
+    try:
+        r = mod.check_platform()
+    finally:
+        platforms.reset()
+    assert r.status == WARN
+    # The warning has to say what still works, or it reads as "devstuff is broken".
+    assert "npm" in r.detail
+
+
+def test_check_platform_warns_when_the_manager_is_not_installed(monkeypatch):
+    """os-release named a family whose manager isn't actually present."""
+    from dev_setup import platforms
+
+    monkeypatch.setattr(platforms.PackageManager, "available", lambda self: False)
+    platforms.set_current(platforms.Platform(
+        id="fedora", name="Fedora", family="fedora", package_manager=platforms.DNF,
+    ))
+    try:
+        r = mod.check_platform()
+    finally:
+        platforms.reset()
+    assert r.status == WARN
+    assert "dnf" in r.message
+
+
 # ─── run_all_checks ───────────────────────────────────────────────────────────
 
 

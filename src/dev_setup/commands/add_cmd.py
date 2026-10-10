@@ -33,7 +33,7 @@ def add_cmd() -> None:
 
     install_type = ui.select(
         "Package type:",
-        ["npm", "uvx", "apt", "git", "script", "bash"],
+        ["npm", "uvx", "system", "git", "script", "bash"],
     )
     if not install_type:
         ui.warn("Aborted.")
@@ -76,9 +76,15 @@ def add_cmd() -> None:
         if py:
             kwargs["uv_python"] = py
 
-    elif install_type == "apt":
-        kwargs["apt_packages"] = ui.text_input(
-            "apt package(s) (space-separated):", default=key, required=True
+    elif install_type == "system":
+        from dev_setup import platforms
+        host_pm = platforms.current().package_manager
+        # Name the manager the answer will be handed to: package names differ per
+        # host (openjdk-21-jdk on Debian, openjdk-21 on Termux), and the prompt is
+        # the only place to say which one is being asked about.
+        via = f" for {host_pm.id}" if host_pm else ""
+        kwargs["packages"] = ui.text_input(
+            f"System package(s){via} (space-separated):", default=key, required=True
         )
         kwargs["check_cmd"] = ui.text_input("Command to check if installed:", default=key)
 

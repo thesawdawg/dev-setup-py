@@ -14,6 +14,21 @@ class Tool(ABC):
     help_cmd: str = ""
     docs_url: str = ""
     requires: list = []  # keys of tools that must be installed before this one
+    # Non-empty when the host platform can't install this tool at all; `alternative`
+    # optionally names a catalog key that does the same job here. Declared on the ABC
+    # so the command layer can ask any Tool without narrowing to GenericTool.
+    unsupported_reason: str = ""
+    alternative: str = ""
+    # True when the reason came from reading the install source (`compat.py`) rather
+    # than from the catalog. Inference can be wrong, so only these are overridable
+    # with `--force`; a catalog's `supported: false` never is.
+    unsupported_inferred: bool = False
+    # Everything the source scan turned up, including non-blocking advisories.
+    compat_findings: list = []
+
+    @property
+    def supported(self) -> bool:
+        return not self.unsupported_reason
 
     @abstractmethod
     def is_installed(self) -> bool: ...

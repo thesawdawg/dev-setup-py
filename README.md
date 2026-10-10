@@ -11,10 +11,10 @@ GitHub Actions PR review and CI failure triage.
 
 | Requirement | Notes |
 |-------------|-------|
-| **OS** | Ubuntu 20.04+ or Debian 11+ (amd64) |
+| **OS** | Ubuntu 20.04+ / Debian 11+ is the primary target. Fedora, RHEL, Arch, Alpine, openSUSE, macOS and **Termux on Android** are supported to the extent each catalog package works there — see [Platforms](#platforms) |
 | **Python** | 3.11 or later |
 | **curl** | Used by script-based installers (Docker, NVM, uv, etc.) |
-| **sudo** | Required for tools that write to system paths (`/usr/local/bin`, apt packages) |
+| **sudo** | Required on ordinary Linux hosts for tools that write to system paths (`/usr/local/bin`, distro packages). Not used, and not wanted, on Termux |
 | **ca-certificates** | For HTTPS downloads — present on most systems by default |
 
 These are available on any standard Ubuntu/Debian install. On a fresh minimal image, run:
@@ -22,6 +22,139 @@ These are available on any standard Ubuntu/Debian install. On a fresh minimal im
 ```bash
 sudo apt-get install -y python3 python3-pip curl ca-certificates sudo
 ```
+
+On Termux:
+
+```bash
+pkg install python
+```
+
+---
+
+## Platforms
+
+devstuff detects the host it is running on and adapts: which package manager to drive, whether to
+prefix commands with `sudo`, where binaries belong, and which catalog packages are installable
+here at all.
+
+```bash
+devstuff platform         # what devstuff thinks this machine is, and what it can install
+devstuff platform --json  # the same, for scripts
+```
+
+```
+  Detected          Ubuntu 24.04.4 LTS
+  Id / family       ubuntu / debian
+  Packages          apt — `apt-get` (via sudo)
+  Prefix            /usr/local  (bin: /usr/local/bin)
+  Provides          apt, fhs, glibc, sudo
+  Lacks             android, systemd
+  Detected via      os-release
+```
+
+| Host | Package manager | Notes |
+|------|-----------------|-------|
+| Debian / Ubuntu / Mint / Raspbian | `apt-get` | The original target; behaviour is unchanged |
+| Fedora / RHEL / Rocky / Alma / Amazon | `dnf`, falling back to `yum` | |
+| Arch | `pacman` | No version pinning — `--version` is refused rather than ignored |
+| Alpine | `apk` | musl, so packages that download `*-linux-gnu` binaries are marked unavailable |
+| openSUSE | `zypper` | |
+| macOS | `brew` | Never run through `sudo` (Homebrew refuses) |
+| **Termux (Android)** | `pkg` | See below |
+
+`sudo` is added only where the host needs *and* has it — so it is skipped when you are already
+root (a root container often has no `sudo` installed at all), and always skipped on Termux.
+
+### Termux
+
+Termux is a Linux userland inside an Android app, and it differs from a Linux distribution in
+ways that matter to a tool installer:
+
+- **`pkg`, not `apt`.** `pkg` is a wrapper that also picks a mirror, and it fronts either apt or
+  pacman depending on which Termux build you have. devstuff reads `$TERMUX_APP_PACKAGE_MANAGER`
+  (the same variable `pkg` itself uses) to tell which. In a root shell `pkg` refuses to run at
+  all, so devstuff talks to the backend directly there.
+- **No `sudo`, and none needed.** `$PREFIX` (`/data/data/com.termux/files/usr`) belongs to you.
+  Termux's `sudo` package is a wrapper for *rooted* devices; devstuff will not use it even if it
+  is installed.
+- **No `/usr/local/bin`, and no glibc.** Binaries are Bionic-linked, so release tarballs built
+  for `*-linux-gnu` do not run, and there is nowhere to `sudo mv` them to anyway.
+- **No systemd.** Nothing registers a background service; start daemons yourself.
+
+Most of the catalog is available regardless, because Termux packages a lot of it natively —
+`devstuff install bat` becomes `pkg install -y bat`, `java` installs `openjdk-21`, `nvm` installs
+`nodejs-lts` (nvm's own Node builds cannot run), `python` installs Termux's CPython (uv's managed
+interpreters have no Android build), and `aws` and `ollama` both have real Termux packages.
+
+What is genuinely unavailable says so, with a reason:
+
+```
+  ✘ docker    Android's kernel does not expose the cgroup and namespace configuration the
+              Docker daemon requires, and there is no Termux docker package.
+  ✘ lmstudio  LM Studio is distributed as a glibc desktop application for x86_64 and arm64
+              Linux; there is no Android build.
+      → use 'ollama' instead
+```
+
+`devstuff install` refuses those up front rather than failing partway through, `devstuff list`
+marks them, and the interactive picker disables them.
+
+### Incompatible install sources
+
+The section above relies on a package *declaring* where it works. Nothing you add with
+`devstuff add`, import with `devstuff catalog import`, or write by hand declares anything — so
+devstuff also reads the install source itself and refuses when it clearly cannot run here:
+
+```
+✖  My Tool is not available on this platform
+   the install source runs `sudo`, and Termux (Android) has no privilege escalation
+   (its prefix, /data/data/com.termux/files/usr, needs none); the install source writes
+   to /usr/local/, which does not exist on Termux (Android); the install source
+   downloads a linux-gnu build, which will not run on Termux (Android)
+   This was determined by reading the install source, not from the package definition.
+   If it is wrong, re-run with --force.
+```
+
+What it looks at, and how confident each signal is:
+
+| Signal | Blocks? | Basis |
+|--------|---------|-------|
+| The source runs a package manager (`apt-get`, `dnf`, `pacman`, `apk`, `zypper`, `brew`, `pkg`, `dpkg`, `add-apt-repository`) that is **not on `$PATH`** | yes | measured — `set -e` plus "command not found" is the whole story |
+| The source runs `sudo` on a host with no privilege escalation | yes | the platform's `sudo` capability, not `$PATH` (Termux's `sudo` package is a root-device wrapper) |
+| A `system`-type package where the host's manager is missing or unknown | yes | measured |
+| The source writes to `/usr/local/`, `/etc/`, `/opt/`, … on a host with no FHS | yes | inferred |
+| The source downloads a `linux-gnu` / glibc asset on a non-glibc host | yes | inferred |
+| The source runs `systemctl` / `service` / `snap` where those don't apply | **no** — warns only | `systemctl enable x 2>/dev/null \|\| true` is ordinary in an installer that works fine without systemd |
+
+For `script`-type packages the body doesn't exist until download time, so it is checked after the
+checksum and before it runs — the last moment before a `curl | sh` installer changes anything.
+
+Two rules keep this from getting in the way:
+
+- **A declaration wins.** If the package sets `requires_traits` (even `[]`) or has a `platforms:`
+  block for this host, the author already considered portability and the scan is skipped
+  entirely. Only undeclared packages get read.
+- **`--force` overrides inference, never declaration.**
+
+```bash
+devstuff install --force my-tool     # "I know better than the scan"
+```
+
+`--force` applies only to reasons devstuff worked out by reading the source. A package whose
+definition says `supported: false`, or whose `requires_traits` this host doesn't meet, stays
+refused — that is an authored statement of fact, not a guess. `devstuff platform` lists the two
+kinds separately.
+
+### Previewing another platform
+
+```bash
+DEVSTUFF_PLATFORM=termux devstuff platform   # what a Termux user sees
+DEVSTUFF_PLATFORM=alpine devstuff list
+```
+
+This changes the detected *identity* only — it does not make the installs work — and
+`devstuff platform` says so prominently. It is for checking catalog overrides without the device
+in hand.
 
 **Optional** — only needed when using specific install types:
 
@@ -67,6 +200,7 @@ The checks cover:
 |-------|-----------------|--------------|
 | `python-version` | Python 3.11+ | — |
 | `runtime-deps` | click, pyyaml, rich, questionary importable | — |
+| `platform` | the host is recognised and its package manager is on `$PATH` | — |
 | `config-dir` | `~/.config/devstuff` exists and is writable | create it |
 | `bundled-tools-catalog` | bundled `tools.yaml` loads and validates | — |
 | `user-tools-catalog` | user `tools.yaml` (if present) is valid | — |
@@ -256,7 +390,8 @@ The interactive picker probes every installed package for a newer version (`npm 
 list --outdated`, `apt-cache policy`, or comparing local vs. remote git HEAD) and pre-checks the
 ones with a known update available. `script`/`bash` packages have no reliable way to check for
 a newer version ahead of time, so they're listed as "unknown" and left unchecked — selecting one
-still works, it just can't be pre-recommended.
+still works, it just can't be pre-recommended. The same applies to `system` packages on hosts
+whose manager isn't apt-based: the probe reports "unknown" rather than guessing.
 
 How "update" is performed depends on the package's install `type`:
 
@@ -264,7 +399,7 @@ How "update" is performed depends on the package's install `type`:
 |------|--------|-------------------|
 | `npm` | `npm install -g <pkg>@latest` | `npm install -g <pkg>@<version>` |
 | `pip` / `uvx` | `uv tool install --force <pkg>@latest` | `uv tool install --force <pkg>==<version>` |
-| `apt` | `apt-get install --only-upgrade` | `apt-get install <pkg>=<version>` (single package only) |
+| `system` / `apt` | the host manager's upgrade verb (`apt-get install --only-upgrade`, `dnf upgrade`, `pkg install -y`, …) | `<pkg>=<version>` / `<pkg>-<version>`, using the manager's own separator, single package only. Refused on `pacman` and `brew`, which cannot express it |
 | `git` | `git pull` (+ re-run `git_install_cmd`) | not supported — repos are cloned shallow (`--depth=1`) |
 | `script` / `bash` | Re-runs the install script | not supported — no version parameter to inject |
 
@@ -789,7 +924,7 @@ Guided wizard to register a new custom package. Supports six install types:
 |------|-------------|
 | `npm` | `npm install -g <package>` |
 | `uvx` | `uv tool install <package>` |
-| `apt` | `sudo apt-get install -y <packages>` |
+| `system` | the host's package manager — `apt-get install -y`, `dnf install -y`, `pkg install -y`, … (`apt` is the older name for this type and still works) |
 | `git` | `git clone --depth=1 <url>` with optional post-clone and pre-remove commands |
 | `script` | `curl -fsSL <url> \| sh` — single-URL convenience script |
 | `bash` | Arbitrary multi-step bash — opens `$EDITOR` for install and remove scripts |
@@ -1317,17 +1452,21 @@ tools:
 | `name` | yes | Display name shown in `list` |
 | `description` | no | Short description shown in `list` |
 | `category` | no | `custom` (default), `core`, `tools`, or `languages` |
-| `type` | yes | `npm`, `pip`, `uvx`, `apt`, `git`, `script`, or `bash` |
+| `type` | yes | `npm`, `pip`, `uvx`, `system`, `git`, `script`, or `bash` (`apt` is an alias of `system`) |
 | `check_cmd` | no | Binary name or shell check used to detect install status |
 | `help_cmd` | no | Command shown in `list` under the package entry |
 | `docs_url` | no | URL opened by `devstuff docs <key>` |
 | `requires` | no | List of package keys that must already be installed |
+| `requires_traits` | no | Host capabilities this package's install mechanism needs: `glibc`, `fhs`, `sudo`, `systemd`, `apt`, `android`. Where the host lacks one, the package is marked unavailable with a generated explanation |
+| `platforms` | no | Per-platform overrides, keyed by platform id or family — see [Per-platform overrides](#per-platform-overrides) |
+| `alternative` | no | Another catalog key to suggest where this package is unavailable |
 | `npm_name` | npm | npm package name |
 | `pip_name` | pip | PyPI package name. Extras work as-is: `pip_name: "ansible-lint[lock]"` |
 | `uv_with` | no (pip/uvx) | Extra packages installed into the tool's environment (`uv tool install --with`) |
 | `uv_executables_from` | no (pip/uvx) | Also expose console scripts from these packages (`--with-executables-from`). Needed when a package's entry points live in a dependency |
 | `uv_python` | no (pip/uvx) | Pin the tool environment's Python (`--python`), e.g. `"3.12"` |
-| `apt_packages` | apt | Space-separated list of apt packages |
+| `packages` | system | Space-separated list of packages for the host's package manager |
+| `apt_packages` | apt | The older name for `packages`. Still supported; setting both is an error |
 | `git_url` | git | Repository URL to clone |
 | `git_install_cmd` | git | Bash command run inside the cloned repo after clone |
 | `git_remove_cmd` | git | Bash command run inside the repo before deletion |
@@ -1350,6 +1489,81 @@ tools:
     uv_executables_from:
       - ansible-core
 ```
+
+### Per-platform overrides
+
+Two things vary by host: whether a package can be installed at all, and how. `requires_traits`
+covers the first, `platforms:` covers both.
+
+```yaml
+version: 1
+tools:
+  bat:
+    name: bat
+    type: bash
+    check_cmd: bat
+    # The release asset this script downloads is *-unknown-linux-gnu, and it needs
+    # somewhere to sudo it into. Alpine (musl) and Termux (Bionic) both fail this.
+    requires_traits: [glibc, fhs, sudo]
+    install_script: |
+      ...
+    platforms:
+      termux:
+        requires_traits: []      # the swap below replaces the mechanism above
+        type: system
+        packages: bat
+        remove_script: ""        # the base script's `sudo rm` does not apply here
+```
+
+A `platforms:` key is a platform **id** (`ubuntu`, `fedora`, `termux`, `macos`) or a **family**
+(`debian`, `rhel`, `arch`, `alpine`, `suse`, `termux`, `macos`). Overrides apply family first,
+then id, so a Debian-wide override can be narrowed for Ubuntu. A block may set any tool field, or
+declare the package unavailable:
+
+```yaml
+    platforms:
+      termux:
+        supported: false
+        reason: >-
+          Android's kernel does not expose the cgroup and namespace configuration the
+          Docker daemon requires.
+        alternative: podman        # optional
+```
+
+Three rules the validator enforces, each because the alternative fails silently:
+
+- **`supported: false` must give a `reason`.** Being told no with no explanation is worse than a
+  failed install.
+- **Merging is literal per key**, so an override that replaces the install mechanism (`type`,
+  `packages`, `install_script`, `npm_name`, …) while the base declares `requires_traits` **must
+  restate `requires_traits`** — usually as `[]`. Otherwise the override inherits the trait
+  requirements of the mechanism it just replaced, and the package reports itself unavailable on
+  the very platform the override was written for.
+- **An unknown trait name is rejected at load time**, since a typo would otherwise make the
+  package unavailable everywhere with wording nobody can act on.
+
+`platforms:` blocks are never resolved into your catalog file — `devstuff catalog export` keeps
+them intact, so a catalog written on a phone still works on a laptop.
+
+### Writing portable scripts
+
+Every `install_script`/`remove_script` runs with these variables already set and exported, so a
+script can adapt instead of hardcoding `sudo apt-get`:
+
+| Variable | Example (Ubuntu) | Example (Termux) |
+|----------|------------------|------------------|
+| `DEVSTUFF_PLATFORM` | `ubuntu` | `termux` |
+| `DEVSTUFF_OS_FAMILY` | `debian` | `termux` |
+| `DEVSTUFF_SUDO` | `sudo` | *(empty)* |
+| `DEVSTUFF_PREFIX` | `/usr/local` | `/data/data/com.termux/files/usr` |
+| `DEVSTUFF_BIN` | `/usr/local/bin` | `/data/data/com.termux/files/usr/bin` |
+| `DEVSTUFF_PKG` | `apt` | `termux-pkg` |
+| `DEVSTUFF_PKG_INSTALL` | `sudo apt-get install -y` | `pkg install -y` |
+| `DEVSTUFF_PKG_REMOVE` | `sudo apt-get remove -y` | `pkg uninstall -y` |
+
+`DEVSTUFF_SUDO` is an empty string rather than unset, so `$DEVSTUFF_SUDO cmd` becomes plain `cmd`
+where there is nothing to escalate to — and scripts run under `set -u`, so an unset variable
+would abort. `devstuff install -vv <key>` prints the script, prelude included, before it runs.
 
 ### Examples
 
@@ -1379,17 +1593,38 @@ tools:
     help_cmd: http --help
 ```
 
-**apt package:**
+**System package** (same package name everywhere it exists):
 ```yaml
 version: 1
 tools:
   ripgrep:
     name: ripgrep
     description: Fast recursive search tool
-    type: apt
-    apt_packages: ripgrep
+    type: system
+    packages: ripgrep
     check_cmd: rg
     help_cmd: rg --help
+```
+
+**System package that is named — and even *called* — differently per host:**
+```yaml
+version: 1
+tools:
+  fd:
+    name: fd
+    description: Fast, user-friendly find replacement
+    type: system
+    packages: fd            # arch, alpine, termux, macos
+    check_cmd: fd
+    platforms:
+      debian:
+        # Debian ships it as fd-find and installs the binary as `fdfind`, because
+        # `fd` was already taken. Both halves have to be overridden, or the install
+        # succeeds and devstuff reports it as missing forever after.
+        packages: fd-find
+        check_cmd: fdfind
+      fedora:
+        packages: fd-find   # different package name, but the binary is `fd`
 ```
 
 **Multi-step bash install:**
