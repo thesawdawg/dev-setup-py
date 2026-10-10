@@ -1,3 +1,19 @@
+## v2.11.0 (2026-10-10)
+
+### Features
+
+- **outdated**: add `devstuff outdated`, a read-only update report
+- **updates**: classify tools into five honest states
+
+### Bug Fixes
+
+- **update**: a failed uv probe is unknown, not current; add UpdateStatus.note
+- **update**: probe uv once per run instead of once per tool
+
+### Refactors
+
+- **update**: move the update collector into a shared module
+
 ## v2.10.0 (2026-10-10)
 
 ### Features
