@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — in progress
+**Status:** Approved (2026-10-10) — P1 done
 
 ---
 
@@ -12,7 +12,7 @@ are tested before any command exists — the order that worked for `outdated`.
 
 | # | Milestone | Satisfies | State |
 |---|-----------|-----------|-------|
-| P1 | `dev_setup/profile.py`: `Profile` model, strict loader (duplicate-key detecting), deterministic dumper | FR-1–6, FR-9, FR-24, NFR-4 | Not started |
+| P1 | `dev_setup/profile.py`: `Profile` model, strict loader (duplicate-key detecting), deterministic dumper | FR-1–6, FR-9, FR-24, NFR-4 | **Done** 2026-10-10 |
 | P2 | `GenericTool.installed_version()` (local readers factored out of the checkers), `supports_pin`, and the test tying it to `update(version=…)` | FR-10–12, FR-25–26, SD-3/4/10 | Not started |
 | P3 | `devstuff profile snapshot` (group + command, `-o`, `--versions`, `--force`, stderr notes), registered in the CLI and help table | FR-7–8, 13–14, 23, NFR-1/2 | Not started |
 | P4 | Diff classifier — pure function over (profile, installed state, catalog) → seven states, counts, ordering | FR-16–18, 20 | Not started |
