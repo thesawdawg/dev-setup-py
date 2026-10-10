@@ -345,6 +345,110 @@ includes the `unsupported` rows; `--updates-only` applies to it too.
 
 ---
 
+### `profile`
+
+Describe which tools a machine should have as a small file, and compare a machine against one.
+Both subcommands are **read-only** and **local** — they ask the machine, never the network — so
+they work offline.
+
+```bash
+devstuff profile snapshot > work.yaml            # the tools installed here, as a file
+devstuff profile snapshot --versions -o work.yaml   # ...and the versions of the ones that can be pinned
+devstuff profile diff work.yaml                  # how this machine differs from the file
+devstuff profile diff work.yaml --exit-code      # exit 1 if it differs: a gate for CI
+```
+
+> **The file format is provisional until `profile apply` exists.** It is `version: 1`, and a later
+> breaking change will bump that number. There is no `apply` yet — nothing here installs anything.
+
+A profile names catalog **keys**, and optionally a version. It never contains an install script or
+a tool definition, so a profile from somewhere else can't run anything your own catalog doesn't
+already define.
+
+```yaml
+version: 1
+tools:
+  uv: {}                  # present, any version
+  ipython:
+    version: 9.17.1       # present, at exactly this version
+```
+
+**Quote any version that looks like a number.** YAML reads `version: 1.10` as the number 1.1 and
+`0.40` as 0.4, and the original text can't be recovered — so devstuff refuses it and says to quote
+it (`version: '1.10'`). It also refuses a duplicate key, which YAML would otherwise resolve by
+silently dropping the first, an unknown field, and a tool key that YAML reads as something other
+than text (`on`, `yes`, `123`). `snapshot` always writes versions correctly quoted.
+
+#### `snapshot`
+
+Writes a profile of every installed tool, to stdout or to `-o FILE`. By default it records **keys
+only**: a profile that pins versions goes stale the day a tool updates, and then reports drift
+nobody intended. `--versions` adds the installed version for the tools that can be pinned — `npm`,
+`pip`/`uvx`, and single-package `apt`; `git`, `script` and `bash` tools can't be installed at a
+chosen version, so a version recorded for them could never be acted on and is left out.
+
+- If a pinnable tool's version can't be read (say it is on your `PATH` but isn't a `uv tool`), it is
+  written without one and a warning on stderr names it and says why — it is never dropped silently.
+- Tools defined in your own catalog are included, with one stderr note that another machine won't
+  know them: move their definitions with `devstuff catalog export` / `import`.
+- Output is **deterministic** — sorted, with a fixed header and no timestamp, hostname or path — so
+  a profile kept in git shows only real changes.
+- `-o` refuses to overwrite an existing file (exit 2) unless you pass `--force`.
+- With no `-o`, stdout is exactly the YAML; warnings and notes go to stderr.
+
+#### `diff`
+
+```
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ Package           Type   Profile   Installed   Status                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ reptyr            apt                          ✘ missing                     │
+│ ipython           uvx    9.0.0     9.17.1      ≠ drift                       │
+│ commitizen        uvx    4.16.4                ? unverifiable                │
+│                                                uv doesn't list it as a tool  │
+│                                                (is it installed another      │
+│                                                way?)                         │
+│ starship          bash   1.0.0                 – unpinnable                  │
+│                                                a bash install can't be       │
+│                                                pinned, so the pin is ignored │
+│ not-a-real-tool                                ? unknown-key                 │
+│                                                not in this machine's catalog │
+│                                                — if it is a custom tool,     │
+│                                                bring its definition over     │
+│                                                with `devstuff catalog        │
+│                                                import`                       │
+╰──────────────────────────────────────────────────────────────────────────────╯
+  1 installed tool isn't in the profile: gh  (--all lists them)
+  1 missing · 1 drift · 1 unverifiable · 1 unpinnable · 1 unknown-key · 1 extra · 9 ok
+```
+
+| State | Meaning |
+|-------|---------|
+| `ok` | In the profile and installed; and, if pinned, at the pinned version. |
+| `missing` | In the profile and the catalog, but not installed. |
+| `drift` | Pinned and installed, but at a different version. |
+| `unverifiable` | Pinned and installed, but the installed version can't be read. |
+| `unpinnable` | Pinned, but this tool's install type can't honour a pin — the pin is ignored. |
+| `unknown-key` | In the profile but not in this machine's catalog. |
+| `extra` | Installed, but not in the profile. |
+
+`unverifiable`, `unpinnable` and `unknown-key` are three different reasons the comparison couldn't
+be made, each with a different remedy, and **none of them is ever reported as `ok`**. Versions are
+compared as text: `0.45` is not `0.45.0`, and a *newer* installed version is as much drift as an
+older one.
+
+By default only differences are listed; the matching tools are counted in the last line, and
+`--all` lists them (and the extras) as rows. `--json` writes one array — every state, always — of
+`{"key", "state", "type", "pinned", "installed", "note"}` objects and nothing else, even at `-vv`.
+
+**Exit status.** `0` whenever the comparison ran, whatever it found. With `--exit-code` it is `1`
+if the machine differs; an installed tool that isn't in the profile counts as a difference unless
+you also pass `--ignore-extras`, which affects only this exit status and never hides a real
+difference. A profile that is missing, unreadable or invalid is always `2`, so `1` can only ever
+mean "differs".
+
+---
+
 ### `configure`
 
 Set up an installed tool through a guided wizard, previewing the result before anything is
