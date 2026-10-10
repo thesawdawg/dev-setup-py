@@ -1,3 +1,9 @@
+## v2.8.0 (2026-10-10)
+
+### Features
+
+- **links**: add `devstuff links` section for browsing, searching, and opening tool links
+
 ## v2.7.0 (2026-10-07)
 
 ### Features
