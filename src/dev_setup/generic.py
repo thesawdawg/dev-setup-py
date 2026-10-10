@@ -578,6 +578,16 @@ _UPDATE_CHECKERS: dict[str, Callable[[GenericTool], UpdateStatus]] = {
 }
 
 
+def supports_update_check(install_type: str) -> bool:
+    """Whether this install type has an update checker at all.
+
+    Distinct from "the checker answered": a checker that fails returns the same empty
+    UpdateStatus a missing one does, so the *type* is the only reliable way to tell
+    "cannot be checked" from "the check failed".
+    """
+    return install_type in _UPDATE_CHECKERS
+
+
 # -- Remove strategies -----------------------------------------------------------
 
 
