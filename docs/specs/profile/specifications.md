@@ -141,7 +141,8 @@ to compare a machine against it.
   centrally like every other command. Running `devstuff profile` alone prints help.
 - **FR-24** Loading, validation, dumping and the diff classifier live in `dev_setup/profile.py` as
   pure functions with no UI and no I/O beyond reading the file, so they are testable without a
-  terminal — the arrangement `updates.py` set.
+  terminal — the arrangement `updates.py` set. *Gathering* a snapshot asks the machine, so it lives
+  in `dev_setup/snapshot.py` (concurrent, like `updates.py`), keeping `profile.py` purely the format.
 - **FR-25** Local version reading is a new `GenericTool.installed_version()` that dispatches on
   install type through a table, like `_CHECKERS` and `_UPDATE_CHECKERS`. It returns `""` when the
   type has no reader or the read fails, and never raises.
