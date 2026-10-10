@@ -1,7 +1,7 @@
 # Development plan: `devstuff outdated`
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — milestones 1–3 done
+**Status:** Approved (2026-10-10) — milestones 1–5 done
 
 ---
 
@@ -12,8 +12,8 @@
 | 1 | Fix redundant `uv` probes: lock/prime `_uv_outdated_map`, parse `uv tool list` once for all lookups | FR-19, NFR-2 | **Done** 2026-10-10 |
 | 2 | Move the collector out of `update_cmd.py`; type it against `GenericTool`; drop the `type: ignore` | FR-15–17, SD-4 | **Done** 2026-10-10 |
 | 3 | State classifier: `UpdateStatus` + `install_type` → one of five states | FR-5–8, SD-2/3 | **Done** 2026-10-10 |
-| 4 | `commands/outdated_cmd.py`: table, footer, summary, flags, exit status; register in `cli._register_commands` | FR-1–4, 9–11, 13–14, 18 | Not started |
-| 5 | `--json` output and stdout-purity test at `-vv` | FR-12, NFR-1 | Not started |
+| 4 | `commands/outdated_cmd.py`: table, footer, summary, flags, exit status; register in `cli._register_commands` | FR-1–4, 9–11, 13–14, 18 | **Done** 2026-10-10 |
+| 5 | `--json` output and stdout-purity test at `-vv` | FR-12, NFR-1 | **Done** 2026-10-10 (landed with 4: `--json` is part of the command's contract) |
 | 6 | `UpdateStatus.note`: add the field; set it in the uv checker (F-2) and on the npm/apt/git network-failure paths; render and emit it | FR-23 | Not started |
 | 7 | README (command reference), CLAUDE.md (architecture line), roadmap + specs index | — | Not started |
 
