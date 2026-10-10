@@ -48,7 +48,7 @@ over an existing probe and an existing collector, not new probing.
   checker must be told apart from a *failed* probe — hence five states, not three. Making `bash`
   tools checkable is the real fix and is a follow-up spec, not part of M1.
 - **The existing uv probes are redundant and racy.** One run issued 6 `uv tool list` calls where
-  4 suffice: `lru_cache` does not stop concurrent first callers from each computing the value.
+  2 suffice, however many uv tools are installed: `lru_cache` does not stop concurrent first callers from each computing the value.
   Fix this before building on it.
 - **The collector is private to `update_cmd.py`.** It has to move somewhere both commands can
   import, as a pure refactor with a parity test.

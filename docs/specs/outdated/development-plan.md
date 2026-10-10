@@ -1,7 +1,7 @@
 # Development plan: `devstuff outdated`
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — not started
+**Status:** Approved (2026-10-10) — milestone 1 done
 
 ---
 
@@ -9,7 +9,7 @@
 
 | # | Milestone | Satisfies | State |
 |---|-----------|-----------|-------|
-| 1 | Fix redundant `uv` probes: lock/prime `_uv_outdated_map`, parse `uv tool list` once for all lookups | FR-19, NFR-2 | Not started |
+| 1 | Fix redundant `uv` probes: lock/prime `_uv_outdated_map`, parse `uv tool list` once for all lookups | FR-19, NFR-2 | **Done** 2026-10-10 |
 | 2 | Move the collector out of `update_cmd.py`; type it against `GenericTool`; drop the `type: ignore` | FR-15–17, SD-4 | Not started |
 | 3 | State classifier: `UpdateStatus` + `install_type` → one of five states | FR-5–8, SD-2/3 | Not started |
 | 4 | `commands/outdated_cmd.py`: table, footer, summary, flags, exit status; register in `cli._register_commands` | FR-1–4, 9–11, 13–14, 18 | Not started |
@@ -48,7 +48,7 @@ the default ~0.3 s suite.
   pre-move `_collect_update_candidates` did, and `update`'s picker is unchanged.
 - **Probe count** (FR-19): stub `generic._probe` with a counter, run the collector over N≥3
   fake uv tools concurrently, and assert `uv tool list` and `uv tool list --outdated` each ran
-  once. This test must fail on the current code — it is the regression test for finding F-1,
+  once (`tests/test_uv_probes.py`). This test must fail on the current code — it is the regression test for finding F-1,
   and a version that passes before the fix proves nothing.
 
 **Live verification** (not in the suite; recorded in the spec when done, like every configurator):

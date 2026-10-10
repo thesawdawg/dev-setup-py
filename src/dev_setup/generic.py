@@ -6,6 +6,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -424,26 +425,63 @@ def _check_update_npm(tool: GenericTool) -> UpdateStatus:
     return UpdateStatus(current=current, latest=latest, available=bool(current) and current != latest)
 
 
-def _uv_tool_current_version(pkg: str) -> str:
+def _once(fn: Callable[[], dict[str, str]]) -> Callable[[], dict[str, str]]:
+    """Memoise a no-argument probe so concurrent first callers wait instead of racing.
+
+    `functools.lru_cache` is not enough here: it caches *results*, so every thread that
+    arrives before the first call returns misses and runs the subprocess itself. With
+    `devstuff update` probing on an 8-worker pool, that was one `uv tool list --outdated`
+    per uv tool rather than one per run (docs/specs/outdated, finding F-1).
+
+    The answer is fixed for the life of the process, so nothing here may be called after
+    something that changes it (an install or update) and expected to see the change;
+    `cache_clear()` exists for tests and for any future caller that does.
+    """
+    lock = threading.Lock()
+    box: list[dict[str, str]] = []
+
+    @functools.wraps(fn)
+    def wrapper() -> dict[str, str]:
+        with lock:
+            if not box:
+                box.append(fn())
+            return box[0]
+
+    def cache_clear() -> None:
+        with lock:
+            box.clear()
+
+    wrapper.cache_clear = cache_clear  # type: ignore[attr-defined]
+    return wrapper
+
+
+@_once
+def _uv_tool_versions() -> dict[str, str]:
+    """Package name -> installed version, for every `uv tool`. One call per process."""
     uv = shutil.which("uv")
     if not uv:
-        return ""
+        return {}
     try:
         r = _probe(
             [uv, "tool", "list", "--color", "never"], capture_output=True, text=True, timeout=15,
         )
     except Exception:
-        return ""
+        return {}
+    result: dict[str, str] = {}
     for line in r.stdout.splitlines():
         if line.startswith((" ", "-", "\t")):
             continue  # sub-lines (installed executables) under each tool
-        m = re.match(rf"^{re.escape(pkg)}\s+v?([\w.\-+]+)", line.strip())
+        m = re.match(r"^(\S+)\s+v?([\w.\-+]+)", line.strip())
         if m:
-            return m.group(1)
-    return ""
+            result[m.group(1)] = m.group(2)
+    return result
 
 
-@functools.lru_cache(maxsize=1)
+def _uv_tool_current_version(pkg: str) -> str:
+    return _uv_tool_versions().get(pkg, "")
+
+
+@_once
 def _uv_outdated_map() -> dict[str, str]:
     """Package name -> latest version, for every outdated `uv tool`. One call per process."""
     uv = shutil.which("uv")
