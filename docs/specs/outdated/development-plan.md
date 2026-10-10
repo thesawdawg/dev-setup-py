@@ -1,7 +1,7 @@
 # Development plan: `devstuff outdated`
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — milestones 1–6 done
+**Status:** Complete (v1), 2026-10-10
 
 ---
 
@@ -15,7 +15,7 @@
 | 4 | `commands/outdated_cmd.py`: table, footer, summary, flags, exit status; register in `cli._register_commands` | FR-1–4, 9–11, 13–14, 18 | **Done** 2026-10-10 |
 | 5 | `--json` output and stdout-purity test at `-vv` | FR-12, NFR-1 | **Done** 2026-10-10 (landed with 4: `--json` is part of the command's contract) |
 | 6 | `UpdateStatus.note`: add the field; set it in the uv checker (F-2) and on the npm/apt/git network-failure paths; render and emit it | FR-23, F-7 | **Done** 2026-10-10 |
-| 7 | README (command reference), CLAUDE.md (architecture line), roadmap + specs index | — | Not started |
+| 7 | README (command reference), CLAUDE.md (architecture line), roadmap + specs index | — | **Done** 2026-10-10 |
 
 Milestones 1 and 2 land first and **before any new command exists**: both are changes to
 existing behaviour, so each is verifiable against `update`'s current output. Doing them first

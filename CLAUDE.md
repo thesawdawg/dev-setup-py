@@ -64,8 +64,9 @@ src/dev_setup/
 ├── links.yaml       # Bundled link catalog (+ links_catalog.py / links_registry.py / links.schema.json)
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
 ├── verbose.py      # Process-wide -v/-vv level + the stderr logger built on it
+├── updates.py      # Update probing + the five-state classifier, shared by `update` and `outdated`
 ├── configure/       # Per-tool setup wizards (see "Configurators" below)
-└── commands/        # One Click command per file: list, install, remove, add, delete, docs, catalog
+└── commands/        # One Click command per file: list, install, remove, update, outdated, add, delete, docs, catalog
 ```
 
 **Catalog precedence** (`catalog.load_effective_catalog`): bundled `tools.yaml` loads first →
@@ -132,6 +133,27 @@ through call signatures. Three things about it are load-bearing:
   spinner-or-line swap, since a spinner repaints its line and can't share a terminal with
   streaming output. At `-vv` script bodies run under `bash -x`, *except* eval-mode function
   scripts — `set -x` there would persist in the caller's interactive shell.
+
+**Update probing and `outdated`** (`updates.py`, spec in `docs/specs/outdated/`): `update`'s picker
+and `devstuff outdated` share one collector and one classifier. Things that are load-bearing:
+- **`available is False` must mean "the probe positively found nothing newer"** — never "the probe
+  failed". Every failure path in an `_UPDATE_CHECKERS` function returns an *empty* status (plus a
+  `note` saying why), which classifies as `unknown`. The uv checker once ignored its exit code:
+  `uv tool list --outdated` exits 2 offline with empty stdout, which read as every tool being current.
+  The unit tests had only faked a *successful* probe; it took running the real binary with the network
+  blocked to find it. A new checker needs a test for its failure path, not just its happy one.
+- **`unsupported` is decided from the install *type*** (`generic.supports_update_check`), not from an
+  empty `UpdateStatus` — a `bash` tool and a failed `npm` probe return the same empty status and need
+  different remedies. Neither may ever render as `current`; there is a test that breaks the renderer to
+  prove the test can fail.
+- **Shared probes use `_once`, not `functools.lru_cache`.** `lru_cache` memoises *results*; concurrent
+  first callers on the 8-worker pool all miss and each run the subprocess (measured: 6 `uv tool list`
+  calls where 2 suffice). `_once` holds a lock while computing. The memo is process-wide, so nothing may
+  read it after an install/update and expect to see the change.
+- **`note` is set only by a checker that actually knows why** — the command layer never invents one — and
+  is free text, so the renderer escapes it (Rich reads `[docs]` as markup).
+- **Exit status is "did the lookup run", not the answer** (the same rule as `run_cmd`), and `--json`
+  writes only the array to stdout, even at `-vv`.
 
 **Two ways a tool gets defined**: built-in (an entry added directly to `src/dev_setup/tools.yaml`,
 `builtin=True`) or custom (created via the `devstuff add` wizard, `devstuff catalog import`,
