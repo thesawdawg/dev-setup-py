@@ -1,7 +1,7 @@
 # Specification: `devstuff outdated`
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — open questions resolved, implementation not started
+**Status:** Implemented (v1), 2026-10-10 — see development-plan.md
 **Authors:** Sawyer + Claude
 **Roadmap:** [M1](../../ROADMAP.md) — the foundation `profile diff` (M2) is built on.
 
@@ -150,7 +150,7 @@ run before this spec was written. Date: 2026-10-10; 13 installed tools.
 |---|---------|-------------|
 | F-1 | `uv tool list` ran **6** times for 3 installed uv tools; **2** are needed (one plain, one `--outdated`), however many tools there are. `_uv_outdated_map` is `@lru_cache(maxsize=1)`, but `lru_cache` does not stop *concurrent* first callers from each computing the value, so all three worker threads ran `uv tool list --outdated`. `_uv_tool_current_version` has no cache at all, so it runs once per tool. | FR-19 / NFR-2. **Fixed 2026-10-10 (milestone 1): 6 → 2 live, results unchanged.** The cache needs a lock (or the collector must prime it before fanning out) and the per-tool version lookup must read from one shared `uv tool list` parse. |
 | F-2 | `commitizen` is reported installed (`cz` on `PATH`) but is not a `uv tool` — here it comes from the project venv under `uv run`. The uvx checker asks `uv tool list`, finds nothing, and returns an empty status: `unknown`. | `is_installed()` ("is the command present?") and the update checker ("does this mechanism manage it?") ask different questions and can disagree. `unknown` is the right answer; OQ-4 asks whether it should say *why*. |
-| F-3 | For `uvx` tools the checker only knows the *absence* of a tool from `uv tool list --outdated`. `hey-dave` and `ipython` came back `available=False` with `latest=''`. | `current` for uvx is "not listed as outdated", so `Latest` is blank (FR-8). Also: `uv … --outdated` does not consider prereleases, so `hey-dave 0.2.0a1` can read as current while a newer alpha exists. Documented, not fixed. |
+| F-3 | For `uvx` tools the checker only knows the *absence* of a tool from `uv tool list --outdated`. `hey-dave` and `ipython` came back `available=False` with `latest=''`. | `current` for uvx is "not listed as outdated", so `Latest` is blank (FR-8). **Correction (2026-10-10):** an earlier draft of this row also claimed `uv … --outdated` ignores prereleases. That was written from memory and is false: with `hey-dave 0.1.0a1` installed in an isolated tool dir, uv listed `[latest: 0.2.0a1]`, so it follows prereleases when the installed version is itself one. |
 | F-4 | `npm` and `apt` checkers decide `available` by `current != latest` — inequality, not ordering. | A locally newer version (a prerelease, a held or PPA package) reads as `outdated`. OQ-2. |
 | F-5 | 23 of 35 bundled tools are `bash`; none has a checker. | The command is blind to two thirds of the catalog. FR-7 and FR-10 exist because of this; OQ-1 is the real fix. |
 | F-6 | `check_for_update` exists on `GenericTool` but not on the `Tool` ABC; `update_cmd` suppresses the type error with `# type: ignore[attr-defined]`. | The shared collector either takes `GenericTool` or the ABC gains a default. Decided in SD-4. |

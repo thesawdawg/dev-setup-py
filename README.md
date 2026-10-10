@@ -287,6 +287,64 @@ reinstall.
 
 ---
 
+### `outdated`
+
+Show which installed packages have a newer version available. It is **read-only** — nothing is
+installed, updated or written — so it is safe in scripts and CI. `devstuff update` is what acts on
+the answer.
+
+```bash
+devstuff outdated                  # every installed package
+devstuff outdated codex nvm        # just these (one that isn't installed is reported as such)
+devstuff outdated --updates-only   # hide everything except packages with an update
+devstuff outdated --all            # list the packages that can't be checked, instead of one footer line
+devstuff outdated --json           # machine-readable; nothing else is written to stdout
+```
+
+```
+╭────────────────────────────────────────────────────────────────────────╮
+│ Package       Type   Installed   Latest    Status                      │
+├────────────────────────────────────────────────────────────────────────┤
+│ codex         npm    0.162.0     0.162.1   ⬆ outdated                  │
+│ commitizen    uvx                          ? unknown                   │
+│                                            not installed via `uv tool` │
+│ claude-code   npm    2.1.296     2.1.296   ✔ current                   │
+╰────────────────────────────────────────────────────────────────────────╯
+  8 tools can't be checked (bash installers): bat, devin, gh, nerd-font, nvm, pi, starship, uv
+  1 outdated · 1 current · 1 unknown · 8 unsupported
+```
+
+Every package lands in exactly one state:
+
+| State | Meaning |
+|-------|---------|
+| `outdated` | A different version is available. |
+| `current` | The check ran and found nothing newer. |
+| `unknown` | A check exists for this install type but couldn't answer — offline, or the package isn't managed by that mechanism. A dim line says why when devstuff knows. |
+| `unsupported` | This install type has no way to check at all. That is every `script`/`bash` package, which on the bundled catalog is most of them. |
+| `not-installed` | Named explicitly on the command line, but not installed. |
+
+`unknown` and `unsupported` are never reported as `current`, and the summary counts them
+separately, so "could not check" can't be mistaken for "up to date". Unsupported packages collapse
+to one footer line (still naming them); `--all` expands them.
+
+- **"Outdated" means *different*, not *older*.** The `npm` and `apt` checks compare for inequality,
+  so a locally newer version (a prerelease, a held package) is reported as outdated. For `uvx`/`pip`
+  packages the check is "uv doesn't list it as outdated", so there is no latest version to show for
+  a `current` row.
+- **`apt` reflects your last `apt update`.** devstuff doesn't refresh package lists for a read-only report.
+- **uv offline.** With `UV_OFFLINE` set, uv answers from cache or says nothing, which can't be told
+  from "all current" — so devstuff reports `unknown` rather than ask. A `offline = true` in uv's
+  config file can't be detected.
+
+The exit status says whether the lookup ran, not what it found: `0` even when updates are
+available, `1` only for an unknown package name. With `--json`, stdout is one array — even at
+`-vv`, whose log lines go to stderr — of `{"key", "type", "state", "installed", "latest", "note"}`
+objects, with `null` for an absent version and an empty `note` when no reason is known. `--json`
+includes the `unsupported` rows; `--updates-only` applies to it too.
+
+---
+
 ### `configure`
 
 Set up an installed tool through a guided wizard, previewing the result before anything is

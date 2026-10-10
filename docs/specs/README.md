@@ -47,4 +47,4 @@ They are most useful when they capture:
 | [`ansible-config/`](ansible-config/) — `devstuff configure ansible`, the ansible.cfg wizard | Complete (v1) |
 | [`lazygit-config/`](lazygit-config/) — `devstuff configure lazygit`, the icons/pager/panels wizard | Complete (v1) |
 | [`verbose-mode/`](verbose-mode/) — `-v`/`-vv`, the process-wide verbosity level | Complete (v1) |
-| [`outdated/`](outdated/) — `devstuff outdated`, the read-only installed-vs-latest report | Approved |
+| [`outdated/`](outdated/) — `devstuff outdated`, the read-only installed-vs-latest report | Complete (v1) |

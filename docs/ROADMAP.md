@@ -35,7 +35,7 @@ that answer against real machines before anything is built on top of it.
 
 A read-only, non-interactive table of installed vs. latest version per tool.
 
-**Spec:** [`specs/outdated/`](specs/outdated/) (approved, 2026-10-10).
+**Spec:** [`specs/outdated/`](specs/outdated/) — **done**, 2026-10-10 (v1; all seven spec milestones).
 
 **Why it is small.** `GenericTool.check_for_update()` already returns an `UpdateStatus`
 (`current`, `latest`, `available`) for `npm`, `pip`, `uvx`, `apt` and `git`, and `devstuff update`
