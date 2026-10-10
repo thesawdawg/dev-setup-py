@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — P1–P4 done
+**Status:** Approved (2026-10-10) — P1–P5 done
 
 ---
 
@@ -16,7 +16,7 @@ are tested before any command exists — the order that worked for `outdated`.
 | P2 | `GenericTool.installed_version()` (local readers factored out of the checkers), `supports_pin`, and the test tying it to `update(version=…)` | FR-10–12, FR-25–26, SD-3/4/10 | **Done** 2026-10-10 |
 | P3 | `devstuff profile snapshot` (group + command, `-o`, `--versions`, `--force`, stderr notes), registered in the CLI and help table | FR-7–8, 13–14, 23, NFR-1/2 | **Done** 2026-10-10 |
 | P4 | Diff classifier — pure function over (profile, installed state, catalog) → seven states, counts, ordering | FR-16–18, 20 | **Done** 2026-10-10 |
-| P5 | `devstuff profile diff` (table, footer, `--all`, `--json`, `--exit-code`, `--ignore-extras`, exit 2 on bad profile) | FR-15, 19, 21–22, NFR-1 | Not started |
+| P5 | `devstuff profile diff` (table, footer, `--all`, `--json`, `--exit-code`, `--ignore-extras`, exit 2 on bad profile) | FR-15, 19, 21–22, NFR-1 | **Done** 2026-10-10 |
 | P6 | README command reference, CLAUDE.md rules, roadmap + specs index | — | Not started |
 
 P2 is the only milestone that changes existing behaviour (it factors the `dpkg-query` read out of
@@ -91,6 +91,17 @@ second test asserts the grid reaches all seven states, so a state the table neve
 also stated directly — `ok` implies the comparison genuinely succeeded. 18 deliberate breakages, all caught first time: each
 "could not compare" state rendered as `ok`, the precedence between `missing`/`unpinnable`/`unknown-key`, version comparison made
 to normalise or to order, extras handling in `differs`, and a summary that omits zero counts.
+
+**P5 verification, 2026-10-10.** 49 tests in `test_profile_diff_cmd.py`; 28 deliberate breakages, 25 caught first time. The three
+survivors were each a real gap: the shared fixture's only missing tool was *unpinned* so nothing tempted a read of a pinned,
+uninstalled tool; no test made a version reader raise during a diff; and the notes in real use are fixed strings, so only a direct
+call could prove bracket-escaping. All now tested. One test needed `isatty()` forced true on CliRunner's stream — under a plain
+runner the banner/spinner guard is never reached, so "no banner under --json" passes whatever the code does.
+
+Live on a real machine: a fresh `snapshot --versions` diffs clean (`13 ok`, exit 0). Then, with `ipython` pinned wrong, `starship`
+(bash) pinned, `commitizen` pinned (it is on PATH but not a `uv tool`), `gh` removed, an uninstalled tool and a bogus key added,
+the report named exactly `missing`, `drift`, `unverifiable`, `unpinnable`, `unknown-key` and `extra`, and `--exit-code` gave 1. A
+pin written `1.10` and a missing file both gave 2. With the network blocked: 1.5 s, same answer.
 
 ## Risks
 
