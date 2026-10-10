@@ -65,8 +65,10 @@ src/dev_setup/
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
 ├── verbose.py      # Process-wide -v/-vv level + the stderr logger built on it
 ├── updates.py      # Update probing + the five-state classifier, shared by `update` and `outdated`
+├── profile.py      # Profile file format (strict load, deterministic dump) + the seven-state diff classifier — pure
+├── snapshot.py     # Asks the machine: builds a Profile / the facts `profile.compare` needs
 ├── configure/       # Per-tool setup wizards (see "Configurators" below)
-└── commands/        # One Click command per file: list, install, remove, update, outdated, add, delete, docs, catalog
+└── commands/        # One Click command per file: list, install, remove, update, outdated, profile, add, delete, docs, catalog
 ```
 
 **Catalog precedence** (`catalog.load_effective_catalog`): bundled `tools.yaml` loads first →
@@ -154,6 +156,36 @@ and `devstuff outdated` share one collector and one classifier. Things that are 
   is free text, so the renderer escapes it (Rich reads `[docs]` as markup).
 - **Exit status is "did the lookup run", not the answer** (the same rule as `run_cmd`), and `--json`
   writes only the array to stdout, even at `-vv`.
+
+**Profiles** (`profile.py`, `snapshot.py`, `commands/profile_cmd.py`; spec in `docs/specs/profile/`):
+`devstuff profile snapshot` / `diff` describe and compare a machine; `apply` is not built (roadmap M3), so the
+file format is provisional. Things that are load-bearing:
+- **`profile.py` is pure and `snapshot.py` asks the machine.** `compare()` takes *facts* (`MachineTool`), not tool
+  objects, so the whole decision table is testable without a registry — and is, exhaustively, one case per
+  combination of its six inputs.
+- **Loading refuses what YAML silently corrupts**: `version: 1.10` → float `1.1`, `0.40` → `0.4`, `1:30` → int 90
+  (sexagesimal), a date → a date object, a duplicate key → the first dropped, a tool key `on`/`yes` → `True`. The
+  original text is gone by the time Python sees it, so the loader rejects instead of coercing. `Entry` enforces the
+  same rule at construction, so a version `snapshot` builds can always be read back. Emission is safe only because
+  `yaml.safe_dump` quotes numeric-looking strings; don't hand-roll it.
+- **Versions come from `GenericTool.installed_version()`** — per-type, local-only readers for the types that can be
+  pinned (`npm`, `pip`/`uvx`, single-package `apt`). Never from `get_version()`, which is free text (`'bat 0.26.1
+  (979ba22)'`), and never from `check_for_update()`, which also hits the network. A regex over `get_version()` was
+  measured at 12 of 13 correct on today's catalog and rejected anyway: its failure is a *wrong pin written silently*.
+- **`supports_pin()` is an explicit set tied to the updaters by a test** (`tests/test_pin_support.py`): a pin must
+  actually reach a command, and a refusal must be a refusal *of the pin*, not some other failure that happens to
+  raise. Add an updater and that test forces you to say whether it can pin.
+- **Three states mean "could not compare" and are never `ok`**: `unverifiable`, `unpinnable`, `unknown-key`.
+  `unpinnable` is decided *before* the version is looked at, so a `bash` tool whose text version equals the pin
+  can't read as a match. Same rule as `outdated`'s `unknown`/`unsupported`; it is the point of both commands.
+- **A profile names keys, never definitions or scripts** — otherwise applying one would be arbitrary code execution
+  past the catalog's validation. A custom tool is reported as `unknown-key` and moved with `catalog export`/`import`.
+- **Exit status: `2` is a bad profile, `1` is "differs"** (`--exit-code` only). Don't merge them: a CI gate has to
+  tell a drifted machine from a typo. Output to stdout is the data and nothing else, at every `-v`.
+- **Tests must be able to reach the guard they claim to test.** CliRunner's stdout is not a TTY, so a "no banner
+  under `--json`" test passes whatever the code does unless `isatty()` is forced true (and a counter-test shows the
+  banner *does* appear for a person). Likewise defensive `except` around a reader that never raises needs a fake
+  reader that does.
 
 **Two ways a tool gets defined**: built-in (an entry added directly to `src/dev_setup/tools.yaml`,
 `builtin=True`) or custom (created via the `devstuff add` wizard, `devstuff catalog import`,

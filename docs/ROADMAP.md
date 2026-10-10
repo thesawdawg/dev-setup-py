@@ -64,7 +64,7 @@ over an existing probe and an existing collector, not new probing.
 
 ## M2 — `devstuff profile snapshot` and `diff`
 
-**Spec:** [`specs/profile/`](specs/profile/) (approved, 2026-10-10) — covers `snapshot` and `diff`; `apply` (M3) gets its own requirements.
+**Spec:** [`specs/profile/`](specs/profile/) — **done** (v1, 2026-10-10): `snapshot` and `diff`. `apply` (M3) gets its own requirements.
 
 A profile is a YAML file: catalog keys and optional pinned versions. Configurator output is **not** part of it
 (several configurators don't round-trip); capturing it is a separate, later decision.
@@ -77,22 +77,26 @@ tools:
   starship: {}
 ```
 
-**Design commitments (to be written up in the spec)**
-- **A snapshot is measured, not remembered.** It is built by probing `is_installed()` and
-  `get_version()` now. There is no separate "installed state" file to drift out of sync — the
-  same reason `doctor` and every configurator measure the real binary.
-- **Reuse `catalog.py`'s validation style**: unknown fields and unknown keys fail loudly at load
-  time, consistent with "invalid catalogs fail loudly".
-- **`diff` reports four states**: missing, extra, version drift, and *unverifiable* (a pinned
-  `script` tool whose version cannot be probed). The fourth state is the M1 lesson again.
-- A profile references catalog keys only. It never embeds install scripts, so a profile file
-  cannot become a way to smuggle arbitrary commands past the catalog's validation.
+**Built** (v1, 2026-10-10): `profile snapshot` and `profile diff` (spec milestones P1–P6). The format is **provisional**
+until M3 exists. What the design turned into, where it differs from the first sketch:
+- **Versions are read locally, per type** (`installed_version()`), never from `get_version()`'s free text and never
+  via the update checkers, which hit the network. Only types that can be pinned (`npm`, `pip`/`uvx`, single-package
+  `apt`) ever get a version. So `snapshot` works offline.
+- **`diff` reports seven states**, not four: `ok`, `missing`, `drift`, `unverifiable`, `unpinnable`, `unknown-key`,
+  `extra`. The three "could not compare" ones are never `ok` — the M1 lesson, applied again.
+- **Loading is strict beyond the catalog's own rules**: YAML silently turns `version: 1.10` into `1.1` and drops
+  duplicate keys, so both are errors rather than coerced.
+- A profile references catalog keys only and never embeds install scripts, so a profile file can't smuggle commands
+  past the catalog's validation. A custom tool is `unknown-key` on a machine without it; `catalog export`/`import`
+  moves definitions.
+- `--exit-code` shipped in v1 (`1` = differs, `2` = bad profile), unlike `outdated`'s, because drift-gating is this
+  feature's headline use.
 
 **Done when**
-- [ ] `profile snapshot` writes a valid profile; `profile diff` of a fresh snapshot against the
-      same machine reports no differences (round-trip test).
-- [ ] Keys unknown to the effective catalog are reported, not silently dropped.
-- [ ] Spec records the rejected alternative of extending `catalog export` instead, with reasons.
+- [x] `profile snapshot` writes a valid profile; `profile diff` of a fresh snapshot against the same machine reports
+      no differences — tested on a fake machine, and live on a real one (`13 ok`, exit 0).
+- [x] Keys unknown to the effective catalog are reported, not silently dropped (`unknown-key`).
+- [x] Spec records the rejected alternative of extending `catalog export` instead, with reasons (`stack-decisions.md` SD-1).
 
 ## M3 — `devstuff profile apply` and bundled bundles
 
@@ -101,13 +105,18 @@ Turn a profile into an install plan and run it.
 - **Ordering** comes from the existing `requires` graph (including auto-inferred edges such as
   `npm` → `nvm`). Do not write a second dependency resolver; if the existing one is not exposed in
   a reusable form, factor it out first.
-- **Plan before action**: reuse the `_plan.py` preview and the task-view progress bar that
-  `install`/`update` use, so `apply` shows what it will do and asks.
+- **Plan before action**: `apply` shows what it will do and asks first. The plan-preview helper
+  `install`/`update` are gaining lives on the unmerged UI branch (`commands/_plan.py`); reuse it if it
+  has landed, rather than writing a second one.
 - **Failure policy** needs a decision in the spec: continue past a failed tool and summarise, or
   stop. Recommendation: continue, skip anything whose `requires` failed, and report at the end —
   a 40-tool apply that dies on tool 3 is worse than one that finishes 39.
-- **Pins on `script`/`bash` tools** can only be honoured by a full reinstall. `apply` should say so
-  and confirm, matching `update`'s existing behaviour for those types.
+- **Pins on `git`/`script`/`bash` tools cannot be honoured at all** — `update(version=…)` raises for them
+  (spec F-2) — and `diff` already reports them `unpinnable`. `apply` must say so rather than quietly
+  install latest.
+- **A pinned install is install-then-update**: `install()` takes no version (spec F-4), so applying a pin
+  means installing the latest and then calling `update(version=…)` — two installs, and for `apt` a
+  downgrade. Whether to teach the `npm`/`uvx`/`apt` installers a version instead is an M3 decision.
 - **Bundled bundles** (`@backend`, `@devops`, …) are profile files shipped in the package. They are
   data, so they get a validation test and a CI check that every key they name exists in the
   bundled catalog — the same two-direction enforcement as the CI-matrix test.

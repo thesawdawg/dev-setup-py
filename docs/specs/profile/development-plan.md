@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile` (snapshot, diff)
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — P1–P5 done
+**Status:** Complete (v1), 2026-10-10
 
 ---
 
@@ -17,7 +17,7 @@ are tested before any command exists — the order that worked for `outdated`.
 | P3 | `devstuff profile snapshot` (group + command, `-o`, `--versions`, `--force`, stderr notes), registered in the CLI and help table | FR-7–8, 13–14, 23, NFR-1/2 | **Done** 2026-10-10 |
 | P4 | Diff classifier — pure function over (profile, installed state, catalog) → seven states, counts, ordering | FR-16–18, 20 | **Done** 2026-10-10 |
 | P5 | `devstuff profile diff` (table, footer, `--all`, `--json`, `--exit-code`, `--ignore-extras`, exit 2 on bad profile) | FR-15, 19, 21–22, NFR-1 | **Done** 2026-10-10 |
-| P6 | README command reference, CLAUDE.md rules, roadmap + specs index | — | Not started |
+| P6 | README command reference, CLAUDE.md rules, roadmap + specs index | — | **Done** 2026-10-10 |
 
 P2 is the only milestone that changes existing behaviour (it factors the `dpkg-query` read out of
 `_check_update_apt`; the npm and uv reads were already separate functions). It lands before any command uses
@@ -102,6 +102,12 @@ Live on a real machine: a fresh `snapshot --versions` diffs clean (`13 ok`, exit
 (bash) pinned, `commitizen` pinned (it is on PATH but not a `uv tool`), `gh` removed, an uninstalled tool and a bogus key added,
 the report named exactly `missing`, `drift`, `unverifiable`, `unpinnable`, `unknown-key` and `extra`, and `--exit-code` gave 1. A
 pin written `1.10` and a missing file both gave 2. With the network blocked: 1.5 s, same answer.
+
+**P6, 2026-10-10.** README command reference, CLAUDE.md rules, roadmap and specs index. Re-reading the roadmap against what was
+built found its M2 section stale in three ways (it said a snapshot probes `get_version()`, that `diff` has four states, and its
+done-when boxes were unticked) and its M3 section wrong in two (it pointed at `_plan.py`, which exists only on the unmerged UI
+branch, and said pins on `script`/`bash` could be honoured by a reinstall, when `update(version=…)` raises for them). All fixed
+in the same change, per `docs/specs/README.md`: "keep them current, or delete them".
 
 ## Risks
 
