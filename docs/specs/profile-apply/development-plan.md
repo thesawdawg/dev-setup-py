@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile apply`
 
 **Date:** 2026-10-10
-**Status:** Approved 2026-10-10 — implementation not started
+**Status:** In progress — A1 done 2026-10-10
 
 ---
 
@@ -12,7 +12,7 @@ machine — the order that worked for `outdated` and `profile`.
 
 | # | Milestone | Satisfies | State |
 |---|-----------|-----------|-------|
-| A1 | **Planner** — pure `build_plan(rows, tools)`: row → action table, dependency closure across the plan with de-duplication, ordering, the skip-because-dependency-failed propagation as a pure function over results | FR-2, 3, 9, 22 | Not started |
+| A1 | **Planner** — pure `build_plan(rows, tools)`: row → action table, dependency closure across the plan with de-duplication, ordering, the skip-because-dependency-failed propagation as a pure function over results | FR-2, 3, 9, 22 | **Done** 2026-10-10 |
 | A2 | **Non-interactive core** — factor install and pinned-install out of `install_cmd._install_one` (no section, no wizard offer); one function that does a step and returns a result; probe-cache reset helper in `generic.py` | FR-6, 7, 10, 11, NFR-5 | Not started |
 | A3 | **Executor** — runs a `Plan` serially under the failure policy, handles `^C` between steps, returns per-step results | FR-8, 9, 11, 19 | Not started |
 | A4 | **`devstuff profile apply`** — plan table, `--dry-run`, `--yes`, TTY refusal, `--missing-only`, final re-measurement, summary, exit status, `--json` | FR-4, 5, 12–18, 23, NFR-1–4 | Not started |
