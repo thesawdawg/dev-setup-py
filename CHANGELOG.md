@@ -1,3 +1,9 @@
+## v2.9.0 (2026-10-10)
+
+### Features
+
+- **ui**: modernize terminal UI with cohesive violet-cyan theme
+
 ## v2.8.0 (2026-10-10)
 
 ### Features
