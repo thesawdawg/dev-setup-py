@@ -176,7 +176,7 @@ Per the project convention (*measure the tool, don't recall it*). Date: 2026-10-
 | F-1 | `get_version()` is the first line of `--version` output, and nothing more structured: `'bat 0.26.1 (979ba22)'`, `'codex-cli 0.162.0'`, `'gh version 2.102.0 (2026-09-30)'`, `'devin 3000.11.3 (9c803229faa4)'`, `'uv 0.12.23 (x86_64-unknown-linux-gnu)'`, and `''` for `nerd-font`. Only 4 of 13 installed tools (`commitizen`, `ipython`, `nvm`, `pi`) return a bare version. | A snapshot cannot record these as pins (FR-11, SD-3). |
 | F-2 | Only four install types can honour a pin on `update`: `npm` (`pkg@ver`), `pip`/`uvx` (`pkg==ver`), `apt` (`pkg=ver`, single package only). `git` (`pull`), `script` and `bash` raise "Version pinning is not supported". | FR-10, FR-26. A pin on a `git`/`script`/`bash` key is `unpinnable`. |
 | F-3 | A clean installed version exists only inside the `_check_update_*` functions, fused with a network lookup of the latest. Run offline, `outdated` took ~11 s waiting on timeouts. | `snapshot` needs local-only readers, not the checkers (FR-11, FR-25). Two of the three local reads were already separate functions (`_npm_installed_version`, `_uv_tool_versions`); only the `dpkg-query` call was inline and was factored out in P2. **Measured in P2** over this machine's 13 installed tools: `installed_version()` 1.0 s serial, 0.7 s on an 8-worker pool (nearly all of it `npm list -g` sourcing nvm, ~0.5 s per npm tool), and identical results with the network blocked. |
-| F-4 | `install()` takes **no version** (`Tool.install(self)`); `update(version=…)` requires the tool to already be installed. | Not an M2 concern, but it shapes M3: applying a pin is install-then-update (§6). |
+| F-4 | `install()` takes **no version** (`Tool.install(self)`); `update(version=…)` requires the tool to already be installed. | Not an M2 concern. It looked like it forced install-then-update for M3; measuring `apply` showed `update(version=…)` works on a missing tool, so it doesn't (§6, `profile-apply/` F-3). |
 | F-5 | **YAML corrupts version-shaped scalars.** `version: 1.10` → float `1.1`; `0.40` → `0.4`; `2` → int; `2026-09-30` → a date object. A duplicate key under `tools` is silently dropped (last wins). `yaml.safe_dump` *does* quote a string that would otherwise reload as a number (`'1.10'`). Also measured while building P1: `1:30` → int 90 (YAML 1.1 sexagesimal), `0x1F` → 31, `1_000` → 1000, `~` → null; `0o17` stays a *string* (PyYAML is YAML 1.1, not 1.2). Tool **keys** are affected too: `on`/`no` → bool, `null` → None, `123` → int, while `y`/`n` stay strings. | FR-4 and FR-5 reject rather than coerce; the emit side is safe, so NFR-4's round trip holds. |
 | F-6 | `registry.missing_requires(tool)` already returns the transitive missing-dependency closure, deepest first. | Reusable for M3 ordering; no second resolver (§6). |
 
@@ -200,9 +200,7 @@ Per the project convention (*measure the tool, don't recall it*). Date: 2026-10-
 Recorded now because they were found now and will not be cheaper to rediscover. `apply` gets its
 own numbered requirements, and a decision on each of these, before it starts.
 
-- **Pinned apply is install-then-update** (F-4): install the latest, then `update(version=…)`. For a
-  pin that is older than latest that is two installs, and for `apt` a downgrade. Alternatives —
-  teaching the `npm`/`uvx`/`apt` installers to take a version — are a decision for M3.
+- **Pinned apply** — *resolved 2026-10-10 in [`profile-apply/`](../profile-apply/):* not install-then-update. `update(version=…)` on a missing tool is a one-step pinned install (measured), so the installers keep taking no version. Kept here for the history of why it was asked.
 - **Ordering** comes from `registry.missing_requires` (F-6), not a second resolver.
 - **Pins on `git`/`script`/`bash` keys cannot be honoured** and `apply` must say so rather than
   silently installing latest.
