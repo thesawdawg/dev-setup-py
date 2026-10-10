@@ -1,7 +1,7 @@
 # Development plan: `devstuff outdated`
 
 **Date:** 2026-10-10
-**Status:** Approved (2026-10-10) — milestones 1–5 done
+**Status:** Approved (2026-10-10) — milestones 1–6 done
 
 ---
 
@@ -14,7 +14,7 @@
 | 3 | State classifier: `UpdateStatus` + `install_type` → one of five states | FR-5–8, SD-2/3 | **Done** 2026-10-10 |
 | 4 | `commands/outdated_cmd.py`: table, footer, summary, flags, exit status; register in `cli._register_commands` | FR-1–4, 9–11, 13–14, 18 | **Done** 2026-10-10 |
 | 5 | `--json` output and stdout-purity test at `-vv` | FR-12, NFR-1 | **Done** 2026-10-10 (landed with 4: `--json` is part of the command's contract) |
-| 6 | `UpdateStatus.note`: add the field; set it in the uv checker (F-2) and on the npm/apt/git network-failure paths; render and emit it | FR-23 | Not started |
+| 6 | `UpdateStatus.note`: add the field; set it in the uv checker (F-2) and on the npm/apt/git network-failure paths; render and emit it | FR-23, F-7 | **Done** 2026-10-10 |
 | 7 | README (command reference), CLAUDE.md (architecture line), roadmap + specs index | — | Not started |
 
 Milestones 1 and 2 land first and **before any new command exists**: both are changes to
@@ -55,6 +55,10 @@ the default ~0.3 s suite.
 run against this machine with a mix of npm/uvx/bash tools, once online and once with the network
 blocked, confirming offline turns `outdated` into `unknown` and never into `current`.
 
+**Done 2026-10-10** (dead proxy + cold uv cache, then `UV_OFFLINE=1`): every checkable tool was `unknown` with a stated
+reason; none read `current`. This caught F-7 — the uv probe ignored its exit code — which the unit tests had not,
+because they only faked a *successful* probe.
+
 ## Risks
 
 | Risk | Likelihood | Mitigation |
@@ -64,6 +68,7 @@ blocked, confirming offline turns `outdated` into `unknown` and never into `curr
 | Fixing the uv race changes which tools read as current | Low | The race only duplicated work, never altered results; parity test covers it |
 | `!=` comparison produces false `outdated` for prereleases / held packages (F-4) | Medium | Documented in the spec and README; not fixed in v1 (OQ-2) |
 | Network-blocked environments make every checkable tool `unknown` | Medium | Intended — that is the correct answer. The summary line makes it obvious |
+| A probe fails and reads as `current` (found live: F-7) | **Was real** | Fixed; each uv/npm/apt/git failure path now has a test, and the offline run is verified live |
 | `-vv` probe logging from 8 threads interleaves on stderr | Low | stderr only, one line per call; if unreadable, serialise log writes in `verbose.py` rather than change the pool |
 
 ## Out of scope for this plan

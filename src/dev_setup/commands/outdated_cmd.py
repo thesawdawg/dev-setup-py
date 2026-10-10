@@ -5,6 +5,7 @@ import sys
 from contextlib import nullcontext
 
 import click
+from rich.markup import escape
 
 from dev_setup import registry, ui, verbose
 from dev_setup.base import Tool
@@ -101,10 +102,9 @@ def _render(shown: list[Row], everything: list[Row], *, updates_only: bool, show
         tbl.add_column("Type", style=ui.CYAN, no_wrap=True)
         tbl.add_column("Installed", style=ui.GRAY, no_wrap=True)
         tbl.add_column("Latest", style=ui.GRAY, no_wrap=True)
-        tbl.add_column("Status", no_wrap=True)
+        tbl.add_column("Status")
         for r in rows:
-            color, label = _STATUS[r.state]
-            tbl.add_row(r.key, r.type, r.installed or "", r.latest or "", f"[{color}]{label}[/]")
+            tbl.add_row(r.key, r.type, r.installed or "", r.latest or "", _status_cell(r))
         ui.console.print(tbl)
     elif updates_only:
         ui.info("No updates available.")
@@ -113,6 +113,15 @@ def _render(shown: list[Row], everything: list[Row], *, updates_only: bool, show
         _footer(collapsed)
 
     ui.dim(_summary(everything))
+
+
+def _status_cell(r: Row) -> str:
+    color, label = _STATUS[r.state]
+    cell = f"[{color}]{label}[/]"
+    if r.note:
+        # Escaped: a note is free text from a checker, and Rich would read "[docs]" as markup.
+        cell += f"\n[{ui.GRAY}]{escape(r.note)}[/]"
+    return cell
 
 
 def _footer(unsupported: list[Row]) -> None:

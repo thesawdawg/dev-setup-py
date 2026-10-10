@@ -116,7 +116,7 @@ shares one probing path with `update`, and never presents "could not check" as "
   actually know why they could not answer; it is never invented by the command layer. It is
   shown dimmed after the status text and carried in `--json`. A checker that does not set it
   behaves exactly as before — the field defaults to empty, so no existing call site changes.
-  (Resolves OQ-4; motivated by finding F-2.)
+  (Resolves OQ-4; motivated by finding F-2.) Implemented 2026-10-10 for uv (not managed by `uv tool`; probe failed; `UV_OFFLINE`), npm (registry unreachable), apt (no candidate; `apt-cache policy` failed) and git (no clone; remote unreachable). Rendered on a dim second line of the Status cell, markup-escaped, because a note is free text from a checker.
 
 ### Tests
 
@@ -154,6 +154,7 @@ run before this spec was written. Date: 2026-10-10; 13 installed tools.
 | F-4 | `npm` and `apt` checkers decide `available` by `current != latest` — inequality, not ordering. | A locally newer version (a prerelease, a held or PPA package) reads as `outdated`. OQ-2. |
 | F-5 | 23 of 35 bundled tools are `bash`; none has a checker. | The command is blind to two thirds of the catalog. FR-7 and FR-10 exist because of this; OQ-1 is the real fix. |
 | F-6 | `check_for_update` exists on `GenericTool` but not on the `Tool` ABC; `update_cmd` suppresses the type error with `# type: ignore[attr-defined]`. | The shared collector either takes `GenericTool` or the ABC gains a default. Decided in SD-4. |
+| F-7 | **A failed uv probe read as "current".** Measured 2026-10-10: with no network, `uv tool list --outdated` exits **2** with an error and empty stdout; `_uv_outdated_map` ignored the exit code, so every uv tool came back `available=False`. With `UV_OFFLINE` set and a cold cache uv exits **0** and prints nothing at all — indistinguishable from a real "all current". | A bug in already-shipped `update` code, and exactly the failure FR-7 forbids. Fixed in milestone 6: a non-zero exit is unknown ("couldn't reach the package index"), and `UV_OFFLINE` — the only signal there is — is checked before asking. `uv`'s config-file `offline = true` cannot be detected; documented, not fixed. |
 
 ---
 

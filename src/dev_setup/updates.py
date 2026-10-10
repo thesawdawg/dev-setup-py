@@ -102,7 +102,7 @@ class Row:
     state: State
     installed: str | None
     latest: str | None
-    # Why a row is `unknown`, when a checker knows. Always empty until FR-23 lands.
+    # Why a row is `unknown`, when a checker knows (UpdateStatus.note); otherwise empty.
     note: str = ""
 
     def to_json(self) -> dict[str, str | None]:
@@ -121,7 +121,9 @@ def make_row(tool: Tool, status: UpdateStatus | None, *, installed: bool = True)
     state = classify(install_type, status, installed=installed)
     if state is State.NOT_INSTALLED or status is None:
         return Row(tool.key, install_type, state, None, None)
-    return Row(tool.key, install_type, state, status.current or None, status.latest or None)
+    return Row(
+        tool.key, install_type, state, status.current or None, status.latest or None, status.note
+    )
 
 
 # Display order (FR-9). `unsupported` goes last: it is the long, low-information tail.

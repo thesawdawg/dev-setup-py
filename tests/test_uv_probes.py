@@ -122,3 +122,91 @@ def test_uv_missing_degrades_to_unknown_without_probing(monkeypatch):
 
     assert _uv_tool("alpha").check_for_update() == generic.UpdateStatus()
     assert calls == []
+
+
+# -- A probe that failed is unknown, never current (spec FR-7, FR-23) ------------------
+#
+# Measured 2026-10-10: with no network, `uv tool list --outdated` exits 2 and prints an
+# error. The old code never looked at the exit code, so empty stdout became "nothing is
+# outdated" and every uv tool read as up to date. (With UV_OFFLINE set and a cold cache uv
+# exits 0 and prints nothing at all, so the environment variable is the only signal.)
+
+
+def _uv_fake(monkeypatch, *, list_rc=0, outdated_rc=0, outdated_out=OUTDATED, calls=None):
+    def fake_probe(cmd, **_kw):
+        argv = tuple(str(c) for c in cmd)
+        if calls is not None:
+            calls.append(argv[1:])
+        if "--outdated" in argv:
+            out = outdated_out if outdated_rc == 0 else ""
+            return subprocess.CompletedProcess(argv, outdated_rc, stdout=out, stderr="error: Failed to fetch")
+        out = TOOL_LIST if list_rc == 0 else ""
+        return subprocess.CompletedProcess(argv, list_rc, stdout=out, stderr="")
+
+    monkeypatch.setattr(generic, "_probe", fake_probe)
+    monkeypatch.setattr(generic.shutil, "which", lambda _c: "/usr/bin/uv")
+    monkeypatch.delenv("UV_OFFLINE", raising=False)
+
+
+def test_failed_outdated_probe_is_unknown_not_current(monkeypatch):
+    _uv_fake(monkeypatch, outdated_rc=2)
+
+    status = _uv_tool("beta").check_for_update()
+
+    assert status.available is None  # NOT False — we do not know it is current
+    assert status.current == "2.0.0"  # what we do know is still reported
+    assert "index" in status.note
+
+
+def test_failed_outdated_probe_does_not_hide_a_known_update_elsewhere(monkeypatch):
+    # Failure is for the whole listing, so no tool may claim current *or* outdated.
+    _uv_fake(monkeypatch, outdated_rc=2)
+
+    assert all(_uv_tool(k).check_for_update().available is None for k in ("alpha", "beta"))
+
+
+def test_failed_tool_list_is_unknown_with_a_note(monkeypatch):
+    _uv_fake(monkeypatch, list_rc=1)
+
+    status = _uv_tool("alpha").check_for_update()
+
+    assert status.available is None
+    assert status.current == ""
+    assert "uv tool list" in status.note
+
+
+def test_tool_not_managed_by_uv_says_so(monkeypatch):
+    # The `commitizen` case, F-2: on PATH, absent from `uv tool list`.
+    _uv_fake(monkeypatch)
+
+    status = _uv_tool("not-a-uv-tool").check_for_update()
+
+    assert status.available is None
+    assert "not installed via `uv tool`" in status.note
+
+
+def test_uv_offline_env_is_unknown_and_does_not_ask_for_updates(monkeypatch):
+    calls: list = []
+    _uv_fake(monkeypatch, calls=calls)
+    monkeypatch.setenv("UV_OFFLINE", "1")
+
+    status = _uv_tool("alpha").check_for_update()
+
+    assert status.available is None
+    assert "offline" in status.note
+    assert ("tool", "list", "--outdated", "--color", "never") not in calls
+
+
+@pytest.mark.parametrize("value", ["0", "false", ""])
+def test_uv_offline_env_falsy_values_do_not_count(monkeypatch, value):
+    _uv_fake(monkeypatch)
+    monkeypatch.setenv("UV_OFFLINE", value)
+
+    assert _uv_tool("alpha").check_for_update().available is True
+
+
+def test_healthy_probes_set_no_note(monkeypatch):
+    _uv_fake(monkeypatch)
+
+    assert _uv_tool("alpha").check_for_update().note == ""
+    assert _uv_tool("beta").check_for_update().note == ""

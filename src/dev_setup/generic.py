@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import os
 import re
 import shlex
 import shutil
@@ -10,6 +11,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, fields
 from pathlib import Path
+from typing import NamedTuple, TypeVar
 
 from dev_setup import verbose
 from dev_setup.base import Tool
@@ -35,11 +37,15 @@ class UpdateStatus:
 
     `available` is None when the install type has no reliable way to check
     (script/bash) or the probe itself failed (offline, missing tool, etc).
+
+    `note` is a short human reason a checker could not answer ("not installed via `uv
+    tool`"). Checkers set it only where they actually know why; it is empty otherwise.
     """
 
     current: str = ""
     latest: str = ""
     available: bool | None = None
+    note: str = ""
 
 
 def _run(cmd: list, *, cwd: Path | None = None) -> None:
@@ -421,11 +427,14 @@ def _check_update_npm(tool: GenericTool) -> UpdateStatus:
     current = _npm_installed_version(tool.npm_name)
     latest = _npm_latest_version(tool.npm_name)
     if not latest:
-        return UpdateStatus(current=current)
+        return UpdateStatus(current=current, note="couldn't fetch the latest version from npm")
     return UpdateStatus(current=current, latest=latest, available=bool(current) and current != latest)
 
 
-def _once(fn: Callable[[], dict[str, str]]) -> Callable[[], dict[str, str]]:
+_T = TypeVar("_T")
+
+
+def _once(fn: Callable[[], _T]) -> Callable[[], _T]:
     """Memoise a no-argument probe so concurrent first callers wait instead of racing.
 
     `functools.lru_cache` is not enough here: it caches *results*, so every thread that
@@ -438,10 +447,10 @@ def _once(fn: Callable[[], dict[str, str]]) -> Callable[[], dict[str, str]]:
     `cache_clear()` exists for tests and for any future caller that does.
     """
     lock = threading.Lock()
-    box: list[dict[str, str]] = []
+    box: list[_T] = []
 
     @functools.wraps(fn)
-    def wrapper() -> dict[str, str]:
+    def wrapper() -> _T:
         with lock:
             if not box:
                 box.append(fn())
@@ -455,18 +464,31 @@ def _once(fn: Callable[[], dict[str, str]]) -> Callable[[], dict[str, str]]:
     return wrapper
 
 
+class _Answer(NamedTuple):
+    """What a shared probe learned: its data, or None plus the reason it couldn't answer."""
+
+    data: dict[str, str] | None
+    why: str = ""
+
+
+def _env_true(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 @_once
-def _uv_tool_versions() -> dict[str, str]:
+def _uv_tool_versions() -> _Answer:
     """Package name -> installed version, for every `uv tool`. One call per process."""
     uv = shutil.which("uv")
     if not uv:
-        return {}
+        return _Answer(None, "uv is not installed")
     try:
         r = _probe(
             [uv, "tool", "list", "--color", "never"], capture_output=True, text=True, timeout=15,
         )
     except Exception:
-        return {}
+        return _Answer(None, "couldn't run `uv tool list`")
+    if r.returncode != 0:
+        return _Answer(None, "`uv tool list` failed")
     result: dict[str, str] = {}
     for line in r.stdout.splitlines():
         if line.startswith((" ", "-", "\t")):
@@ -474,26 +496,33 @@ def _uv_tool_versions() -> dict[str, str]:
         m = re.match(r"^(\S+)\s+v?([\w.\-+]+)", line.strip())
         if m:
             result[m.group(1)] = m.group(2)
-    return result
-
-
-def _uv_tool_current_version(pkg: str) -> str:
-    return _uv_tool_versions().get(pkg, "")
+    return _Answer(result)
 
 
 @_once
-def _uv_outdated_map() -> dict[str, str]:
-    """Package name -> latest version, for every outdated `uv tool`. One call per process."""
+def _uv_outdated_map() -> _Answer:
+    """Package name -> latest version, for every outdated `uv tool`. One call per process.
+
+    A failed probe must not look like "nothing is outdated": `uv tool list --outdated`
+    exits 2 with an error when it can't reach the index, and with empty stdout that would
+    read as every tool being current. With `UV_OFFLINE` set it instead exits 0 and prints
+    nothing — indistinguishable from a real "all current" — so the variable itself is the
+    only signal we have, and we don't ask. (Measured 2026-10-10; docs/specs/outdated.)
+    """
+    if _env_true("UV_OFFLINE"):
+        return _Answer(None, "uv is offline (UV_OFFLINE), so it can't look for newer versions")
     uv = shutil.which("uv")
     if not uv:
-        return {}
+        return _Answer(None, "uv is not installed")
     try:
         r = _probe(
             [uv, "tool", "list", "--outdated", "--color", "never"],
             capture_output=True, text=True, timeout=20,
         )
     except Exception:
-        return {}
+        return _Answer(None, "couldn't reach the package index")
+    if r.returncode != 0:
+        return _Answer(None, "couldn't reach the package index")
     result: dict[str, str] = {}
     for line in r.stdout.splitlines():
         if line.startswith((" ", "-", "\t")):
@@ -501,16 +530,26 @@ def _uv_outdated_map() -> dict[str, str]:
         m = re.match(r"^(\S+)\s+v?[\w.\-+]+\s*\[latest:\s*([\w.\-+]+)\]", line.strip())
         if m:
             result[m.group(1)] = m.group(2)
-    return result
+    return _Answer(result)
 
 
 def _check_update_uvx(tool: GenericTool) -> UpdateStatus:
     if not tool.pip_name or not shutil.which("uv"):
         return UpdateStatus()
-    current = _uv_tool_current_version(tool.pip_name)
-    latest = _uv_outdated_map().get(tool.pip_name, "")
+    installed = _uv_tool_versions()
+    if installed.data is None:
+        return UpdateStatus(note=installed.why)
+    current = installed.data.get(tool.pip_name, "")
+    if not current:
+        # On PATH (so is_installed() passed) but not managed by `uv tool` — e.g. it came
+        # from a project venv. We can't say what uv would upgrade it to.
+        return UpdateStatus(note="not installed via `uv tool`")
+    outdated = _uv_outdated_map()
+    if outdated.data is None:
+        return UpdateStatus(current=current, note=outdated.why)
+    latest = outdated.data.get(tool.pip_name, "")
     if not latest:
-        return UpdateStatus(current=current, available=False if current else None)
+        return UpdateStatus(current=current, available=False)
     return UpdateStatus(current=current, latest=latest, available=True)
 
 
@@ -528,7 +567,7 @@ def _check_update_apt(tool: GenericTool) -> UpdateStatus:
     try:
         r = _probe(["apt-cache", "policy", pkg], capture_output=True, text=True, timeout=10)
     except Exception:
-        return UpdateStatus(current=current)
+        return UpdateStatus(current=current, note="couldn't run `apt-cache policy`")
     candidate = ""
     for line in r.stdout.splitlines():
         line = line.strip()
@@ -536,7 +575,7 @@ def _check_update_apt(tool: GenericTool) -> UpdateStatus:
             candidate = line.split(":", 1)[1].strip()
             break
     if not candidate or candidate == "(none)":
-        return UpdateStatus(current=current)
+        return UpdateStatus(current=current, note="apt has no candidate version (try `apt update`)")
     return UpdateStatus(current=current, latest=candidate, available=bool(current) and current != candidate)
 
 
@@ -545,7 +584,7 @@ def _check_update_git(tool: GenericTool) -> UpdateStatus:
         return UpdateStatus()
     dest = _git_clone_dest(tool.git_url)
     if not dest.exists():
-        return UpdateStatus()
+        return UpdateStatus(note=f"no clone found at {dest}")
     try:
         r = _probe(
             ["git", "-C", str(dest), "rev-parse", "--short", "HEAD"],
@@ -562,7 +601,7 @@ def _check_update_git(tool: GenericTool) -> UpdateStatus:
     except Exception:
         remote_full = ""
     if not remote_full:
-        return UpdateStatus(current=current)
+        return UpdateStatus(current=current, note="couldn't reach the git remote")
     latest = remote_full[:7]
     if not current:
         return UpdateStatus(latest=latest)
