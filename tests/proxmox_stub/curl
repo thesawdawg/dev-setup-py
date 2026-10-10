@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Stand-in for curl, checking how the credential arrived as well as what was asked."""
+import os
+import sys
+from urllib.parse import unquote_plus, urlparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import router  # noqa: E402
+
+argv = sys.argv[1:]
+query: dict[str, str] = {}
+out = None
+url = ""
+reads_stdin = False
+i = 0
+while i < len(argv):
+    arg = argv[i]
+    if arg == "--data-urlencode":
+        key, _, value = argv[i + 1].partition("=")
+        query[key] = unquote_plus(value)
+        i += 2
+        continue
+    if arg == "-o":
+        out = argv[i + 1]
+        i += 2
+        continue
+    if arg == "-K":
+        reads_stdin = argv[i + 1] == "-"
+        i += 2
+        continue
+    if arg in ("-w", "--max-time"):
+        i += 2
+        continue
+    if arg.startswith("http"):
+        url = arg
+    i += 1
+
+config = sys.stdin.read() if reads_stdin else ""
+# NFR-3: the token must arrive on stdin and never in argv, where ps would publish it.
+router.record("CURL", f"{url}?{sorted(query.items())}")
+router.record("CRED", f"stdin={'PVEAPIToken=' in config} argv={'PVEAPIToken=' in ' '.join(argv)}")
+
+# Read the credential back the way curl would, so a test can check what actually
+# arrived rather than only that something did.
+for line in config.splitlines():
+    key, _, value = line.partition("=")
+    if key.strip() != "header":
+        continue
+    value = value.strip()
+    if value.startswith('"') and value.endswith('"'):
+        value = value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    router.record("HEADER", value)
+
+if os.environ.get("PVE_STUB_CURL_FAIL"):
+    print("curl: (7) Failed to connect", file=sys.stderr)
+    sys.exit(7)
+
+path = urlparse(url).path.replace("/api2/json", "", 1)
+payload, status = router.route(path, query)
+if out:
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(router.dumps(payload, envelope=True))
+print(status, end="")
+sys.exit(0)

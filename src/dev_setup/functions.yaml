@@ -363,3 +363,617 @@ functions:
       # Belt and braces for the rule above: every path that got far enough to print
       # an answer is a success, whatever the last command happened to return.
       exit 0
+
+  # --- Proxmox -------------------------------------------------------------
+  # Connection profiles come from `devstuff configure proxmox`; the shared transport,
+  # guest resolution and confirmation helpers live in
+  # src/dev_setup/configure/proxmox/lib.sh, which every one of these sources from the
+  # installed package rather than from a copy (docs/specs/proxmox-tools/, SD-2).
+  #
+  # Reads work over both an ssh and an api profile; anything that changes state needs
+  # ssh, prints the exact qm/pct/vzdump command first, and asks before running it.
+
+  pve-check:
+    name: Proxmox Check Profile
+    description: Check a Proxmox connection profile end to end and report what it can do
+    category: proxmox
+    type: script
+    params:
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/wiki/Proxmox_VE_API
+    script: |
+      # No `set -e`: this reports on a connection, and "the token may not read updates"
+      # is a result worth printing, not a reason to abort. Non-zero is kept for a
+      # profile that cannot be used at all.
+      set -uo pipefail
+
+      # Connection details for the chosen profile, plus where lib.sh lives. Anything
+      # wrong here — no profile, an unreadable file — has already said so on stderr.
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      printf '\n  Profile %s — %s over %s\n\n' "$PVE_PROFILE" "$PVE_HOST" "$PVE_TRANSPORT"
+      if pve_check_report; then
+        printf '\n  This profile works.  Try:  devstuff run pve-guests\n'
+        exit 0
+      fi
+      printf '\n  Fix it with:  devstuff configure proxmox\n'
+      exit 1
+
+  pve-status:
+    name: Proxmox Status
+    description: Cluster and node health — quorum, uptime, load, memory and PVE version
+    category: proxmox
+    type: script
+    params:
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/pvecm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      version="$(pve_read /version)" || exit 1
+      printf '\n  '
+      printf '%s' "$version" | pve_fmt version
+
+      printf '\n'
+      if cluster="$(pve_read /cluster/status 2>/dev/null)"; then
+        printf '%s' "$cluster" | pve_fmt cluster
+      else
+        # /cluster/status needs Sys.Audit, which a narrowly scoped token may not have.
+        # The node list below is readable by any token, so this degrades rather than fails.
+        pve_warn "Could not read /cluster/status — continuing with the node list."
+      fi
+
+      printf '\n'
+      pve_read /nodes | pve_fmt nodes || exit 1
+      pve_note ""
+      pve_note "Ask Proxmox yourself:  $(pve_read_cmd /cluster/status)"
+      exit 0
+
+  pve-guests:
+    name: Proxmox Guests
+    description: List VMs and containers with their node, state, uptime and resource use
+    category: proxmox
+    type: script
+    params:
+      - name: filter
+        description: Only show guests matching this text (name, node, state, tag or VMID)
+        required: false
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/qm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      # One request covers qemu and lxc on every node: /cluster/resources tags each
+      # guest with the type, which is also what decides between qm and pct later.
+      printf '\n'
+      pve_read /cluster/resources type=vm | pve_fmt guests "${filter:-}" || exit 1
+      pve_note ""
+      pve_note "Ask Proxmox yourself:  $(pve_read_cmd /cluster/resources type=vm)"
+      exit 0
+
+  pve-storage:
+    name: Proxmox Storage
+    description: Storage pools per node — type, content, and how full each one is
+    category: proxmox
+    type: script
+    params:
+      - name: node
+        description: Only this node (default; every node in the cluster)
+        required: false
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/pvesm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      if [ -n "${node:-}" ]; then
+        nodes="$node"
+      else
+        nodes="$(pve_read /nodes | pve_fmt node-names)" || exit 1
+      fi
+
+      status=0
+      for n in $nodes; do
+        printf '\n  %s\n' "$n"
+        pve_read "/nodes/$n/storage" | pve_fmt storage || status=1
+      done
+      pve_note ""
+      pve_note "Ask Proxmox yourself:  $(pve_read_cmd /nodes/NODE/storage)"
+      exit "$status"
+
+  pve-updates:
+    name: Proxmox Updates
+    description: Pending package updates per node, and the subscription/repository state
+    category: proxmox
+    type: script
+    params:
+      - name: node
+        description: Only this node (default; every node in the cluster)
+        required: false
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/wiki/Package_Repositories
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      # Measured from Proxmox's own API schema: GET /nodes/<node>/apt/update is guarded
+      # by Sys.Modify, not Sys.Audit. A PVEAuditor token — the obvious thing to make for
+      # a read-only integration — gets a 403 here and nowhere else, so the hint is set
+      # before the read rather than leaving a bare "403" to be puzzled over.
+      PVE_PRIV_HINT="Sys.Modify on /nodes/<node> (PVEAuditor is not enough for this one)"
+
+      if [ -n "${node:-}" ]; then
+        nodes="$node"
+      else
+        nodes="$(pve_read /nodes | pve_fmt node-names)" || exit 1
+      fi
+
+      status=0
+      for n in $nodes; do
+        printf '\n  %s\n' "$n"
+        if sub="$(pve_read "/nodes/$n/subscription" 2>/dev/null)"; then
+          printf '%s' "$sub" | pve_fmt subscription
+        fi
+        pve_read "/nodes/$n/apt/update" | pve_fmt updates || status=1
+      done
+      pve_note ""
+      pve_note "Refresh the list first, on the node:  apt-get update"
+      pve_note "Then install them there:  apt-get dist-upgrade"
+      exit "$status"
+
+  pve-backups:
+    name: Proxmox Backups
+    description: Backup archives on each backup-capable storage, newest first
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Only this guest's backups, by name or VMID (default; all of them)
+        required: false
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/vzdump.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      vmid=""
+      if [ -n "${guest:-}" ]; then
+        pve_resolve "$guest" || exit $?
+        vmid="$PVE_G_VMID"
+        printf '\n  Backups of %s\n' "$(pve_guest_label)"
+      fi
+
+      nodes="$(pve_read /nodes | pve_fmt node-names)" || exit 1
+
+      status=0
+      seen=""
+      found=0
+      for n in $nodes; do
+        stores="$(pve_read "/nodes/$n/storage" content=backup | pve_fmt backup-storages)" || continue
+        for st in $stores; do
+          # A shared storage is reported by every node that mounts it, with identical
+          # contents; listing it once per node would triple the output on a 3-node cluster.
+          case " $seen " in
+            *" $st "*) continue ;;
+          esac
+          seen="$seen $st"
+          found=1
+          printf '\n  %s (via %s)\n' "$st" "$n"
+          pve_read "/nodes/$n/storage/$st/content" content=backup | pve_fmt backups "$vmid" || status=1
+        done
+      done
+
+      if [ "$found" -eq 0 ]; then
+        printf '\n  No storage on this Proxmox is configured to hold backups.\n'
+        printf '  Add one in Datacenter -> Storage, with "VZDump backup file" content.\n'
+      fi
+      pve_note ""
+      pve_note "Take one now:  devstuff run pve-backup <guest>"
+      exit "$status"
+
+  pve-snapshots:
+    name: Proxmox Snapshots
+    description: Snapshots of one guest, with their parent chain and whether RAM was saved
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Guest name or VMID
+        required: true
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/qm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      pve_resolve "$guest" || exit $?
+      printf '\n  Snapshots of %s\n\n' "$(pve_guest_label)"
+      pve_read "/nodes/$PVE_G_NODE/$PVE_G_KIND/$PVE_G_VMID/snapshot" | pve_fmt snapshots || exit 1
+      pve_note ""
+      pve_note "On the node:  $PVE_G_BIN listsnapshot $PVE_G_VMID"
+      pve_note "Take one:  devstuff run pve-snapshot $PVE_G_NAME <name>"
+      exit 0
+
+  pve-start:
+    name: Proxmox Start Guest
+    description: Start a VM or container by name or VMID
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Guest name or VMID
+        required: true
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/qm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      pve_require_ssh || exit 1
+      pve_resolve "$guest" || exit $?
+
+      # Already in the desired state is a correct answer, so it exits 0 — the rule
+      # `whats-on-port` follows for "nothing is listening".
+      if [ "$PVE_G_STATUS" = "running" ]; then
+        printf '  %s is already running.\n' "$(pve_guest_label)"
+        exit 0
+      fi
+
+      pve_do "Start $(pve_guest_label)?" -- "$PVE_G_BIN" start "$PVE_G_VMID"
+      pve_finish $?
+
+  pve-stop:
+    name: Proxmox Stop Guest
+    description: Shut down a guest gracefully, or pull the cord with mode=stop
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Guest name or VMID
+        required: true
+      - name: mode
+        description: shutdown (ACPI, waits) or stop (immediate, like a power cut)
+        required: false
+        default: shutdown
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/qm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      case "${mode:-shutdown}" in
+        shutdown|stop) ;;
+        *)
+          pve_err "mode must be 'shutdown' or 'stop', got '${mode}'."
+          exit 2
+          ;;
+      esac
+
+      pve_require_ssh || exit 1
+      pve_resolve "$guest" || exit $?
+
+      if [ "$PVE_G_STATUS" = "stopped" ]; then
+        printf '  %s is already stopped.\n' "$(pve_guest_label)"
+        exit 0
+      fi
+
+      if [ "${mode:-shutdown}" = "stop" ]; then
+        pve_warn "stop is a power cut: the guest gets no chance to flush anything to disk."
+        pve_do "Force-stop $(pve_guest_label)?" -- "$PVE_G_BIN" stop "$PVE_G_VMID"
+      else
+        # --timeout is qm/pct's own wait for the ACPI shutdown to be honoured; a guest
+        # with no ACPI handling (or an ignored one) simply keeps running after it.
+        pve_do "Shut down $(pve_guest_label)?" -- \
+          "$PVE_G_BIN" shutdown "$PVE_G_VMID" --timeout 60
+      fi
+      pve_finish $?
+
+  pve-restart:
+    name: Proxmox Restart Guest
+    description: Reboot a guest the way Proxmox does it, waiting for a clean shutdown
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Guest name or VMID
+        required: true
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/qm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      pve_require_ssh || exit 1
+      pve_resolve "$guest" || exit $?
+
+      if [ "$PVE_G_STATUS" != "running" ]; then
+        printf '  %s is %s, so there is nothing to reboot.\n' "$(pve_guest_label)" "$PVE_G_STATUS"
+        printf '  Start it with:  devstuff run pve-start %s\n' "$PVE_G_NAME"
+        exit 0
+      fi
+
+      pve_do "Reboot $(pve_guest_label)?" -- "$PVE_G_BIN" reboot "$PVE_G_VMID"
+      pve_finish $?
+
+  pve-migrate:
+    name: Proxmox Migrate Guest
+    description: Move a guest to another node — live for a VM, with a restart for a container
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Guest name or VMID
+        required: true
+      - name: target
+        description: Node to move it to
+        required: true
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/qm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      pve_require_ssh || exit 1
+      pve_resolve "$guest" || exit $?
+
+      nodes="$(pve_read /nodes | pve_fmt node-names)" || exit 1
+      case " $(printf '%s' "$nodes" | tr '\n' ' ') " in
+        *" $target "*) ;;
+        *)
+          pve_err "No node called '$target'. This cluster has:"
+          printf '%s\n' "$nodes" | sed 's/^/    /' >&2
+          exit 2
+          ;;
+      esac
+
+      if [ "$target" = "$PVE_G_NODE" ]; then
+        printf '  %s is already on %s.\n' "$(pve_guest_label)" "$target"
+        exit 0
+      fi
+
+      # The two binaries disagree here, and it is not guessable: a running VM migrates
+      # live with --online, while a running container cannot be live-migrated at all and
+      # --restart reboots it on the far side. A stopped guest needs neither.
+      flag=""
+      if [ "$PVE_G_STATUS" = "running" ]; then
+        if [ "$PVE_G_KIND" = "qemu" ]; then
+          flag="--online"
+        else
+          flag="--restart"
+          pve_warn "A running container cannot live-migrate: --restart reboots it on $target."
+        fi
+      fi
+
+      if [ -n "$flag" ]; then
+        pve_do "Migrate $(pve_guest_label) to $target?" -- \
+          "$PVE_G_BIN" migrate "$PVE_G_VMID" "$target" "$flag" 1
+      else
+        pve_do "Migrate $(pve_guest_label) to $target?" -- \
+          "$PVE_G_BIN" migrate "$PVE_G_VMID" "$target"
+      fi
+      pve_finish $?
+
+  pve-snapshot:
+    name: Proxmox Take Snapshot
+    description: Take a snapshot of a guest before you change something
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Guest name or VMID
+        required: true
+      - name: snapname
+        description: Name for the snapshot (letters, digits, dot, dash and underscore)
+        required: true
+      - name: description
+        description: What you are about to do (optional, but future-you will want it)
+        required: false
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/qm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      case "$snapname" in
+        [A-Za-z]*) ;;
+        *)
+          pve_err "A snapshot name has to start with a letter, got '$snapname'."
+          exit 2
+          ;;
+      esac
+      case "$snapname" in
+        *[!A-Za-z0-9._-]*)
+          pve_err "A snapshot name may only contain letters, digits, dot, dash and underscore."
+          exit 2
+          ;;
+      esac
+
+      pve_require_ssh || exit 1
+      pve_resolve "$guest" || exit $?
+
+      if [ -n "${description:-}" ]; then
+        pve_do "Snapshot $(pve_guest_label) as '$snapname'?" -- \
+          "$PVE_G_BIN" snapshot "$PVE_G_VMID" "$snapname" --description "$description"
+      else
+        pve_do "Snapshot $(pve_guest_label) as '$snapname'?" -- \
+          "$PVE_G_BIN" snapshot "$PVE_G_VMID" "$snapname"
+      fi
+      rc=$?
+
+      # --vmstate saves the guest's RAM as well, which makes the snapshot far larger and
+      # slower, so it is offered rather than assumed. It is a qm option only: a container
+      # has no RAM state to write, which is why pct snapshot has no such flag.
+      if [ "$rc" -eq 0 ] && [ "$PVE_G_KIND" = "qemu" ] && [ "$PVE_G_STATUS" = "running" ]; then
+        pve_note ""
+        pve_note "To capture the running memory too, add --vmstate 1 to that command."
+      fi
+      pve_finish "$rc"
+
+  pve-rollback:
+    name: Proxmox Roll Back Snapshot
+    description: Roll a guest back to one of its snapshots, discarding changes since
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Guest name or VMID
+        required: true
+      - name: snapname
+        description: Snapshot to go back to
+        required: true
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/qm.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      pve_require_ssh || exit 1
+      pve_resolve "$guest" || exit $?
+
+      snaps="$(pve_read "/nodes/$PVE_G_NODE/$PVE_G_KIND/$PVE_G_VMID/snapshot")" || exit 1
+
+      # Checked here rather than left to Proxmox: a typo should list the real snapshots,
+      # not return "snapshot 'prod-bakcup' does not exist" and stop. Matched against the
+      # names themselves, never against the rendered table a column width could shift.
+      if ! printf '%s' "$snaps" | pve_fmt snapshot-names | grep -qxF "$snapname"; then
+        pve_err "$PVE_G_NAME has no snapshot called '$snapname'. It has:"
+        printf '%s' "$snaps" | pve_fmt snapshots >&2
+        exit 2
+      fi
+
+      printf '\n'
+      pve_warn "Rolling back discards everything written since '$snapname' was taken,"
+      pve_warn "and any snapshot taken after it goes with it."
+      pve_do "Roll $(pve_guest_label) back to '$snapname'?" -- \
+        "$PVE_G_BIN" rollback "$PVE_G_VMID" "$snapname"
+      pve_finish $?
+
+  pve-backup:
+    name: Proxmox Back Up Guest
+    description: Run vzdump for one guest against a backup storage
+    category: proxmox
+    type: script
+    params:
+      - name: guest
+        description: Guest name or VMID
+        required: true
+      - name: storage
+        description: Backup storage to write to (default; the only one, if there is one)
+        required: false
+      - name: mode
+        description: snapshot (default), suspend, or stop
+        required: false
+        default: snapshot
+      - name: profile
+        description: Connection profile to use (default; the configured default)
+        required: false
+    docs_url: https://pve.proxmox.com/pve-docs/vzdump.1.html
+    script: |
+      set -uo pipefail
+      _pve_env="$("${DEVSTUFF_BIN:-devstuff}" configure proxmox --export "${profile:-}")" || exit 1
+      eval "$_pve_env"
+      # shellcheck source=/dev/null
+      . "$PVE_LIB" || exit 1
+
+      case "${mode:-snapshot}" in
+        snapshot|suspend|stop) ;;
+        *)
+          pve_err "mode must be snapshot, suspend or stop, got '${mode}'."
+          exit 2
+          ;;
+      esac
+
+      pve_require_ssh || exit 1
+      pve_resolve "$guest" || exit $?
+
+      target="${storage:-}"
+      if [ -z "$target" ]; then
+        stores="$(pve_read "/nodes/$PVE_G_NODE/storage" content=backup | pve_fmt backup-storages)" \
+          || exit 1
+        count="$(printf '%s' "$stores" | grep -c . || true)"
+        if [ "$count" -eq 1 ]; then
+          target="$stores"
+          pve_note "Using the only backup storage on $PVE_G_NODE: $target"
+        elif [ "$count" -eq 0 ]; then
+          pve_err "No storage on $PVE_G_NODE can hold backups."
+          pve_err "  Add one in Datacenter -> Storage with 'VZDump backup file' content."
+          exit 2
+        else
+          pve_err "Name a storage — $PVE_G_NODE has several that can hold backups:"
+          printf '%s\n' "$stores" | sed 's/^/    /' >&2
+          exit 2
+        fi
+      fi
+
+      # vzdump runs in the foreground and streams its progress, which is why nothing here
+      # polls a task ID: its own output and exit status are better than a re-implementation.
+      pve_do "Back up $(pve_guest_label) to $target, mode $mode?" -- \
+        vzdump "$PVE_G_VMID" --mode "${mode:-snapshot}" --storage "$target" --compress zstd
+      pve_finish $?

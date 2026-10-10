@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
+from pathlib import Path
 
 from dev_setup import verbose
 from dev_setup.base import patch_bashrc, remove_bashrc_block
@@ -122,6 +125,25 @@ def disable_bashrc_function(fn: FunctionDef) -> bool:
     return remove_bashrc_block(f"devstuff-fn:{fn.key}")
 
 
+def script_env() -> dict[str, str]:
+    """The caller's environment plus `DEVSTUFF_BIN`, a pointer back at devstuff itself.
+
+    A function that needs to ask devstuff something can't assume `devstuff` is on PATH:
+    run from source through the bash wrapper it is `uv run devstuff` inside the project
+    venv, and under `python -m dev_setup` there is no console script at all. argv[0] is
+    the real entry point in the first case; PATH is the fallback for the second. The
+    proxmox functions use it to fetch their connection profile; nothing breaks if it is
+    absent, since they fall back to a bare `devstuff`.
+    """
+    env = dict(os.environ)
+    argv0 = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    if argv0 is not None and argv0.name.startswith("devstuff") and argv0.is_file():
+        env["DEVSTUFF_BIN"] = str(argv0.resolve())
+    elif (found := shutil.which("devstuff")) is not None:
+        env["DEVSTUFF_BIN"] = found
+    return env
+
+
 def run_script_function(
     fn: FunctionDef,
     args: tuple[str, ...],
@@ -155,10 +177,11 @@ def run_script_function(
     verbose.trace(f"params: {_describe_params(fn.params, values)}")
     verbose.block(content)
     try:
+        env = script_env()
         if capture:
-            proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            proc = subprocess.run(cmd, check=True, capture_output=True, text=True, env=env)
             return ((proc.stdout or "") + (proc.stderr or "")).strip()
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, env=env)
         return None
     finally:
         os.unlink(tmp)

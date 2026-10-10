@@ -307,7 +307,11 @@ devstuff configure starship --output /tmp/try.toml   # write elsewhere, leave th
 | `docker` | `daemon.json` — log rotation, address pools and daemon behaviour |
 | `lazygit` | Icons, diff pager, panels and git behaviour |
 | `pre-commit` | Which git hooks run, when they run, and what they're allowed to rewrite |
+| `proxmox` | Connection profiles for the [`pve-*` functions](#proxmox-pve-) — hosts, auth and where secrets live |
 | `starship` | Prompt style, colour palette, which sections appear, and layout |
+
+`proxmox` is the one wizard with no local tool behind it: it describes devstuff's access to
+a machine somewhere else, so it never asks you to install anything and is always available.
 
 The reptyr wizard verifies the live kernel setting after applying it. Other wizards check
 their result against the real tool before saving. What that check can prove
@@ -1160,6 +1164,20 @@ ones tools already have — for now, custom functions are hand-edited YAML at
 | `acc-check` | web-dev | script | Run the pi coding agent's `/dogfood` skill against a web URL | `url`, `instruction` (optional) |
 | `aws-saml-reauth` | web-dev | script | Reauthorize the AWS CLI via `saml2aws login --force` | `profile` (optional) |
 | `which-ansible` | validation | script | Show which ansible a directory will actually use — the project's uv venv or the global one | `path` (optional) |
+| `pve-check` | proxmox | script | Check a Proxmox connection profile end to end and report what it can do | `profile` (optional) |
+| `pve-status` | proxmox | script | Cluster and node health — quorum, uptime, load, memory, PVE version | `profile` (optional) |
+| `pve-guests` | proxmox | script | List VMs and containers with node, state, uptime and resource use | `filter`, `profile` (both optional) |
+| `pve-storage` | proxmox | script | Storage pools per node — type, content, and how full each one is | `node`, `profile` (both optional) |
+| `pve-updates` | proxmox | script | Pending package updates per node, and the subscription state | `node`, `profile` (both optional) |
+| `pve-backups` | proxmox | script | Backup archives on each backup-capable storage, newest first | `guest`, `profile` (both optional) |
+| `pve-snapshots` | proxmox | script | Snapshots of one guest, with their parent chain | `guest`, `profile` (optional) |
+| `pve-start` | proxmox | script | Start a VM or container by name or VMID | `guest`, `profile` (optional) |
+| `pve-stop` | proxmox | script | Shut down a guest, or pull the cord with `mode=stop` | `guest`, `mode`, `profile` |
+| `pve-restart` | proxmox | script | Reboot a guest, waiting for a clean shutdown | `guest`, `profile` (optional) |
+| `pve-migrate` | proxmox | script | Move a guest to another node | `guest`, `target`, `profile` (optional) |
+| `pve-snapshot` | proxmox | script | Take a snapshot before you change something | `guest`, `snapname`, `description`, `profile` |
+| `pve-rollback` | proxmox | script | Roll a guest back to a snapshot | `guest`, `snapname`, `profile` (optional) |
+| `pve-backup` | proxmox | script | Run `vzdump` for one guest against a backup storage | `guest`, `storage`, `mode`, `profile` |
 
 #### `pids-of`
 
@@ -1224,6 +1242,92 @@ path that isn't a directory).
 It exists because devstuff's ansible and a uv-managed ansible repo are now the *same shape* — both
 a uv-created venv — so the question stopped being "which tool is broken" and became "which
 environment am I in". See `docs/specs/uv-backbone/` for why the global one moved off apt.
+
+---
+
+#### Proxmox (`pve-*`)
+
+Fourteen functions for managing a Proxmox VE host from your workstation. They take a **guest
+name or VMID**, work out which node it is on and whether it is a VM or a container, **print
+the exact command they are about to run**, and ask before changing anything.
+
+```bash
+devstuff configure proxmox              # first: where your Proxmox is, and how to reach it
+devstuff run pve-guests                 # what is running, cluster-wide
+devstuff run pve-snapshot web01 pre-upgrade "before the 8.3 upgrade"
+devstuff run pve-migrate web01 pve2
+```
+
+The printed command is the point. Answer `n` at the confirmation and you are left holding
+exactly the line you would have typed yourself:
+
+```
+  → qm shutdown 101 --timeout 60
+    on pve1, via ssh root@pve1.lan
+
+  Shut down qemu 101 (web01, running on pve1)? [y/N] n
+  Nothing was run. The command above is the one to type by hand.
+```
+
+**Profiles.** `devstuff configure proxmox` writes `~/.config/devstuff/proxmox.yaml` (mode
+`0600`) holding one or more named profiles, with one default. A profile reaches Proxmox
+either way:
+
+| `transport` | What it uses | What it can do |
+|-------------|--------------|----------------|
+| `ssh` | `ssh` to the node, then `qm`/`pct`/`vzdump`/`pvesh` | everything, including every state change |
+| `api` | `curl` against `/api2/json` with an API token | the read-only half: inventory, health, storage, backups |
+
+SSH profiles authenticate with your agent, a named key, or a password (which needs `sshpass`
+— the wizard says why a key is better). API profiles use a `USER@REALM!TOKENNAME` token, and
+the wizard prints the `pveum` commands that create one with the right privileges.
+
+**No secret is stored in that file.** A profile only says *where* its secret lives — an
+environment variable you name, or a `0600` file the wizard writes under
+`~/.config/devstuff/secrets/`. The secret is read at the moment a request is built, and it
+never reaches a command line: the API token goes into `curl` through `-K -` on stdin, and an
+SSH password through `sshpass -e`'s environment, because anything in `argv` is readable by
+every user on the machine through `ps`.
+
+**Picking a profile.** The last argument of every function is the profile; otherwise
+`$DEVSTUFF_PVE_PROFILE`, otherwise the configured default.
+
+```bash
+devstuff run pve-guests                 # the default profile
+devstuff run pve-guests '' work         # filter (empty), then profile
+DEVSTUFF_PVE_PROFILE=work devstuff run pve-guests
+```
+
+**Changing state always asks**, and the confirmation needs both stdin *and* stdout to be a
+terminal — not just stdin, because `devstuff agent` runs functions with stdout captured and
+the terminal still attached, where a stdin-only check would hang forever on a prompt nobody
+can see. Without a terminal the operation is refused rather than assumed; `DEVSTUFF_PVE_ASSUME_YES=1`
+is the deliberate way through for cron and scripts.
+
+Three things these functions know that are easy to get wrong by hand:
+
+- **A running container cannot live-migrate.** `qm migrate` takes `--online`; `pct migrate`
+  takes `--restart`, which reboots it on the far side. `pve-migrate` picks the right one and
+  says so.
+- **`qm` and `pct` are node-local.** Running `qm start 101` on `pve1` for a guest that lives
+  on `pve2` fails with "configuration file does not exist". When the guest is elsewhere, the
+  command is wrapped in the `ssh <node>` hop an administrator would type — and the hop is
+  what gets shown.
+- **Listing pending updates needs `Sys.Modify`.** `GET /nodes/<node>/apt/update` is guarded
+  as a write by Proxmox, so a `PVEAuditor` token — the obvious thing to create for a
+  read-only integration — gets a 403 from `pve-updates` and from nothing else. The function
+  says exactly that, and `devstuff run pve-check` reports it per operation before you hit it.
+
+**Duplicate names are never guessed at.** Proxmox does not enforce unique guest names, so a
+name matching two guests lists both with their VMIDs and stops rather than running a state
+change against a coin flip.
+
+`devstuff run pve-check` verifies a profile end to end — client tools, secret, reachability,
+which remote binaries exist, and for an API token, which reads it is actually allowed. It runs
+the same transport code the other functions use, so a pass means they work.
+
+Creating and destroying guests is deliberately out of scope, as is snapshot deletion. See
+[`docs/specs/proxmox-tools/`](docs/specs/proxmox-tools/) for the reasoning.
 
 ---
 

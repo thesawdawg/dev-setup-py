@@ -676,7 +676,21 @@ def test_every_configurator_honours_the_module_contract():
         assert callable(module.run)
         assert callable(module.config_path)
         # Keyed by a real catalog tool, or `devstuff configure` would offer a
-        # tool that cannot be installed.
+        # tool that cannot be installed. A standalone configurator is the deliberate
+        # exception: `proxmox` configures devstuff's access to a remote host, so there
+        # is no package behind it and the install gate is skipped instead of lying.
         from dev_setup import registry
 
-        assert registry.exists(spec.key), spec.key
+        assert registry.exists(spec.key) or spec.standalone, spec.key
+
+
+def test_a_standalone_configurator_offers_no_installation():
+    """The wizard is the whole thing — nothing to install, so nothing to suggest."""
+    from dev_setup import registry
+    from dev_setup.commands import configure_cmd as command
+
+    for spec in configure.CONFIGURATORS.values():
+        if not spec.standalone:
+            continue
+        assert not registry.exists(spec.key), spec.key
+        assert command._is_installed(spec) is True

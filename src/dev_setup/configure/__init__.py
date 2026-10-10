@@ -17,6 +17,16 @@ docs/specs/starship-config/stack-decisions.md).
 
 Nothing else changes: the picker, install-state check, `--path`/`--output` handling
 and the post-install offer in `install_cmd.py` all read this table.
+
+A configurator may also expose:
+   - `export(arg: str | None) -> str` — shell assignments printed by
+     `devstuff configure <key> --export [ARG]`, for a wizard whose result is read by
+     shell scripts rather than by a tool. Like `register: eval` functions, whatever it
+     returns is the *entire* contents of stdout, so it must never be chatty.
+
+Set `standalone=True` for a configurator with nothing to install — `proxmox` configures
+devstuff's access to a remote host, not a local binary, so there is no catalog key to
+check and no `devstuff install` to suggest.
 """
 
 from __future__ import annotations
@@ -33,6 +43,10 @@ class Configurator:
     description: str
     # Imported on demand, so `devstuff list` never pays for wizard imports.
     module: str
+    # True for a configurator with no catalog tool behind it. The install-state check
+    # and the "install it first" hint are skipped rather than reporting a package that
+    # was never meant to exist as missing.
+    standalone: bool = False
 
     def load(self) -> ModuleType:
         return import_module(self.module)
@@ -74,6 +88,13 @@ CONFIGURATORS: dict[str, Configurator] = {
         label="lazygit",
         description="Icons, diff pager, panels and git behaviour in config.yml",
         module="dev_setup.configure.lazygit.wizard",
+    ),
+    "proxmox": Configurator(
+        key="proxmox",
+        label="Proxmox",
+        description="Connection profiles for the pve-* functions — hosts, auth and secrets",
+        module="dev_setup.configure.proxmox.wizard",
+        standalone=True,
     ),
     # The catalog key is hyphenated; the package cannot be, hence `precommit`.
     "pre-commit": Configurator(
