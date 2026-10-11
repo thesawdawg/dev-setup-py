@@ -219,9 +219,19 @@ Output columns: status (✔/✘), package key, description, install type, versio
 Install one or more packages by key, or launch an interactive multi-select picker.
 
 ```bash
-devstuff install docker nvm      # install specific packages
+devstuff install docker nvm      # install specific packages (shows the plan, asks to confirm)
+devstuff install docker -y       # skip the preview and confirmation
 devstuff install                 # interactive picker (Space to toggle, Enter to confirm)
 ```
+
+Before anything runs, devstuff shows a **plan** — the resolved commands for `npm`/`apt`/`uvx`/`git`
+packages, the script body or source URL for `bash`/`script` packages — and asks you to confirm.
+`-y`/`--yes` skips the preview for scripting. During the install each phase ticks off a
+checklist under a progress bar, with the last few lines of real installer output streaming
+underneath; the tail collapses on success and stays on failure.
+
+If a package's `requires` aren't installed, devstuff offers to install them first rather than
+just erroring. A multi-package run ends with a summary table (installed / skipped / failed).
 
 The interactive picker shows all available packages with their current install status and lets you select multiple at once before confirming.
 
@@ -229,10 +239,15 @@ The interactive picker shows all available packages with their current install s
 
 ### `remove`
 
-Uninstall an installed package. Always asks for confirmation before proceeding.
+Uninstall an installed package, or pick interactively from what's installed. Always shows the
+removal plan (resolved commands, or the remove script) and asks for confirmation first —
+unless `-y`/`--yes` is passed. When other catalog packages list the package in `requires`,
+devstuff warns which ones depend on it.
 
 ```bash
-devstuff remove htop
+devstuff remove htop             # shows the plan, asks to confirm
+devstuff remove htop -y          # skip the preview and confirmation
+devstuff remove                  # interactive picker over installed packages
 devstuff uninstall htop          # alias
 ```
 
@@ -245,10 +260,14 @@ a specific version with `--version`. With no arguments, launches an interactive 
 picker over installed packages, similar to `install`.
 
 ```bash
-devstuff update nvm                    # update to latest
+devstuff update nvm                    # update to latest (shows the plan, asks to confirm)
 devstuff update pi --version 1.2.3     # pin a single package to a specific version
+devstuff update nvm -y                 # skip the preview and confirmation
 devstuff update                        # interactive picker
 ```
+
+Like `install`, `update` shows the resolved plan and asks before running, and ends multi-package
+runs with a summary table. `-y`/`--yes` skips it for scripting.
 
 Packages that aren't installed are skipped with a warning rather than treated as an error.
 `--version` can only be combined with a single package (and is not available in the interactive
@@ -1025,7 +1044,9 @@ Guided wizard to register a new custom package. Supports six install types:
 devstuff add
 ```
 
-The wizard collects type-specific fields, then prompts for a help command (e.g. `tool --help`). Packages are saved into `~/.config/devstuff/tools.yaml`.
+The wizard walks each field with a `step i/N` indicator — `Ctrl+B` on a text prompt or the
+`← Back` entry on a select moves back a step — and ends on a review screen where any field can
+be jumped to and re-edited before confirming. Packages are saved into `~/.config/devstuff/tools.yaml`.
 
 #### `bash` type
 

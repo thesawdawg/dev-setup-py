@@ -225,6 +225,29 @@ load-bearing:
   in `dev/`, empty container, sudo + network). It skips on a machine that already has the tools: ordering and
   idempotence assertions mean nothing there.
 
+**Plan preview, progress view and the guided `add` wizard** (`ui.py`, `commands/_plan.py`, the three lifecycle
+commands; spec in `docs/specs/plan-and-progress/`). `install`/`remove`/`update` show the resolved plan, ask once, run
+under a live checklist, and end a multi-package run in a summary. Things that are load-bearing:
+- **Text from outside is never Rich markup.** An installer's error line is arbitrary: `[/usr/bin/x]` is a closing tag
+  and raises `MarkupError` (a crash on the failure path of a multi-package run), and a lowercase `[lock]` is silently
+  deleted — from a *plan*, whose whole point is to show the exact command. Tables take `Text` cells (`summary`,
+  `batch_plan_panel`) and failure messages go through `rich.markup.escape`. About ten older call sites still
+  interpolate `{exc}` into `ui.error`/`ui.dim`; escape at the call site when you touch one. A markup test needs a
+  message that really contains a closing-tag-shaped string, or it passes whatever the code does.
+- **`task_view` is inert unless it is a live terminal.** It degrades to `verbose.step` under `-v` or off a TTY, which
+  is why `--json` and `profile apply` are unaffected. `_run` therefore has three output modes (feed the view, stream
+  raw, capture-and-surface-on-failure) — keep a new subprocess call going through it. A partial line (a `sudo`
+  prompt, a curl bar) is fed to the tail while the process waits; line iteration would leave it in the pipe and the
+  terminal looking hung.
+- **Every install type needs a `_PLANNERS` entry** (`test_every_install_type_has_a_planner`): without one the plan is
+  a generic note and the bar shows no phases.
+- **Picker titles are plain strings.** A questionary token-list title is emitted verbatim and never gets
+  `highlighted`, so the cursor vanishes. `_pad_choices` stretches the title to the row width and leaves the *value*
+  alone, so `default=` (matched on value) still lands; `select(searchable=True)` turns `j`/`k` off.
+- **Removal defaults to No, install and update to Yes**, and `-y` skips the plan and every question on all three.
+- **Driving these under a pty needs a terminal that answers `ESC[6n`** (cursor position) — `prompt_toolkit` waits for
+  it, and a harness that doesn't looks like a hung product.
+
 **Two ways a tool gets defined**: built-in (an entry added directly to `src/dev_setup/tools.yaml`,
 `builtin=True`) or custom (created via the `devstuff add` wizard, `devstuff catalog import`,
 or hand-edited YAML, landing in the user catalog). Both use the identical schema — the only
@@ -261,7 +284,9 @@ installing PHP packages via Composer as their own first-class type (analogous to
    will drift from validation.
 2. **`generic.py` `GenericTool`** — add the new field(s) to `__init__`, `from_dict`, `to_dict`;
    add a branch in `is_installed()`, `install()`, `remove()`, and (if version detection needs
-   type-specific logic) `_type_cmd()`.
+   type-specific logic) `_type_cmd()`. Also add a `_PLANNERS` entry returning the action's
+   preview items (`("cmd"|"script"|"note", label, detail)` tuples) — without one,
+   `plan_items()` falls back to a generic note and the task-view progress bar shows no phases.
 3. **`commands/add_cmd.py`** — add the type to the wizard's type list (`install_type = ui.select(...)`)
    and add the type-specific prompt branch (mirrors the existing `npm`/`apt`/`git` branches).
 4. **README.md** — add the type to the type table and the YAML schema field table, plus a

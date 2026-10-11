@@ -165,7 +165,7 @@ class _FontGate:
             ui.dim(f"  You can install one later:  devstuff install {fonts.NERD_FONT_KEY}")
             return
 
-        if install_by_key(fonts.NERD_FONT_KEY):
+        if install_by_key(fonts.NERD_FONT_KEY, yes=True):
             self._detected = fonts.detect()
             self._remind_to_select(tool.name)
 
@@ -225,9 +225,10 @@ def _ask_sections(cfg: StarshipConfig) -> list[str]:
             continue
         choices.append(questionary.Separator(f"\n  {group.upper()}"))
         for section in entries:
+            # String title, not a token list — questionary skips highlighted/
+            # selected styling on list titles, which hides the cursor position.
             choices.append(questionary.Choice(
-                title=[("class:text", f"{section.label:<{label_width}}"),
-                       ("class:instruction", section.key)],
+                title=f"{section.label:<{label_width}}{section.key}",
                 value=section.key,
                 checked=section.key in chosen,
             ))

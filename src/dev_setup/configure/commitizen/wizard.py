@@ -84,11 +84,10 @@ def _ask_types(cfg: CommitizenConfig) -> list[str]:
     choices: list = []
     for key, change_type in catalog.items():
         bump = change_type.bump or "no release"
+        # String title — a token list renders verbatim and never picks up the
+        # `highlighted` style, leaving the cursor invisible.
         choices.append(questionary.Choice(
-            title=[
-                ("class:text", f"{key:<{width}}"),
-                ("class:instruction", f"{bump:<11} {change_type.description}"),
-            ],
+            title=f"{key:<{width}}{bump:<11} {change_type.description}",
             value=key,
             checked=key in chosen,
         ))

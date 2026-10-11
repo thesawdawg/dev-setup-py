@@ -121,12 +121,11 @@ def _ask_theme(cfg: BatConfig, found: detect.Bat) -> None:
 def _ask_components(cfg: BatConfig) -> None:
     chosen = set(cfg.components)
     width = max(len(key) for key in COMPONENTS) + 2
+    # String titles — a token list renders verbatim and never picks up the
+    # `highlighted` style, leaving the cursor invisible.
     choices = [
         questionary.Choice(
-            title=[
-                ("class:text", f"{component.key:<{width}}"),
-                ("class:instruction", component.description),
-            ],
+            title=f"{component.key:<{width}}{component.description}",
             value=component.key,
             checked=component.key in chosen,
         )

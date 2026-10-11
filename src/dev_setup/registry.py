@@ -95,3 +95,10 @@ def missing_requires(tool: Tool) -> list:
     for key in tool.requires:
         visit(key)
     return missing
+
+
+def dependents(key: str) -> list[str]:
+    """Keys of tools that list `key` in their requires — the 'don't remove me'
+    warnings shown in the remove picker."""
+    init()
+    return [k for k in _order if k in _registry and key in (_registry[k].requires or [])]

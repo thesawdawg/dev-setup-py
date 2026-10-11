@@ -25,137 +25,186 @@ set -euo pipefail
 
 """
 
+_TYPES = ["npm", "uvx", "apt", "git", "script", "bash"]
+
+# Catalog fields collected per type — filters out answers left over from a type
+# the user backed out of and changed.
+_TYPE_FIELDS = {
+    "npm": ["npm_name", "check_cmd"],
+    "uvx": ["pip_name", "check_cmd", "uv_executables_from", "uv_with", "uv_python"],
+    "apt": ["apt_packages", "check_cmd"],
+    "git": ["git_url", "git_install_cmd", "git_remove_cmd", "check_cmd"],
+    "script": ["script_url", "check_cmd"],
+    "bash": ["check_cmd", "install_script", "remove_script"],
+}
+_COMMON_FIELDS = ["help_cmd", "docs_url"]
+
 
 @click.command("add")
 def add_cmd() -> None:
     """Add a custom package via guided wizard."""
     ui.section("Add Custom Package")
 
-    install_type = ui.select(
-        "Package type:",
-        ["npm", "uvx", "apt", "git", "script", "bash"],
-    )
-    if not install_type:
+    answers = ui.Wizard("Add package").run(_steps())
+    if answers is None:
         ui.warn("Aborted.")
         return
 
-    key = _prompt_key()
-    if not key:
-        return
-
-    name = ui.text_input("Display name:", default=key, required=True)
-    description = ui.text_input("Short description:", required=False)
-
+    install_type = answers["type"]
     kwargs: dict = dict(
-        key=key,
-        name=name,
-        description=description,
+        key=answers["key"],
+        name=answers["name"],
+        description=answers.get("description", ""),
         category="custom",
         install_type=install_type,
     )
-
-    if install_type == "npm":
-        kwargs["npm_name"] = ui.text_input("npm package name:", default=key, required=True)
-        kwargs["check_cmd"] = ui.text_input("Command to check if installed:", default=key)
-
-    elif install_type == "uvx":
-        kwargs["pip_name"] = ui.text_input("PyPI package name:", default=key, required=True)
-        kwargs["check_cmd"] = ui.text_input("Command to check if installed:", default=key)
-        # All optional. Empty answers must not write empty keys into the user catalog.
-        exes = ui.text_input(
-            "Also expose executables from (space-separated packages, blank for none):"
-        )
-        if exes:
-            kwargs["uv_executables_from"] = exes.split()
-        extra = ui.text_input(
-            "Extra packages to install alongside it (space-separated, blank for none):"
-        )
-        if extra:
-            kwargs["uv_with"] = extra.split()
-        py = ui.text_input("Pin to a Python version (e.g. 3.12, blank for uv's default):")
-        if py:
-            kwargs["uv_python"] = py
-
-    elif install_type == "apt":
-        kwargs["apt_packages"] = ui.text_input(
-            "apt package(s) (space-separated):", default=key, required=True
-        )
-        kwargs["check_cmd"] = ui.text_input("Command to check if installed:", default=key)
-
-    elif install_type == "git":
-        kwargs["git_url"] = ui.text_input("Git repository URL:", required=True)
-        kwargs["git_install_cmd"] = ui.text_input(
-            "Post-clone install command (optional, run inside repo):", required=False
-        )
-        kwargs["git_remove_cmd"] = ui.text_input(
-            "Pre-delete remove command (optional):", required=False
-        )
-        kwargs["check_cmd"] = ui.text_input("Command to check if installed:", required=False)
-
-    elif install_type == "script":
-        kwargs["script_url"] = ui.text_input("Install script URL (curl | sh):", required=True)
-        kwargs["check_cmd"] = ui.text_input("Command to check if installed:", required=False)
-
-    elif install_type == "bash":
-        kwargs["check_cmd"] = ui.text_input(
-            "Command to verify installation (e.g. bat, aws):", required=False
-        )
-        install_script = _edit_script("install", name, required=True)
-        if install_script is None:
-            ui.warn("No install script provided — aborted.")
-            return
-        kwargs["install_script"] = install_script
-
-        remove_script = _edit_script("remove", name, required=False)
-        remove_script = _validate_remove_script(
-            remove_script or "",
-            install_script,
-            kwargs.get("check_cmd", ""),
-            name,
-        )
-        if remove_script:
-            kwargs["remove_script"] = remove_script
-
-    kwargs["help_cmd"] = ui.text_input(
-        "Help command (optional, e.g. tool --help):", required=False
-    )
-    kwargs["docs_url"] = ui.text_input(
-        "Documentation URL (optional):", required=False
-    )
-
-    ui.console.print()
-    ui.heading("Summary")
-    for k, v in kwargs.items():
-        if v:
-            display = _truncate_script(v) if k.endswith("_script") else v
-            ui.console.print(f"  [{ui.PURPLE}]{k:<18}[/] {display}")
-    ui.console.print()
-
-    if not ui.confirm("Save this package?"):
-        ui.warn("Aborted — package not saved.")
-        return
+    for field in _TYPE_FIELDS.get(install_type, []) + _COMMON_FIELDS:
+        if answers.get(field):
+            kwargs[field] = answers[field]
 
     tool = GenericTool(**kwargs)
     tool.save()
-
-    from dev_setup import registry
     registry.register(tool)
 
-    ui.success(f"Package '{key}' added. Install with: devstuff install {key}")
+    ui.success(f"Package '{tool.key}' added. Install with: devstuff install {tool.key}")
 
 
-def _prompt_key() -> str:
+def _steps() -> list[ui.Step]:
+    def is_type(*types: str):
+        return lambda a: a.get("type") in types
+
+    def text(key: str, label: str, prompt: str, *, required: bool = False,
+             default=None, when=None, split: bool = False) -> ui.Step:
+        def ask(a: dict):
+            dflt = a.get(key) or (default(a) if default else "")
+            if isinstance(dflt, list):
+                dflt = " ".join(dflt)
+            val = ui.text_input_back(prompt, default=dflt, required=required)
+            if val is ui.BACK:
+                return ui.BACK
+            return val.split() if split and val else val
+
+        return ui.Step(key, label, ask, when=when)
+
+    return [
+        ui.Step(
+            "type", "package type",
+            lambda a: ui.select_back("Package type:", _TYPES, default=a.get("type")),
+        ),
+        ui.Step("key", "package key", _ask_key),
+        text(
+            "name", "display name", "Display name:", required=True,
+            default=lambda a: a.get("key", ""),
+        ),
+        text("description", "description", "Short description:"),
+        # npm
+        text(
+            "npm_name", "npm package", "npm package name:", required=True,
+            default=lambda a: a.get("key", ""), when=is_type("npm"),
+        ),
+        # uvx
+        text(
+            "pip_name", "PyPI package", "PyPI package name:", required=True,
+            default=lambda a: a.get("key", ""), when=is_type("uvx"),
+        ),
+        text(
+            "uv_executables_from", "executables from",
+            "Also expose executables from (space-separated packages, blank for none):",
+            when=is_type("uvx"), split=True,
+        ),
+        text(
+            "uv_with", "extra packages",
+            "Extra packages to install alongside it (space-separated, blank for none):",
+            when=is_type("uvx"), split=True,
+        ),
+        text(
+            "uv_python", "python pin",
+            "Pin to a Python version (e.g. 3.12, blank for uv's default):",
+            when=is_type("uvx"),
+        ),
+        # apt
+        text(
+            "apt_packages", "apt packages", "apt package(s) (space-separated):",
+            required=True, default=lambda a: a.get("key", ""), when=is_type("apt"),
+        ),
+        # git
+        text("git_url", "repo URL", "Git repository URL:", required=True, when=is_type("git")),
+        text(
+            "git_install_cmd", "install command",
+            "Post-clone install command (optional, run inside repo):",
+            when=is_type("git"),
+        ),
+        text(
+            "git_remove_cmd", "remove command",
+            "Pre-delete remove command (optional):", when=is_type("git"),
+        ),
+        # script
+        text(
+            "script_url", "script URL", "Install script URL (curl | sh):",
+            required=True, when=is_type("script"),
+        ),
+        # every type collects check_cmd — required nowhere, defaulted to the key
+        # for the types where the binary name almost always matches
+        text(
+            "check_cmd", "check command", "Command to check if installed:",
+            default=lambda a: a.get("key", "") if a.get("type") in ("npm", "uvx", "apt") else "",
+        ),
+        # bash
+        ui.Step(
+            "install_script", "install script", _ask_install_script,
+            when=is_type("bash"), show=_show_script,
+        ),
+        ui.Step(
+            "remove_script", "remove script", _ask_remove_script,
+            when=is_type("bash"), show=_show_script,
+        ),
+        text("help_cmd", "help command", "Help command (optional, e.g. tool --help):"),
+        text("docs_url", "docs URL", "Documentation URL (optional):"),
+    ]
+
+
+def _ask_key(answers: dict):
     while True:
-        key = ui.text_input("Package key (lowercase, hyphens ok):", required=True)
+        key = ui.text_input_back(
+            "Package key (lowercase, hyphens ok):",
+            default=answers.get("key", ""),
+            required=True,
+        )
+        if key is ui.BACK:
+            return ui.BACK
         if not _VALID_KEY.match(key):
             ui.error("Key must be lowercase letters, digits, hyphens, or underscores.")
             continue
         if registry.exists(key):
             ui.error(f"A package with key '{key}' already exists.")
-            if not ui.confirm("Use a different key?"):
-                return ""
             continue
         return key
+
+
+def _ask_install_script(answers: dict):
+    script = _edit_script("install", answers.get("name", ""), required=True,
+                          prefill=answers.get("install_script", ""))
+    if script is None:
+        ui.warn("No install script provided.")
+        return ui.BACK
+    return script
+
+
+def _ask_remove_script(answers: dict):
+    script = _edit_script(
+        "remove", answers.get("name", ""), required=False,
+        prefill=answers.get("remove_script", ""),
+    )
+    return _validate_remove_script(
+        script or "",
+        answers.get("install_script", ""),
+        answers.get("check_cmd", ""),
+        answers.get("name", ""),
+    )
+
+
+def _show_script(script) -> str:
+    return _truncate_script(str(script))
 
 
 def _edit_script(

@@ -532,7 +532,7 @@ class FontEnv:
         monkeypatch.setattr(registry, "get", lambda key: tool if tool else FakeFontTool())
         monkeypatch.setattr(
             install_cmd, "install_by_key",
-            lambda key: (self.installs.append(key), ok)[1],
+            lambda key, **_kw: (self.installs.append(key), ok)[1],
         )
 
 
