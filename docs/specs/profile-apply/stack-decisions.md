@@ -115,3 +115,20 @@ a bundle impossible to copy out and edit — which is the first thing anyone doe
 **Rejected:** bundles that fetch from a URL. A profile can't carry code (`profile` SD-2), but the
 network is a new trust and availability dependency for a command that otherwise works offline for
 everything but the installs themselves.
+
+## SD-10 — A separate step runner; `install_cmd` is left alone
+
+**Chosen:** `apply_exec.perform(tool, step)` is new code that calls `tool.install()` or
+`tool.update(version=…)`, catches failure into a result, and forgets cached probes. `install_cmd` is
+not modified.
+
+**Rejected (the original plan, A2 as first written):** factor a shared non-interactive core out of
+`install_cmd._install_one` and make `devstuff install` call it. Measured when A2 started: the part
+the two would actually share is one `try`/`except` around a single call. Against that, `install_cmd`
+has essentially no tests to refactor against (one starship test touches it), and it is the file with
+the largest uncommitted rewrite in the maintainer's working tree — a refactor there buys a
+near-empty abstraction at the price of a merge conflict and an unprotected behaviour change.
+
+**The duplication that remains is the wizard offer and the section header, which `apply` must not
+have anyway.** If the two ever need to share more, that is a change to make with `install`'s own
+tests in place first.
