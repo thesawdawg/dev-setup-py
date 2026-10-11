@@ -1,7 +1,7 @@
 # Specification: `devstuff profile apply`
 
 **Date:** 2026-10-10
-**Status:** Approved 2026-10-10 (all open questions resolved as recommended); not yet implemented — see development-plan.md
+**Status:** Implemented 2026-10-11 (A1–A6). Approved 2026-10-10 with all open questions resolved as recommended; the container test is written but has not yet had a first run — see development-plan.md
 **Authors:** Sawyer + Claude
 **Roadmap:** [M3](../../ROADMAP.md)
 **Builds on:** [`profile/`](../profile/) (the file format, the seven-state classifier, `machine_facts`)

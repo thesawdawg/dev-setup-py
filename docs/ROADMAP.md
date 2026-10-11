@@ -5,7 +5,7 @@ gets a `docs/specs/<feature>/` directory (see [`specs/README.md`](specs/README.m
 implementation starts, and that spec — not this file — is where requirements are numbered and
 rejected alternatives are recorded.
 
-Last revised: 2026-10-10.
+Last revised: 2026-10-11.
 
 ## Theme
 
@@ -100,6 +100,8 @@ until M3 exists. What the design turned into, where it differs from the first sk
 
 ## M3 — `devstuff profile apply` and bundled bundles
 
+**Spec:** [`specs/profile-apply/`](specs/profile-apply/) — **done** (v1, 2026-10-11): `apply` and six bundles (`@essentials`, `@python`, `@devops`, `@languages`, `@ai-agents`, `@ai-local`). The one open item is the first run of the container test, below.
+
 Turn a profile into an install plan and run it.
 
 - **Ordering** comes from the existing `requires` graph (including auto-inferred edges such as
@@ -115,7 +117,7 @@ Turn a profile into an install plan and run it.
   (spec F-2) — and `diff` already reports them `unpinnable`. `apply` must say so rather than quietly
   install latest.
 - **A pinned install is one step, not install-then-update** (measured 2026-10-10, apply spec F-3): `update(version=…)` works on a tool that isn't installed yet, so the installers need no version parameter. `apt` is the exception that matters: an older-than-candidate pin fails on version-locked dependencies whatever flags are passed (F-2), and is reported as a failure rather than worked around.
-- **Bundled bundles** (`@backend`, `@devops`, …) are profile files shipped in the package. They are
+- **Bundled bundles** (`@devops`, `@python`, …) are profile files shipped in the package. They are
   data, so they get a validation test and a CI check that every key they name exists in the
   bundled catalog — the same two-direction enforcement as the CI-matrix test.
 - **Configurator state**: restoring starship/lazygit/bat configuration is the differentiator over
@@ -125,9 +127,12 @@ Turn a profile into an install plan and run it.
 
 **Done when**
 - [ ] `apply` on an empty container (the existing Docker integration harness) reproduces a
-      snapshot taken elsewhere.
-- [ ] A failing tool does not abort the run; dependents are skipped with a stated reason.
-- [ ] Every bundled bundle passes the key-exists test.
+      snapshot taken elsewhere. *Written (`tests/integration/test_profile_apply.py`, `make run-apply-tests`);
+      its `uv` + pinned-`commitizen` half was run against the real installers in an isolated `HOME`, and
+      the `yq` half (a `sudo` install to `/usr/local/bin`) is waiting for its first container run.*
+- [x] A failing tool does not abort the run; dependents are skipped with a stated reason (unit-tested, and live
+      with an impossible pin).
+- [x] Every bundled bundle passes the key-exists test.
 
 ## M4 — Agent tools for `doctor` and `outdated`
 

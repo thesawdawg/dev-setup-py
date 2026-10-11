@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile apply`
 
 **Date:** 2026-10-10
-**Status:** In progress — A1 done 2026-10-10, A2–A5 done 2026-10-11
+**Status:** Complete — A1 done 2026-10-10, A2–A6 done 2026-10-11 (the container test's first run is the one open item)
 
 ---
 
@@ -17,7 +17,7 @@ machine — the order that worked for `outdated` and `profile`.
 | A3 | **Executor** — runs a `Plan` serially under the failure policy, handles `^C` between steps, returns per-step results | FR-8, 9, 11, 19 | **Done** 2026-10-11 |
 | A4 | **`devstuff profile apply`** — plan table, `--dry-run`, `--yes`, TTY refusal, `--missing-only`, final re-measurement, summary, exit status, `--json` | FR-4, 5, 12–18, 23, NFR-1–4 | **Done** 2026-10-11 |
 | A5 | **Bundles** — `@name` resolution, the shipped files, the two data tests; also accepted by `diff` | FR-20, 21 | **Done** 2026-10-11 |
-| A6 | **Docs + integration** — README, CLAUDE.md rules, roadmap, specs index; a Docker integration test that applies a profile to an empty container and diffs clean | NFR-4 | Not started |
+| A6 | **Docs + integration** — README, CLAUDE.md rules, roadmap, specs index; a Docker integration test that applies a profile to an empty container and diffs clean | NFR-4 | **Done** 2026-10-11 — docs written; the container test is written and its `uv` + pinned-`commitizen` half was run against the real installers (isolated `HOME`); the `yq` half and the first run in the CI image are pending |
 
 Nothing in this plan changes `devstuff install`: A2 was first written as a refactor of `install_cmd`
 and became a new module once measured (SD-10). The only edit to existing code is additive —
@@ -74,8 +74,8 @@ A survivor means a test is missing, not that the mutation was unfair.
    dependents are skipped, siblings proceed, exit status 1, and `diff` agrees with the summary.
 3. **Network blocked.** Planning and `--dry-run` work offline; only the install steps fail, with
    their own error.
-4. **Docker (A6).** The existing integration harness: snapshot on this machine, apply in an empty
-   container, `diff` clean. This is the roadmap's headline "done when", and the only test that
+4. **Docker (A6).** *(Written as `tests/integration/test_profile_apply.py` and `make run-apply-tests`. Docker isn't available where it was written, so it was validated by running its `uv` + pinned `commitizen` half with the real installers in an isolated `HOME` and a `PATH` with no `uv`: the plan ordered `uv` first, the pinned install landed at the pinned version (checked with `uv tool list`), `diff` agreed, and a second plan was empty. The `yq` half installs with `sudo` into `/usr/local/bin` and was deliberately not run on a workstation. First container run pending.)* The existing integration harness: apply a profile in an empty
+   container, `diff` clean, apply again and find nothing. This is the roadmap's headline "done when", and the only test that
    exercises `bash`-type installers and `requires` ordering for real. It needs sudo and network and
    is not run by default.
 

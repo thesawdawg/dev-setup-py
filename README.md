@@ -347,19 +347,20 @@ includes the `unsupported` rows; `--updates-only` applies to it too.
 
 ### `profile`
 
-Describe which tools a machine should have as a small file, and compare a machine against one.
-Both subcommands are **read-only** and **local** — they ask the machine, never the network — so
-they work offline.
+Describe which tools a machine should have as a small file, compare a machine against one, and make
+a machine match one. `snapshot` and `diff` are **read-only** and **local** — they ask the machine,
+never the network — so they work offline; `apply` installs, so it needs the network for that.
 
 ```bash
 devstuff profile snapshot > work.yaml            # the tools installed here, as a file
 devstuff profile snapshot --versions -o work.yaml   # ...and the versions of the ones that can be pinned
 devstuff profile diff work.yaml                  # how this machine differs from the file
 devstuff profile diff work.yaml --exit-code      # exit 1 if it differs: a gate for CI
+devstuff profile apply work.yaml                 # install what's missing, then check it worked
+devstuff profile apply @devops --dry-run         # a profile that ships with devstuff
 ```
 
-> **The file format is provisional until `profile apply` exists.** It is `version: 1`, and a later
-> breaking change will bump that number. There is no `apply` yet — nothing here installs anything.
+> The file format is `version: 1`; a later breaking change will bump that number.
 
 A profile names catalog **keys**, and optionally a version. It never contains an install script or
 a tool definition, so a profile from somewhere else can't run anything your own catalog doesn't
@@ -446,6 +447,68 @@ if the machine differs; an installed tool that isn't in the profile counts as a 
 you also pass `--ignore-extras`, which affects only this exit status and never hides a real
 difference. A profile that is missing, unreadable or invalid is always `2`, so `1` can only ever
 mean "differs".
+
+#### `apply`
+
+Makes this machine match a profile: installs what is missing (with whatever it needs, in order)
+and moves pinned tools to the pinned version. **It never removes anything**, and it never touches a
+tool the profile doesn't pin.
+
+```bash
+devstuff profile apply work.yaml --dry-run   # show the plan; change nothing, ask nothing
+devstuff profile apply work.yaml             # show the plan, ask, then run it
+devstuff profile apply work.yaml --yes       # no question (needed with no terminal)
+devstuff profile apply work.yaml --missing-only   # install what's missing; leave version drift alone
+devstuff profile apply work.yaml --yes --json     # one JSON document on stdout, nothing else
+```
+
+The plan is worked out from the same comparison `diff` makes, so the two can't disagree about what
+"missing" means. A pinned tool that isn't installed is installed **at the pin in one step**, not
+installed at latest and then moved. A pin the tool's install type can't honour (`bash`, `script`,
+`git`) is **skipped with a reason**, never installed at latest in its place.
+
+- **A failure doesn't stop the run.** What needed the failed tool is skipped, with the reason, and
+  never attempted; everything else carries on.
+- **The result is a re-reading of the machine**, not a tally of installers that didn't raise. An
+  installer that "succeeds" without installing anything is reported as the failure it is.
+- **Run it again to resume.** A second `apply` finds nothing to do once the machine matches, so an
+  interrupted (`Ctrl-C`) or partly failed run is finished by running the same command.
+- **`apt` pins older than the available version usually fail** — the package's libraries are
+  version-locked to it. `apply` tries it and shows apt's own error rather than forcing the install.
+- If a tool installed fine but still reads `missing`, check that its bin directory (usually
+  `~/.local/bin`) is on `PATH` in the shell that ran `apply`; `apply` says so under the summary.
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every entry in the profile now matches. |
+| `1` | Something doesn't: a step failed or was skipped, an entry couldn't be acted on, drift is left by `--missing-only`, or you declined or interrupted. |
+| `2` | The profile is unreadable or invalid, or the run needs confirming and there is no terminal (add `--yes`). |
+
+With `--json` the document is `{"plan", "run", "rows"}` (`run` is `null` for `--dry-run` or when
+there was nothing to do), `--yes` or `--dry-run` is required, and `-v` has no effect.
+
+#### Bundled profiles
+
+`PROFILE` can be `@name` for a profile that ships with devstuff, for both `apply` and `diff`:
+
+```bash
+devstuff profile apply @devops --dry-run
+devstuff profile diff @essentials
+```
+
+| Bundle | Tools |
+|--------|-------|
+| `@essentials` | gh, git-lfs, lazygit, bat, htop, yq, starship, nerd-font |
+| `@python` | uv, python, ipython, pre-commit, commitizen |
+| `@devops` | docker, ansible, ansible-vault, aws, saml2aws, mkcert |
+| `@languages` | go, java, php, python, ruby |
+| `@ai-agents` | claude-code, codex, devin, hey-dave, pi |
+| `@ai-local` | ollama, lmstudio, llm-checker, llamactl |
+
+Bundles pin nothing, so each installs the latest. `docker`, `java`, `php` and `ruby` ask for sudo.
+Only a leading `@` marks a bundle; a file whose name starts with `@` is `./@name`. An unknown name
+is exit 2 and lists these. The files are plain profiles in `src/dev_setup/bundles/` — copy one out
+and edit it to make your own.
 
 ---
 

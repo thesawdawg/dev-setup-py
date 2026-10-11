@@ -67,6 +67,9 @@ src/dev_setup/
 ├── updates.py      # Update probing + the five-state classifier, shared by `update` and `outdated`
 ├── profile.py      # Profile file format (strict load, deterministic dump) + the seven-state diff classifier — pure
 ├── snapshot.py     # Asks the machine: builds a Profile / the facts `profile.compare` needs
+├── apply_plan.py   # `profile apply`'s planner: diff rows -> ordered steps + skips. Pure, no I/O
+├── apply_exec.py   # `profile apply`'s step runner and serial executor (failure policy, Ctrl-C)
+├── bundles.py      # `@name` profiles shipped in the package (bundles/*.yaml), looked up by name
 ├── configure/       # Per-tool setup wizards (see "Configurators" below)
 └── commands/        # One Click command per file: list, install, remove, update, outdated, profile, add, delete, docs, catalog
 ```
@@ -158,8 +161,8 @@ and `devstuff outdated` share one collector and one classifier. Things that are 
   writes only the array to stdout, even at `-vv`.
 
 **Profiles** (`profile.py`, `snapshot.py`, `commands/profile_cmd.py`; spec in `docs/specs/profile/`):
-`devstuff profile snapshot` / `diff` describe and compare a machine; `apply` is not built (roadmap M3), so the
-file format is provisional. Things that are load-bearing:
+`devstuff profile snapshot` / `diff` describe and compare a machine; `apply` (below) changes one. Things that are
+load-bearing:
 - **`profile.py` is pure and `snapshot.py` asks the machine.** `compare()` takes *facts* (`MachineTool`), not tool
   objects, so the whole decision table is testable without a registry — and is, exhaustively, one case per
   combination of its six inputs.
@@ -186,6 +189,41 @@ file format is provisional. Things that are load-bearing:
   under `--json`" test passes whatever the code does unless `isatty()` is forced true (and a counter-test shows the
   banner *does* appear for a person). Likewise defensive `except` around a reader that never raises needs a fake
   reader that does.
+
+**`profile apply` and bundles** (`apply_plan.py`, `apply_exec.py`, `bundles.py`; spec in `docs/specs/profile-apply/`):
+- **The plan comes from `profile.compare`'s rows, never a second comparison.** Two definitions of "missing" would let
+  `diff` say a machine matches while `apply` changes it. `build_plan` is pure — the one outside fact it needs, a tool's
+  missing `requires` closure, is passed in as a function — so ordering and skip rules are tested without installing.
+- **The verdict is a re-measurement, not the installers' return values.** After the run `apply` calls `compare` again and
+  exits from that. `pip_name: ansible` "succeeds" and installs one unusable binary; an installer that returns proves
+  nothing. Don't replace the final `compare` with "every step returned".
+- **A pinned install is ONE `tool.update(version=pin)` call**, never `install()` then `update()`: measured to work on a
+  tool that isn't installed, it never installs a "latest" nobody asked for, and the installers need no version
+  parameter. `perform` refuses a pinned step with no version rather than run it as "latest".
+- **`generic.forget_probes()` runs after every step, on every exit path.** `_once` memoises probes for the process, so
+  `installed_version()` read `''` before an install, `''` *again after it succeeded*, and was right only once the memo
+  was cleared — a correct pin would have read unverifiable. A new `_once` probe is registered automatically.
+- **A failure doesn't stop the run; its dependents are skipped, never attempted.** Exit `0` means every profile entry
+  matches after re-measuring; `1` anything else (declined and interrupted included); `2` a bad profile, or a run that
+  needs confirming with no terminal and no `--yes`. `1` and `2` are not interchangeable for the same reason as `diff`'s.
+- **`--json` output is one document and nothing else**, which needs more than a redirect: streamed installer output
+  bypasses `sys.stdout`, so `_json_safe()` also sets verbosity to quiet and restores it. A `--json` test needs a chatty
+  fake installer, or it passes whatever the code does.
+- **`apply` never removes** (no `--prune`: a trimmed profile would delete the rest of the machine), runs serially
+  (apt's lock, shared prefixes, a sudo prompt a worker can't answer) and doesn't prime sudo; the plan marks steps that
+  may ask for a password. `apt` pins older than the candidate fail on version-locked dependencies even with
+  `--allow-downgrades`, so they are attempted and reported, never forced. A uv tool installed into a bin directory not on
+  `PATH` reads `missing` (`is_installed()` is `which`); the summary says so rather than `apply` second-guessing a check
+  `diff` also uses.
+- **`install_cmd` is deliberately untouched**: the shared part was one `try`/`except`, against a file with no tests to
+  refactor against (SD-10). If the two ever need to share more, add `install`'s own tests first.
+- **Bundles are plain profiles** in `src/dev_setup/bundles/*.yaml` (a new bundle is one file; hatch ships it, measured).
+  `@name` is looked up by *listing the directory*, never by building a path from the argument, so `@../x` has nothing
+  to traverse. They pin nothing (a shipped version is stale on release day), and two tests guard them in both
+  directions: every key exists in the bundled catalog, and every file in the directory is a reachable bundle.
+- **`tests/integration/test_profile_apply.py` is the only test where `apply` meets real installers** (`make run-apply-tests`
+  in `dev/`, empty container, sudo + network). It skips on a machine that already has the tools: ordering and
+  idempotence assertions mean nothing there.
 
 **Two ways a tool gets defined**: built-in (an entry added directly to `src/dev_setup/tools.yaml`,
 `builtin=True`) or custom (created via the `devstuff add` wizard, `devstuff catalog import`,

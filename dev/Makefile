@@ -5,7 +5,7 @@ ROOT := ..
 TOOL     ?=
 PYTEST_ARGS ?=
 
-.PHONY: build build-ci run shell run-tests smoke-agent tui-tests clean
+.PHONY: build build-ci run shell run-tests run-apply-tests smoke-agent tui-tests clean
 
 # Build a fresh wheel from source, then build the Docker image.
 # Clean dist first so the glob in the Dockerfile matches exactly one file.
@@ -35,6 +35,14 @@ run-tests: build-ci
 	$(eval _NODESEL := $(if $(TOOL),tests/integration/test_tools.py::test_install[$(TOOL)],tests/integration/test_tools.py))
 	docker run --rm devstuff-ci \
 		pytest $(_NODESEL) -m integration -v --tb=short $(PYTEST_ARGS)
+
+# Run `devstuff profile apply` against the empty CI container: apply a profile, diff clean, apply
+# again and find nothing to do (docs/specs/profile-apply, NFR-4). Needs sudo and network, like
+# run-tests; kept separate because it exercises the orchestration, not one tool's installer.
+#   make run-apply-tests
+run-apply-tests: build-ci
+	docker run --rm devstuff-ci \
+		pytest tests/integration/test_profile_apply.py -m integration -v --tb=short $(PYTEST_ARGS)
 
 # Smoke-test `devstuff agent` against a live Ollama daemon.
 # Runs on the HOST, not in Docker -- the CI image has no daemon, and yours may be

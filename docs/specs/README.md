@@ -49,4 +49,4 @@ They are most useful when they capture:
 | [`verbose-mode/`](verbose-mode/) — `-v`/`-vv`, the process-wide verbosity level | Complete (v1) |
 | [`outdated/`](outdated/) — `devstuff outdated`, the read-only installed-vs-latest report | Complete (v1) |
 | [`profile/`](profile/) — `devstuff profile snapshot` / `diff`, a portable description of a machine's tools | Complete (v1: snapshot, diff; apply is its own spec) |
-| [`profile-apply/`](profile-apply/) — `devstuff profile apply`, make a machine match a profile | Approved, not yet implemented |
+| [`profile-apply/`](profile-apply/) — `devstuff profile apply`, make a machine match a profile | Complete (v1: apply, six bundles; container test written, first run pending) |
