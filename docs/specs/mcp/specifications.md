@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-11
 **Status:** Approved 2026-10-11 with OQ-1/2/3/6 resolved as recommended (§5), plus two goals that outrank the
-rest (G-1, G-2 below). Findings F-1…F-9 were measured on 2026-10-11; F-6 is still open; nothing is implemented.
+rest (G-1, G-2 below). Findings F-1…F-11 were measured on 2026-10-11 (F-6 closed by F-11); the five points of
+the 2026-10-11 PR review are folded in (§5a); nothing is implemented.
 **Authors:** Sawyer + Claude
 **Roadmap:** new (overlaps [M4](../../ROADMAP.md): the `outdated` agent tool is built once and serves both)
 **Builds on:** [`agent/`](../agent/) (the tool registry, `AgentTool.to_schema()` / `bind()` and the
@@ -67,6 +68,21 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   (`agent.registry.build()`) restricted to entries whose `impl` is `catalog` or `function`. Primitive
   entries (`read_file`, `write_file`, `list_dir`, `cd`, `run_command`) never appear, and a user's
   `agent_tools.yaml` cannot add a primitive to the MCP surface.
+- **FR-1a** **Every entry is classified by what it runs, never by its key or its `mutating` field** (F-10: a
+  user `agent_tools.yaml` can override `install_tool` with `mutating: false`, alias it under another key, or
+  write a hand-made function bridge, and all three read as ungated). The classification lives in
+  `mcp/core.py`, keyed by `(impl, target)`:
+
+  | Entry | Class | Exposed when |
+  |---|---|---|
+  | `impl: catalog`, `target` ∈ {`list_tools`, `search_catalog`, `tool_info`, `outdated`, `profile_diff`} | read-only | always |
+  | `impl: catalog`, `target: install_tool` | install | `--allow-install` |
+  | `impl: function`, any `target`, any key | function | `--allow-functions` |
+  | `impl: catalog`, any other `target` | unclassified | **never** — left out, with a warning on stderr (fail closed) |
+
+  A `mutating: true` on a read-only entry **adds** gating (it is treated as the function class); no value of
+  `mutating` ever removes it. A test fails when a bridge in `agent.bridges._BRIDGES` has no row here (the
+  pattern of `test_every_install_type_has_a_planner`), so adding a bridge forces a decision about its gate.
 - **FR-2** The v1 tools, by key:
 
   | Key | Kind | Gated by | Source |
@@ -85,11 +101,13 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 
   `outdated` and `profile_diff` are added to `agent_tools.yaml` and `agent/bridges.py`, so the local agent
   gains them too (this is M4's `outdated` half; `doctor` stays in M4).
-- **FR-3** **Gating is enforced at dispatch, not only at listing.** A `mutating: true` tool whose flag
-  (FR-2) is absent is missing from `tools/list`, `GET /tools` and `/openapi.json`, **and** a `tools/call` or
-  `POST /tools/<name>` naming it is refused exactly as an unknown tool is. A client that learned a tool
-  name elsewhere gets nothing. The flags are independent: `--allow-functions` alone never exposes
-  `install_tool`, and the reverse. (Same shape as the agent's rule that the denylist runs before the prompt.)
+- **FR-3** **Gating is enforced at dispatch, not only at listing, and follows FR-1a's class.** A tool of the
+  install or function class whose flag (FR-2) is absent is missing from `tools/list`, `GET /tools` and
+  `/openapi.json`, **and** a `tools/call` or `POST /tools/<name>` naming it is refused exactly as an unknown
+  tool is. A client that learned a tool name elsewhere gets nothing. Listing and dispatch read **one**
+  classified toolbox object, so there is no second path that skips the check. The flags are independent:
+  `--allow-functions` alone never exposes `install_tool`, and the reverse. (Same shape as the agent's rule
+  that the denylist runs before the prompt.)
 - **FR-4** Every bridge reachable from the MCP surface must work with no workspace and no agent config
   (F-5). A test calls each non-primitive bridge with `ws=None, config=None`, so a future bridge that starts
   using them fails loudly rather than crashing under a client.
@@ -104,10 +122,26 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   crashing tool cannot end the server. The traceback goes to stderr.
 - **FR-7** Results are one `text` content item: the bridge's string, unchanged. `outdated` and
   `profile_diff` return the same JSON array `devstuff outdated --json` / `profile diff --json` print
-  (`[r.to_json() for r in rows]`), so there is one documented shape.
+  (`[r.to_json() for r in rows]`), so there is one documented shape. A result may carry an advisory **note**
+  (FR-8a) — kept *out of* that text so the array stays parseable: a second `text` content item over MCP, an
+  optional `note` string beside `text` over REST.
 - **FR-8** **Mutating calls are serialised**: at most one gated tool runs at a time; a second waits. apt
   holds a lock, installers share prefixes, and `profile apply` already runs serially for the same reason.
   Read-only tools run concurrently.
+- **FR-8a** **Probe freshness.** `generic.py`'s `_once` memos (`_uv_tool_versions`, `_uv_outdated_map`, …)
+  live as long as the process (F-10), which is right for a CLI that lives seconds and wrong for a server
+  that lives days. The server therefore owns their lifecycle, with no request ever blocked:
+  1. **Fresh per burst:** when the number of in-flight read-only requests goes from 0 to 1,
+     `generic.forget_probes()` runs. Concurrent requests inside a burst still share probes (that sharing is
+     what `_once` is for), and a new burst after any idle gap starts clean.
+  2. **Clear after every mutation, in `finally`** — including a failure that changed state part-way (as
+     `profile apply` already does for the same reason).
+  3. **Detect a straddle:** a counter bumped when a gated call starts and again when it ends is read at the
+     start and end of every read-only request. If it changed and no gated call is running now, the read is
+     re-run once. If one is still running (or the retry also straddled), the result is returned with the
+     note `an install is in progress; this may change`.
+  A read is **never** blocked by a mutation: an install takes minutes, and a frozen `list_tools` is worse
+  than an annotated one. Rejected alternatives are in SD-11.
 - **FR-9** `outdated` takes an optional `packages` (list of keys), `updates_only` (bool). It is read-only
   and keeps `outdated`'s honesty rule: an `unknown` or `unsupported` row is returned as such and never
   as `current`.
@@ -122,13 +156,30 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   private fds; `dup2(2, 1)` so fd 1 is stderr; `dup2(/dev/null, 0)` so fd 0 reads EOF. This is done at the
   descriptor level, not by patching `sys.stdout`, because the leaks are in three places (the Rich
   `console`, `_run`'s verbose branch, `function_runner`) plus every child process.
+- **FR-11a** **The server has no controlling terminal** (F-11: a `/dev/null` stdin does *not* give this —
+  `sudo` still prompted on the terminal, and a server spawned by Claude Code could open `/dev/tty`). Before
+  FR-11's fd move and before any tool can run, the server detaches at the process level:
+  1. `os.setsid()`. When spawned by a client this succeeds.
+  2. On `EPERM` (the process is a process-group leader — how a shell starts `devstuff mcp --http`): `fork`;
+     the child calls `setsid` and is the server; the original process becomes a **supervisor** that closes
+     its copies of fds 0 and 1, forwards `SIGINT`/`SIGTERM` to the child, and exits with the child's status
+     (FR-30).
+  3. **Verify, fail closed.** Try to open `/dev/tty`. It must fail (`ENXIO`). If it still opens **and** any
+     gate flag is on, the server exits `1` with the reason and **starts nothing** — no process that can run
+     an installer starts while a terminal is reachable. With no gate flag the server is read-only, so it
+     warns on stderr and continues.
+  The alternative — `start_new_session=True` at each of the six subprocess call sites — is rejected in
+  SD-12: it is the per-call-site audit FR-11 already refuses to depend on. A consequence to accept: a
+  detached server no longer receives Ctrl-C from the terminal; the supervisor's forwarding replaces it.
 - **FR-12** Nothing but protocol frames is ever written to the protocol channel — **no stdout path exists
   at all**, rather than a check at each call site. A test makes a fake installer write through all five
   routes measured in F-1 and asserts stdout carries exactly the frames.
-- **FR-13** An installer that needs a password cannot be answered (stdin is `/dev/null`, there is no
-  tty). It must fail with a message that tells the client what to do — `sudo` needs a terminal; run
-  `devstuff install <key>` yourself — and must never hang. *The exact failure text is to be measured at
-  build time (F-6); this requirement is what that measurement must satisfy.*
+- **FR-13** An installer that needs a password cannot be answered (FR-11a: no controlling terminal, fd 0 is
+  `/dev/null`). It fails fast — measured: `sudo` exits `1` with `sudo: A terminal is required to
+  authenticate` (F-11) — and the result is `is_error` with the tail of the installer's own output **plus one
+  sentence telling the client to run `devstuff install <key>` in a terminal**. It never hangs and never
+  writes to a terminal. Not yet measured: that the sudo line survives `_run`'s capture into the result;
+  M-1 does that through the real `_run` and a pty before the wording is fixed.
 - **FR-14** Log lines — startup, per request at `-v`, tracebacks — go to stderr only, through the existing
   `verbose` logger. `-v` therefore also streams installer output, to stderr.
 
@@ -148,7 +199,8 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 - **FR-16b** **Tool names match `^[a-zA-Z0-9_-]{1,64}$`**, the constraint Claude's tool API applies once a
   client prefixes them (`mcp__devstuff__<key>`). Every current key passes (F-9); `registry.build()` output
   is checked in a test, and a user catalog entry that breaks it is left out of the MCP toolbox with a
-  warning on stderr rather than breaking the client's whole `tools/list`.
+  warning on stderr rather than breaking the client's whole `tools/list`. The reserved word
+  `openai_tool_list` (FR-22) is treated the same way.
 - **FR-16c** Each tool's `inputSchema` is `{"type": "object", "properties": …}` with `required` **omitted
   when empty** (an empty `required` array is invalid in older JSON Schema drafts and some validators
   reject it) and `additionalProperties: false`, so a client's schema check agrees with `bind()`'s
@@ -173,39 +225,65 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 - **FR-21** `GET /tools` returns the exposed tools as the OpenAI function-calling array —
   `AgentTool.to_schema()` output, with FR-16c's schema rules. (The agent already emits this shape:
   Ollama's `tools[]` is OpenAI's.)
-- **FR-22** `GET /openapi.json` returns an **OpenAPI 3.1.0** document. For every exposed tool, exactly one
-  operation `POST /tools/<key>`:
+- **FR-22** `GET /openapi.json` returns an **OpenAPI 3.1.0** document with two kinds of operation — the
+  **tool operations** (one per exposed tool) and **one catalog operation** (`GET /tools`).
+
+  Each **tool operation** is `POST /tools/<key>`:
   - `operationId` is the tool key (what OpenAPI tool clients name a function after), `summary` the tool's
     name, `description` the tool's description — plus, for a gated tool, one sentence saying it changes
     this machine;
-  - `requestBody` is the shared FR-16c schema, `required: true` iff the tool has a required parameter;
-  - `responses`: `200` → a `ToolResult` schema (`{is_error: boolean, text: string}`, both required), and
-    `400`, `401`, `403`, `404`, `405`, `413` → an `Error` schema (`{error: string}`) — every status FR-23
-    can produce is documented, and no other is produced;
-  - a `bearerAuth` security scheme (`type: http`, `scheme: bearer`) applied to every operation;
-  - `servers[0].url` is built from the `Host` the client used (already validated by FR-26), so a client
-    in a container gets a URL it can follow, not `127.0.0.1`;
-  - `GET /tools` is documented too. `POST /mcp` is not: it is MCP's own protocol, not a REST operation, and
-    the document's `info.description` says so.
-  It lists only what FR-3 lists. It is generated from the same toolbox object as `tools/list`, never
-  maintained separately.
+  - `requestBody` is the shared FR-16c schema, `required: true` iff the tool has a required parameter
+    (FR-23 gives the exact behaviour for each body);
+  - `responses`: `200` → a `ToolResult` schema (`{is_error: boolean, text: string, note?: string}`; `is_error`
+    and `text` required), and `400`, `401`, `403`, `404`, `405`, `413` → an `Error` schema
+    (`{error: string}`).
+
+  The **catalog operation** `GET /tools` has `operationId` **`openai_tool_list`**, no request body, `200` →
+  an array of OpenAI function objects (the FR-21 shape) and `401`, `403`, `405` → `Error`. The name is a
+  reserved word: it satisfies FR-16b so a client that turns every `operationId` into a function name can,
+  and a tool *key* equal to it is left out of the toolbox with a warning, so the two kinds of operation can
+  never collide.
+
+  For every operation, every status the server can produce is documented and no other is produced; a
+  `bearerAuth` scheme (`type: http`, `scheme: bearer`) applies to all of them. `servers[0].url` is built from
+  the `Host` the client used (already validated by FR-26), so a client in a container gets a URL it can
+  follow, not `127.0.0.1`. `POST /mcp` is not documented: it is MCP's own protocol, not a REST operation,
+  and the document's `info.description` says so. The document lists only what FR-3 lists and is generated
+  from the same toolbox object as `tools/list`, never maintained separately.
 - **FR-22a — valid.** The document passes `openapi-spec-validator` (OpenAPI 3.1) for each of the four flag
   combinations (neither, install, functions, both). A test breaks a copy of the document and shows the
   validator rejects it, so the check is known to be able to fail (measured, F-9).
-- **FR-22b — complete in both directions.** For every flag combination the *set* of `operationId`s equals
-  the set of names in `tools/list` equals the set in `GET /tools`; each tool's request schema is equal in
-  all three. A tool missing from the document **or** an operation naming no tool fails the test.
+- **FR-22b — complete in both directions.** Over the **tool operations only** (`POST /tools/{key}`), for
+  every flag combination the *set* of `operationId`s equals the set of names in `tools/list` equals the set
+  in `GET /tools`; each tool's request schema is equal in all three. A tool missing from the document **or**
+  a tool operation naming no tool fails the test. The catalog operation is checked **separately**: it is
+  present exactly once, its `operationId` is `openai_tool_list`, and the set of tool `operationId`s never
+  contains it (a test registers a user tool with that key and shows it is left out, not shadowed).
 - **FR-22c — truthful.** A test client that reads *only* `/openapi.json` — never the server's code or the
-  tool registry — builds a request body for every operation from its schema, calls it with the bearer
-  token, and asserts that the status is one the document lists for that operation and that a `200` body
-  validates against the documented `ToolResult` schema. A second pass sends deliberately bad requests
-  (non-object body, unknown parameter, wrong token, bad `Host`) and asserts each answer is a documented
-  status. Validity alone cannot catch a document that describes an API the server doesn't implement.
+  tool registry — builds a request for every operation from its schema, calls it with the bearer token, and
+  asserts that the status is one the document lists **for that operation** and that a `200` body validates
+  against **that operation's own** documented response schema (`ToolResult` for a tool operation, the
+  function array for `openai_tool_list` — never one schema for all). A second pass sends deliberately bad
+  requests (every row of FR-23's body table, an unknown parameter, a wrong token, a bad `Host`) and asserts
+  each answer is a documented status. Validity alone cannot catch a document that describes an API the
+  server doesn't implement.
 - **FR-23** `POST /tools/<key>` runs the tool with the JSON-object body as arguments and returns `200`
-  `{"is_error": bool, "text": str}` — the same two facts as MCP's result, including for tool failures.
-  HTTP error statuses are reserved for the request itself: `400` bad JSON/not an object, `401` no/wrong
-  token, `403` forbidden `Host`/`Origin`, `404` unknown **or gated-off** tool, `405` wrong method, `413` too
-  large.
+  `{"is_error": bool, "text": str}` (plus `note`, FR-8a, when there is one) — the same facts as MCP's result,
+  including for tool failures. HTTP error statuses are reserved for the request itself: `400` bad
+  JSON/not an object, `401` no/wrong token, `403` forbidden `Host`/`Origin`, `404` unknown **or gated-off**
+  tool, `405` wrong method, `413` too large. **The body**, which the document marks required exactly when the
+  tool has a required parameter:
+
+  | Body | Tool has a required parameter | Tool has none |
+  |---|---|---|
+  | absent or empty | `400` | treated as `{}` — runs |
+  | `{}` | `200`, `is_error: true` naming the missing parameter | runs |
+  | `{…}` with an unknown parameter | `200`, `is_error: true` (FR-5) | `200`, `is_error: true` |
+  | `null`, `[]`, `"x"`, `3` | `400` | `400` |
+  | malformed JSON | `400` | `400` |
+
+  So `curl -X POST …/tools/list_tools` works with no body, as the document's optional body promises, and a
+  tool that cannot run without arguments is never run without them.
 
 ### HTTP security (FR-24…FR-28 apply to every HTTP route, including `/openapi.json`)
 
@@ -248,7 +326,8 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 - **FR-30** Exit status: `0` on EOF/SIGINT/SIGTERM; `2` for usage errors; `1` if the HTTP port cannot be
   bound. A signal does **not** abort an in-flight install (killing apt half-way is worse than waiting):
   the server stops accepting new requests and exits when the running call returns. A second signal exits
-  immediately.
+  immediately. When FR-11a forked, the supervisor forwards both signals to the server and exits with its
+  status, so a terminal's Ctrl-C behaves as above even though the server no longer has the terminal.
 - **FR-31 — `--print-config TARGET`** (G-1) prints a ready-to-paste snippet for the flags given, then exits
   `0` without starting a server. Targets: `claude-code` (the exact `claude mcp add` command for stdio, and
   for `--http` the `--transport http … --header "Authorization: Bearer $(cat <token file>)"` form),
@@ -285,9 +364,9 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 - **F-5 — the bridges are already workspace-free.** `grep` finds no use of `ws` or `config` in
   `agent/bridges.py`; all four catalog bridges and `run_function` take them and ignore them. *Consequence:*
   FR-4 — a test, so this stays true.
-- **F-6 — NOT YET MEASURED:** what a `sudo`-requiring installer does with stdin on `/dev/null` and no tty
-  (does it fail fast, with what text, and does the message survive `_run`'s capture?). FR-13 states the
-  property the measurement must confirm; M-1 starts by running the real thing under the fd setup of FR-11.
+- **F-6 — what a `sudo`-requiring installer does with stdin on `/dev/null`: closed by F-11.** It does *not*
+  fail fast unless the process also has no controlling terminal. Still unmeasured: whether sudo's line
+  survives `_run`'s capture into the tool result (M-1, through the real `_run`).
 - **F-7 — reusable library entry points.** `outdated` and `profile diff` build their rows with plain
   functions (`updates.collect_candidates`, `make_row`, `sort_rows`; `profile.compare`,
   `snapshot.machine_facts`, `sort_diff_rows`), each row with `.to_json()`. The Click commands are not
@@ -314,6 +393,31 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   `^[a-zA-Z0-9_-]{1,64}$` (FR-16b) and no description is over 1000 characters. *Consequence:* FR-22a is a
   check against a measured-working tool, not an aspiration. Not measured: any real OpenAPI *consumer*
   (Open WebUI is not installed).
+- **F-10 — the permission label and the probe memos, measured against the real code (PR review).**
+  (a) With a user `agent_tools.yaml` overriding `install_tool` (`mutating: false`), aliasing `setup` →
+  `install_tool`, and hand-writing `runfn` → `aws-saml-reauth`, `registry.build()` reports all three
+  `mutating=False`; only the auto-exposed `fn_aws_saml_reauth` stays `True`. `agent/catalog.py` checks only
+  that the field is a bool. A gate on that label is a gate the user's file controls. *Consequence:* FR-1a.
+  (b) `_uv_tool_versions` and `_uv_outdated_map` (`generic.py`, built on `_once`) are process-lifetime memos
+  and the `install_tool` bridge never calls `forget_probes()`. `cache_clear` takes the lock a running probe
+  holds, so a clear cannot be overwritten by a probe already in flight — the hazards are staleness across
+  idle time, after our own install, after a partial failure, and a read that sees one memo from before a
+  mutation and another from after. *Consequence:* FR-8a. Not reproduced as a running server; established by
+  reading `_once` and `forget_probes` and by the lock argument above.
+- **F-11 — a `/dev/null` stdin is not "no terminal" (PR review; under a pty, fd 0 = `/dev/null`).**
+
+  | Setup | Result |
+  |---|---|
+  | server process; a plain child of it | `/dev/tty` opens |
+  | child with `start_new_session=True` | `/dev/tty` fails, `ENXIO` |
+  | `sudo -k true`, plain child | **prompted for a password on the terminal** |
+  | `sudo -k true`, `start_new_session=True` | exits `1` at once: `sudo: A terminal is required to authenticate` |
+  | stdio server spawned by Claude Code 2.1.296 (`claude mcp list` under a pty — not an interactive session) | `stdin_isatty: false`, **`/dev/tty` reachable** |
+  | `os.setsid()` in the server | succeeded and removed `/dev/tty` when spawned by Claude Code; **`EPERM` from an interactive shell** |
+
+  *Consequence:* FR-11a and FR-13. Not measured: an interactive Claude Code session (only `mcp list`);
+  a client launched from a desktop with no terminal at all (there `/dev/tty` is absent anyway); the fork
+  supervisor itself — it is a design, to be built and measured in M-2.
 
 ---
 
@@ -321,7 +425,10 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 
 | Property | Mechanism | Enforced or advisory |
 |---|---|---|
-| A client cannot reach `install_tool` without `--allow-install`, or a `fn_*` tool without `--allow-functions` | FR-3: refusal at dispatch, flags independent | **Enforced** |
+| A client cannot reach `install_tool` without `--allow-install`, or a `fn_*` tool without `--allow-functions` | FR-1a/3: classification by `(impl, target)`, refusal at dispatch, flags independent | **Enforced** |
+| A user `agent_tools.yaml` cannot un-gate a tool (override, alias, hand-written bridge) | FR-1a: `mutating` can only add gating; unclassified targets are not exposed | **Enforced** |
+| An installer cannot prompt on, or hang on, the client's terminal | FR-11a/13: detach, verify, refuse to start with a gate flag if `/dev/tty` still opens | **Enforced** (fail closed) |
+| A read does not silently report pre-install state | FR-8a: fresh per burst, clear after mutation, retry on straddle | **Enforced**; an overlap that cannot be retried is *annotated*, not hidden |
 | A client cannot reach the filesystem or a shell | FR-1: primitives are not in the toolbox | **Enforced** |
 | A client cannot read an arbitrary file through `profile_diff` | FR-10: bundle name only | **Enforced** |
 | An installer cannot corrupt or eat the protocol stream | FR-11/12: fd-level isolation | **Enforced** |
@@ -333,6 +440,13 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 
 The allow flags over stdio trust the client process that launched the server (it can already run
 anything as the user). Over HTTP it trusts whoever holds the token — hence FR-24's file, not stdout.
+
+**Known limit, stated rather than fixed.** The read-only tools run the catalog's `check_cmd` shell probes
+(`generic.py`, `_check_cmd_installed`). A client that can write `~/.config/devstuff/tools.yaml` can therefore
+get shell run by calling `list_tools` without any flag. That file is the user's own and a client able to
+write it is already past the user's boundary — the same trust line as editing `.bashrc` — so FR-1a protects
+the *gates*, not the catalog. Found by reading, not reproduced. `devstuff agent` has the same two weaknesses
+and is out of scope here.
 
 ---
 
@@ -349,6 +463,28 @@ measurement, OQ-4 deferred.
 | OQ-4 | Add `update`/`remove`/`profile_apply` as later gated tools? | **Deferred.** Each its own PR, `update` first, behind the same two-flag model. `profile_apply @devops` includes docker, which needs sudo and cannot be answered over MCP |
 | OQ-5 | Does CI's Python range include versions the `mcp` test client supports? | **Resolved by measurement:** devstuff needs `>=3.11`, `mcp` 2.3.0 needs `>=3.10`, CI is `uv sync` on one default interpreter with no matrix. The conformance test still skips if the SDK is not importable |
 | OQ-6 | One flag for every state-changing tool? | **No — two:** `--allow-install` (`install_tool`) and `--allow-functions` (`fn_*`). The seven functions include `fn_aws_saml_reauth` and `fn_acc_check`, which are not installs. A per-tool `--allow KEY` list stays a later option |
+
+---
+
+## 5a. PR review of 2026-10-11 — resolved
+
+A review of commit `022b29f` raised five points. Each was checked against the code (three were also
+measured) and all five held; the review's priorities were adjusted (the terminal point first, since it is the
+one that puts a password prompt under the client's UI). Decided 2026-10-11 as recommended, including the two
+choices that had alternatives.
+
+| # | Point | Resolution | Where |
+|---|---|---|---|
+| 1 | Gating followed editable `mutating` metadata | Classify by `(impl, target)`; fail closed on unknown targets; a forcing test over `_BRIDGES` | FR-1a, FR-3, F-10a, SD-10 |
+| 2 | Process-lifetime probe memos in a long-lived server | Fresh per burst, clear in `finally` after every mutation, retry once on a straddle. **Chosen over blocking reads during an install** (a frozen `list_tools` for minutes) | FR-8a, FR-7, F-10b, SD-11 |
+| 3 | FR-22b/22c contradicted FR-22 over `GET /tools` | Equality over tool operations only; the catalog operation is checked separately; per-operation response schemas | FR-22, 22b, 22c |
+| 4 | Optional request body undefined | Absent ≡ `{}` only when nothing is required; a table covering every body | FR-23 |
+| 5 | `/dev/null` stdin ≠ no terminal | Process-level detach with a fork-supervisor fallback and a fail-closed `/dev/tty` check. **Chosen over `start_new_session=True` at each call site** (SD-12) | FR-11a, FR-13, FR-30, F-11 |
+
+One correction to the review's own mechanism for #2: a clear cannot be overwritten by an in-flight probe
+(they share `_once`'s lock), so the hazards are the staleness and mixed-era cases in FR-8a, not a lost clear.
+One detail the review left open: the "install in progress" line is a *separate* note (FR-7), so a result
+that is a JSON array stays one.
 
 ---
 
@@ -372,5 +508,17 @@ Done means **both goals pass** and every FR has a test that fails when the code 
 (a client driven only by the document gets documented statuses and schema-valid `200` bodies, and every
 bad request gets a documented status).
 
-**And:** a gated tool is invisible *and* uncallable without its own flag, and a fake installer that writes
-to every output route leaves stdout as exactly the frames.
+**And:**
+- a gated tool is invisible *and* uncallable without its own flag, and a fake installer that writes to every
+  output route leaves stdout as exactly the frames;
+- **the exact user file from F-10a** (override, alias, hand-written function bridge) is loaded under all four
+  flag combinations and none of its entries is exposed or callable beyond what its `(impl, target)` allows;
+  the forcing test fails when a bridge is added to `_BRIDGES` without a classification;
+- **probe freshness (FR-8a):** a fake machine changed between two calls is seen by the second; an install
+  that fails *after* changing state is seen by the next read; a slow fake probe overlapping a mutation makes
+  the retry fire, and one that cannot be retried returns the note;
+- **no terminal (FR-11a):** under a pty, with each gate flag on, `/dev/tty` is unreachable from the server and
+  from a child, and a real `sudo -k true` run by the install path fails fast with sudo's own message and
+  does not prompt; with detach forced to fail (an injectable hook, so the guard is reachable) a gate flag
+  makes the server exit `1` and start nothing, and no gate flag makes it warn and serve;
+- **OpenAPI bodies:** every row of FR-23's table, for one tool with a required parameter and one without.

@@ -126,3 +126,64 @@ that opens with an unknown method; a string id beside an integer `0`).
 
 **Rejected — validating the OpenAPI document and stopping.** A document can be perfectly valid and describe
 an API the server does not implement; FR-22c exists because validity says nothing about truth.
+
+---
+
+## SD-10 — Classify tools by what they run, not by their `mutating` label
+
+**Chosen:** FR-1a — a table in `mcp/core.py` keyed by `(impl, target)`; `mutating: true` can add gating and
+never remove it; an unclassified catalog target is not exposed; a test forces every bridge in
+`agent.bridges._BRIDGES` into the table.
+
+**Rejected — gate on `mutating`, the field the agent already has.** Measured (F-10a): a user
+`agent_tools.yaml` overrides `install_tool` with `mutating: false`, aliases it under another key, or writes a
+function bridge by hand, and all three read as ungated. The agent can afford that (its prompt and denylist
+sit behind the label); a server whose flag *is* the control cannot.
+
+**Rejected — gate on the tool's key.** Closes the override and not the alias.
+
+**Rejected — fix the registry to refuse these entries.** It would change `devstuff agent` for a
+reason that is the MCP server's, and the agent's user-override is a feature there. Classification is local to
+the surface that needs the guarantee.
+
+**What we give up:** a table to touch when a bridge is added. The forcing test turns that from a hazard into
+a prompt.
+
+## SD-11 — Probe freshness by burst, clear and retry; never block a read
+
+**Chosen:** FR-8a — `forget_probes()` when in-flight reads go 0→1 and in `finally` after every mutation; a
+mutation counter re-runs a straddling read once; an unretriable overlap is annotated.
+
+**Rejected — block readers while a mutation runs.** Exactly isolated and simple, and an install takes
+minutes: `list_tools` would freeze for as long. A stale-but-labelled answer beats a hung one.
+
+**Rejected — a per-request memo (a context variable).** It loses the sharing `_once` exists for: the 8-worker
+pool inside one `outdated` call would run 6 `uv tool list` probes instead of 2 (the measurement behind
+`_once`).
+
+**Rejected — a time-to-live.** Still serves stale data inside the window, including right after our own
+install.
+
+**Rejected — treating "a clear can be overwritten by an in-flight probe" as the hazard.** It cannot:
+`cache_clear` takes the lock a running probe holds (F-10b). The real hazards are idle-time staleness, our own
+mutations, partial failures and a read that mixes two memos' eras.
+
+## SD-12 — Detach the process from its terminal; do not patch each subprocess call
+
+**Chosen:** FR-11a — `os.setsid()`, with a fork-and-supervise fallback on `EPERM`, then verify `/dev/tty` is
+gone and refuse to start with a gate flag if it is not.
+
+**Rejected — `start_new_session=True` on every subprocess.** It works everywhere (F-11) and is less code today.
+There are six call sites (`generic.py` four, `function_runner.py` two), `CLAUDE.md` already records that "a
+direct `subprocess.run` is a hole", and it is the per-call-site audit FR-11 refuses to depend on for stdout.
+The next `subprocess` anyone writes would reopen it silently.
+
+**Rejected — `setsid` alone.** Measured (F-11): `EPERM` from an interactive shell, which is how
+`devstuff mcp --http` is normally started.
+
+**Rejected — rely on stdin being `/dev/null`.** `sudo` opens `/dev/tty` directly and prompted on the
+terminal (F-11).
+
+**What we give up:** a detached server no longer receives Ctrl-C; the supervisor forwards it. And the
+fail-closed check means a server started with a gate flag in an environment where detaching cannot be
+verified refuses to run, which is deliberate: the alternative is an installer that can hang a client.
