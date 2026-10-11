@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile apply`
 
 **Date:** 2026-10-10
-**Status:** In progress — A1 done 2026-10-10
+**Status:** In progress — A1 done 2026-10-10, A2 done 2026-10-11
 
 ---
 
@@ -13,15 +13,15 @@ machine — the order that worked for `outdated` and `profile`.
 | # | Milestone | Satisfies | State |
 |---|-----------|-----------|-------|
 | A1 | **Planner** — pure `build_plan(rows, tools)`: row → action table, dependency closure across the plan with de-duplication, ordering, the skip-because-dependency-failed propagation as a pure function over results | FR-2, 3, 9, 22 | **Done** 2026-10-10 |
-| A2 | **Non-interactive core** — factor install and pinned-install out of `install_cmd._install_one` (no section, no wizard offer); one function that does a step and returns a result; probe-cache reset helper in `generic.py` | FR-6, 7, 10, 11, NFR-5 | Not started |
+| A2 | **Step runner** — `apply_exec.perform` (install / pinned install in one call, failure as a result, never a wizard offer); `generic.forget_probes()` that clears every memoised probe. `install_cmd` untouched (SD-10) | FR-6, 7, 10, NFR-5 | **Done** 2026-10-11 |
 | A3 | **Executor** — runs a `Plan` serially under the failure policy, handles `^C` between steps, returns per-step results | FR-8, 9, 11, 19 | Not started |
 | A4 | **`devstuff profile apply`** — plan table, `--dry-run`, `--yes`, TTY refusal, `--missing-only`, final re-measurement, summary, exit status, `--json` | FR-4, 5, 12–18, 23, NFR-1–4 | Not started |
 | A5 | **Bundles** — `@name` resolution, the shipped files, the two data tests; also accepted by `diff` | FR-20, 21 | Not started |
 | A6 | **Docs + integration** — README, CLAUDE.md rules, roadmap, specs index; a Docker integration test that applies a profile to an empty container and diffs clean | NFR-4 | Not started |
 
-A2 is the only milestone that changes existing behaviour (`devstuff install` is refactored to call
-the shared core). It lands before any command uses it, with the existing `install` tests as the
-parity check, as P2 did for `profile`.
+Nothing in this plan changes `devstuff install`: A2 was first written as a refactor of `install_cmd`
+and became a new module once measured (SD-10). The only edit to existing code is additive —
+`forget_probes()` and a registry of memoised probes in `generic.py`, which changes no behaviour.
 
 ## Testing strategy
 
@@ -84,7 +84,7 @@ A survivor means a test is missing, not that the mutation was unfair.
 | Risk | Mitigation |
 |------|------------|
 | A `bash` installer exits 0 having installed nothing | The re-measurement (FR-15) judges by `is_installed`, so it is reported rather than believed; the same hazard `devstuff install` already has, now visible |
-| Refactoring `install_cmd` regresses `devstuff install` | A2 lands alone with the existing install tests as parity; the wizard offer and "already installed" short-circuit are asserted to stay |
+| `apply`'s runner drifts from what `devstuff install` does | Accepted (SD-10); the shared part is a single call, and the differences (no wizard, no short-circuit) are tested as requirements |
 | A long run is interrupted halfway | FR-19: clean stop, honest summary, and re-running `apply` is the resume — NFR-4 makes that safe |
 | Applying a profile from someone else | It can only run what *this* machine's catalog defines (`profile` SD-2); the plan is shown and confirmed first, and `--dry-run` previews it without running |
 | A sudo prompt mid-run in `--yes` mode | Marked in the plan (FR-5), documented; priming is rejected (OQ-8) |
