@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from dev_setup import profile, registry, ui, verbose
+from dev_setup import bundles, profile, registry, ui, verbose
 from dev_setup.cli import cli
 from dev_setup.commands import profile_cmd
 from dev_setup.profile import Entry, Profile
@@ -555,3 +555,92 @@ def test_a_pinned_install_is_confirmed_through_a_real_memoised_probe(world, tmp_
     assert EVENTS == [("update", "a", "1.0")]
     assert result.exit_code == 0 and "now matches" in flat(result.output)
     generic.forget_probes()
+
+
+# -- bundles (FR-20, FR-21; development-plan A5) -----------------------------------------------------
+
+
+@pytest.fixture
+def bundle_dir(tmp_path, monkeypatch):
+    """A directory standing in for the shipped bundles, with `@mine` = {a, b}."""
+    root = tmp_path / "bundles"
+    root.mkdir()
+    (root / "mine.yaml").write_text("version: 1\ntools:\n  a: {}\n  b: {}\n")
+    monkeypatch.setattr(bundles, "_root", lambda: root)
+    return root
+
+
+def test_apply_accepts_a_bundle_name_in_place_of_a_file(world, bundle_dir, tty):
+    world(Fake("a"), Fake("b"))
+    tty(True)
+
+    result = apply("@mine")
+
+    assert result.exit_code == 0, result.output
+    assert verbs() == [("install", "a"), ("install", "b")]
+    assert PROMPTS  # a bundle is confirmed like any other plan
+
+
+def test_the_plan_and_the_verdict_name_the_bundle_not_a_file(world, bundle_dir):
+    world(Fake("a"), Fake("b"))
+
+    dry = apply("@mine", "--dry-run")
+    ran = apply("@mine", "--yes")
+
+    assert "Plan for @mine" in flat(dry.output)
+    assert "matches @mine" in flat(ran.output)
+
+
+def test_a_dry_run_of_a_bundle_changes_nothing(world, bundle_dir):
+    world(Fake("a"), Fake("b"))
+
+    result = apply("@mine", "--dry-run")
+
+    assert result.exit_code == 0 and EVENTS == []
+
+
+def test_an_unknown_bundle_is_exit_2_listing_the_real_ones_unprobed(world, bundle_dir):
+    tool = Fake("a")
+    tool.is_installed = lambda: pytest.fail("probed before the bundle was resolved")
+    world(tool)
+
+    result = apply("@nope", "--yes")
+
+    assert result.exit_code == 2 and EVENTS == []
+    assert "@nope" in result.output and "@mine" in result.output
+
+
+def test_json_with_a_bundle_is_still_one_document(world, bundle_dir):
+    world(Fake("a"), Fake("b"))
+
+    result = apply("@mine", "--yes", "--json")
+
+    doc = json.loads(result.stdout)
+    assert [s["key"] for s in doc["run"]["steps"]] == ["a", "b"]
+
+
+def test_dot_slash_names_a_file_that_looks_like_a_bundle(world, bundle_dir, tmp_path, monkeypatch):
+    world(Fake("x"))
+    monkeypatch.chdir(tmp_path)
+    Path("@mine").write_text(profile.dumps(Profile({"x": Entry(None)})))
+
+    result = apply("./@mine", "--yes")
+
+    assert result.exit_code == 0 and verbs() == [("install", "x")]
+
+
+def test_diff_accepts_a_bundle_name_too(world, bundle_dir):
+    world(Fake("a", installed=True), Fake("b"))
+
+    result = CliRunner().invoke(cli, ["profile", "diff", "@mine", "--json"])
+
+    rows = {r["key"]: r["state"] for r in json.loads(result.stdout)}
+    assert result.exit_code == 0 and rows == {"a": "ok", "b": "missing"}
+
+
+def test_diff_with_an_unknown_bundle_is_exit_2(world, bundle_dir):
+    world(Fake("a"))
+
+    result = CliRunner().invoke(cli, ["profile", "diff", "@nope"])
+
+    assert result.exit_code == 2 and "@mine" in result.output

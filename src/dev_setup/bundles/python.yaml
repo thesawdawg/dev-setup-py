@@ -1,0 +1,10 @@
+# @python — Python the way devstuff does it: uv owns the interpreter, plus the usual quality tooling.
+# Apply with: devstuff profile apply @python
+# Names no versions, so it installs the latest of each; extra tools it needs are added for you.
+version: 1
+tools:
+  commitizen: {}
+  ipython: {}
+  pre-commit: {}
+  python: {}
+  uv: {}

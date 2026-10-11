@@ -1,0 +1,14 @@
+# @essentials — A fresh machine's everyday set: git helpers, a nicer shell prompt, and the small tools you reach for daily.
+# Note: nerd-font supplies the icons starship draws; installing it does not switch your terminal to that font.
+# Apply with: devstuff profile apply @essentials
+# Names no versions, so it installs the latest of each; extra tools it needs are added for you.
+version: 1
+tools:
+  bat: {}
+  gh: {}
+  git-lfs: {}
+  htop: {}
+  lazygit: {}
+  nerd-font: {}
+  starship: {}
+  yq: {}

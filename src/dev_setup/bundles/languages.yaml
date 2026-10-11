@@ -1,0 +1,11 @@
+# @languages — Language toolchains. The heaviest bundle: java comes from apt, php from a PPA, and ruby builds from source.
+# Note: java, php and ruby all ask for sudo (apt packages, the PHP PPA, ruby build dependencies).
+# Apply with: devstuff profile apply @languages
+# Names no versions, so it installs the latest of each; extra tools it needs are added for you.
+version: 1
+tools:
+  go: {}
+  java: {}
+  php: {}
+  python: {}
+  ruby: {}

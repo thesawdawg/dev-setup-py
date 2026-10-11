@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile apply`
 
 **Date:** 2026-10-10
-**Status:** In progress — A1 done 2026-10-10, A2–A4 done 2026-10-11
+**Status:** In progress — A1 done 2026-10-10, A2–A5 done 2026-10-11
 
 ---
 
@@ -16,7 +16,7 @@ machine — the order that worked for `outdated` and `profile`.
 | A2 | **Step runner** — `apply_exec.perform` (install / pinned install in one call, failure as a result, never a wizard offer); `generic.forget_probes()` that clears every memoised probe. `install_cmd` untouched (SD-10) | FR-6, 7, 10, NFR-5 | **Done** 2026-10-11 |
 | A3 | **Executor** — runs a `Plan` serially under the failure policy, handles `^C` between steps, returns per-step results | FR-8, 9, 11, 19 | **Done** 2026-10-11 |
 | A4 | **`devstuff profile apply`** — plan table, `--dry-run`, `--yes`, TTY refusal, `--missing-only`, final re-measurement, summary, exit status, `--json` | FR-4, 5, 12–18, 23, NFR-1–4 | **Done** 2026-10-11 |
-| A5 | **Bundles** — `@name` resolution, the shipped files, the two data tests; also accepted by `diff` | FR-20, 21 | Not started |
+| A5 | **Bundles** — `@name` resolution, the shipped files, the two data tests; also accepted by `diff` | FR-20, 21 | **Done** 2026-10-11 |
 | A6 | **Docs + integration** — README, CLAUDE.md rules, roadmap, specs index; a Docker integration test that applies a profile to an empty container and diffs clean | NFR-4 | Not started |
 
 Nothing in this plan changes `devstuff install`: A2 was first written as a refactor of `install_cmd`
@@ -89,4 +89,4 @@ A survivor means a test is missing, not that the mutation was unfair.
 | Applying a profile from someone else | It can only run what *this* machine's catalog defines (`profile` SD-2); the plan is shown and confirmed first, and `--dry-run` previews it without running |
 | A sudo prompt mid-run in `--yes` mode | Marked in the plan (FR-5), documented; priming is rejected (OQ-8) |
 | Downgrades and non-resolvable apt pins | Reported as failures with apt's own message (FR-8); a pin that can't be honoured is never replaced by "latest" |
-| Bundle content is a judgement call, not a fact | Deferred to A5 and decided with the user; the test guards only that keys exist, not that a bundle is a good idea |
+| Bundle content is a judgement call, not a fact | Decided with the user at A5 (six bundles, sudo-heavy tools included, no catch-all `@everything`); the test guards only that keys exist, not that a bundle is a good idea |
