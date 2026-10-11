@@ -127,7 +127,9 @@ def diff_cmd(
     """Compare this machine to a profile.
 
     PROFILE is a file, or `@name` for a profile that ships with devstuff (e.g. `@devops`;
-    `./@x` names a file that starts with an @). Read-only. Each key is reported as ok, missing, drift (installed at a different version
+    `./@x` names a file that starts with an @).
+
+    Read-only. Each key is reported as ok, missing, drift (installed at a different version
     than the profile pins), unverifiable (pinned, but the installed version can't be read),
     unpinnable (pinned, but that install type can't honour a pin), unknown-key (not in this
     machine's catalog) or extra (installed but not in the profile). The last three that mean
@@ -365,7 +367,9 @@ def apply_cmd(
     """Make this machine match a profile.
 
     PROFILE is a file, or `@name` for a profile that ships with devstuff: `@essentials`, `@python`,
-    `@devops`, `@languages`, `@ai-agents`, `@ai-local` (an unknown name lists them). Installs the profile's tools that are missing (with whatever they require, in order) and moves
+    `@devops`, `@languages`, `@ai-agents`, `@ai-local` (an unknown name lists them).
+
+    Installs the profile's tools that are missing (with whatever they require, in order) and moves
     pinned tools to the pinned version. It never removes anything and never touches a tool the
     profile doesn't pin. The plan is shown first and confirmed — `--yes` skips the question,
     `--dry-run` stops after the plan.
