@@ -51,3 +51,4 @@ They are most useful when they capture:
 | [`profile/`](profile/) — `devstuff profile snapshot` / `diff`, a portable description of a machine's tools | Complete (v1: snapshot, diff; apply is its own spec) |
 | [`plan-and-progress/`](plan-and-progress/) — plan preview, live progress view and the guided `add` wizard for `install`/`remove`/`update`/`add` | Implemented (documented after the fact; no `stack-decisions.md`) |
 | [`profile-apply/`](profile-apply/) — `devstuff profile apply`, make a machine match a profile | Complete (v1: apply, six bundles; container test written, first run pending) |
+| [`mcp/`](mcp/) — `devstuff mcp`, devstuff's tools as an MCP (stdio + HTTP) and OpenAPI tool server | Draft (spec only; findings measured 2026-10-11) |
