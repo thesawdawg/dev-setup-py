@@ -1,3 +1,13 @@
+## v2.13.0 (2026-10-11)
+
+### Features
+
+- **profile**: add bundled profiles, `@name`, to apply and diff
+- **profile**: add `devstuff profile apply`
+- **profile**: add the apply executor
+- **profile**: add the apply step runner and forget_probes
+- **profile**: add the apply planner
+
 ## v2.12.0 (2026-10-10)
 
 ### Features
