@@ -54,15 +54,19 @@ all instead of a check at each call.
 the cost of a process per call, a serialisation layer for results, and slower `list_tools` (which probes
 every tool). The fd move gives the same isolation in-process for one `dup2` call.
 
-## SD-4 — One flag for every state-changing tool
+## SD-4 — Two flags for state-changing tools
 
-**Chosen:** `--allow-install` enables `install_tool` and every `fn_*` function; absent, they do not exist
-(FR-3).
+**Chosen:** `--allow-install` enables `install_tool` and `--allow-functions` enables every `fn_*` function;
+absent, the respective tools do not exist (FR-3). Changed from one flag on 2026-10-11: the seven functions
+include `fn_aws_saml_reauth` (AWS credentials) and `fn_acc_check` (launches an AI agent), so a flag named
+"install" would have permitted far more than its name says.
 
 **Rejected — per-tool consent via the MCP client's approval UI only.** The prompt is a human attention
 filter, and attention decays over a session; the agent's denylist and `--yolo` make the same point. A
 server-side switch is the only thing that holds when the client is a script, a web UI that auto-approves,
 or a model on its hundredth call.
+
+**Rejected — one flag for both** (the first draft; see above).
 
 **Rejected — a finer `--allow KEY` list in v1.** Nobody has asked, and a flag that takes a list invites a
 config file to keep it in. Left as OQ-6.
@@ -94,3 +98,31 @@ safely.
 
 **Rejected — no auth on loopback.** Loopback is reachable by every local user and by any web page the
 user visits (DNS rebinding), which is why FR-26 exists as a second layer.
+
+## SD-8 — A persistent bearer token, a fixed port, and a `Host` rule that is not "the bound address"
+
+**Chosen:** FR-24/25/26. The token lives in a `0600` file and survives restarts; the port is `8765`; `Host`
+is accepted for `localhost`, IP literals and `--allow-host` names.
+
+**Rejected — a fresh token per run (the first draft).** It kept the URL stable and broke the
+`Authorization` header, so a configured client failed on every restart; the stable port bought nothing.
+
+**Rejected — `Host` must equal the bound address.** Under `--host 0.0.0.0` the client's `Host` is whatever
+address it used, and from a container it is `host.docker.internal`; the rule would have refused the very
+setups OQ-2 exists to allow. DNS rebinding needs a hostname the attacker controls, so refusing unknown
+*names* while accepting address literals keeps the protection.
+
+**Rejected — falling back to another port when 8765 is busy.** It would break every configured client
+silently; exiting `1` with the reason is the failure that can be understood.
+
+## SD-9 — Prove compatibility against the real clients and the OpenAPI document against itself
+
+**Chosen:** G-1 and G-2 are acceptance tests that run the real thing — `claude mcp list` for Claude Code, the
+official SDK client, `openapi-spec-validator`, and a client driven only by `/openapi.json` (FR-22a–c).
+
+**Rejected — hand-written protocol tests only.** They encode the same understanding as the code. F-2 and
+F-8 are both cases where the real client behaved in a way the protocol text did not predict (a handshake
+that opens with an unknown method; a string id beside an integer `0`).
+
+**Rejected — validating the OpenAPI document and stopping.** A document can be perfectly valid and describe
+an API the server does not implement; FR-22c exists because validity says nothing about truth.

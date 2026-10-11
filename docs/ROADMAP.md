@@ -22,7 +22,7 @@ M5 is independent polish that can be slotted in anywhere.
 | M3 | `devstuff profile apply` + bundled bundles | Medium–high | M2 | `profile-apply/` |
 | M4 | Agent tools for `doctor` / `outdated` | Low | M1 | `agent/` (amend) |
 | M5 | Shell completion | Low | — | `completion/` |
-| M6 | `devstuff mcp`: MCP (stdio + HTTP) and OpenAPI tool server | Medium | M1; builds `outdated` / `profile_diff` agent tools (overlaps M4) | `mcp/` (draft) |
+| M6 | `devstuff mcp`: MCP (stdio + HTTP) and OpenAPI tool server | Medium | M1; builds `outdated` / `profile_diff` agent tools (overlaps M4) | `mcp/` (approved) |
 | — | git / tmux configurator | Medium | — | `git-config/` (unscheduled) |
 | — | `devstuff sandbox <tool>` | Medium | — | `sandbox/` (unscheduled) |
 
@@ -162,11 +162,11 @@ added.
 Serve devstuff's catalog-aware tools to any MCP or OpenAPI client, so an AI client asks devstuff to install
 or inspect a tool instead of guessing at `apt` and `npm` itself.
 
-**Spec:** [`specs/mcp/`](specs/mcp/) — **draft**, 2026-10-11 (findings measured; open questions in §5).
+**Spec:** [`specs/mcp/`](specs/mcp/) — **approved**, 2026-10-11 (findings measured; two goals: Claude compatibility, OpenAPI coverage).
 
 - Three framings, one dispatcher: MCP over stdio, MCP over HTTP, and OpenAPI/REST (`/openapi.json`, `/tools`).
 - Read-only tools by default (`list_tools`, `search_catalog`, `tool_info`, `outdated`, `profile_diff`);
-  `install_tool` and `script` functions exist only under `--allow-install`, enforced at dispatch.
+  `install_tool` exists only under `--allow-install` and the `script` functions only under `--allow-functions`, enforced at dispatch.
 - No new runtime dependency: stdlib transport, the official SDK only as a test-time client.
 - Shares M4's `outdated` agent tool; `doctor` stays in M4.
 

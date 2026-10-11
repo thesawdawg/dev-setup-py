@@ -1,7 +1,8 @@
 # Specification: `devstuff mcp` — devstuff's tools as an MCP / HTTP tool server
 
 **Date:** 2026-10-11
-**Status:** Draft for review. Findings F-1…F-6 were measured on 2026-10-11; nothing is implemented.
+**Status:** Approved 2026-10-11 with OQ-1/2/3/6 resolved as recommended (§5), plus two goals that outrank the
+rest (G-1, G-2 below). Findings F-1…F-9 were measured on 2026-10-11; F-6 is still open; nothing is implemented.
 **Authors:** Sawyer + Claude
 **Roadmap:** new (overlaps [M4](../../ROADMAP.md): the `outdated` agent tool is built once and serves both)
 **Builds on:** [`agent/`](../agent/) (the tool registry, `AgentTool.to_schema()` / `bind()` and the
@@ -24,7 +25,26 @@ framings of the same tool set:
 3. **OpenAPI / REST over HTTP** — the same server, `GET /openapi.json`, `GET /tools` (OpenAI
    function-calling JSON) and `POST /tools/<name>`, for clients that consume OpenAPI tool servers.
 
+### The two goals that outrank everything else
+
+When a requirement below conflicts with either, the goal wins. Each has a measurable test, and "done" in
+§6 means both pass.
+
+- **G-1 — Compatible with Claude.** The real **Claude Code** client (`claude mcp add` / `claude mcp list`,
+  measured at 2.1.296, F-8) connects to `devstuff mcp` over **stdio and HTTP**, lists the tools and calls
+  them; and **Claude Desktop** can be pointed at the stdio server from a config the tool itself prints
+  (FR-31). Compatibility is *demonstrated against the real client*, not inferred from the protocol text:
+  F-2 and F-8 are both cases where the real client does something the spec text does not predict.
+- **G-2 — OpenAPI coverage.** The OpenAPI document is **valid**, **complete in both directions** (every
+  exposed tool is exactly one operation and every operation is an exposed tool) and **truthful** (a client
+  driven by nothing but the document can call every operation it describes and get what the document says).
+  Valid-but-wrong is the failure mode this guards against; FR-22 and §6 make all three checkable.
+
 **Non-goals** (reasons in `stack-decisions.md`):
+- **Not claude.ai's remote custom connectors.** Those need a public HTTPS URL and, as far as I know, OAuth;
+  this server offers neither (no TLS, bearer token). Not measured — recorded so nobody assumes it works.
+- **Not verified against Open WebUI itself.** G-2 is checked with a validator and a document-driven client
+  (FR-22); Open WebUI is not installed here, so "works in Open WebUI" is an expectation, not a measurement.
 - **No workspace tools** (`read_file`, `write_file`, `run_command`, `cd`). Those exist so a local Ollama
   model has hands; every MCP client already has its own, and a second, weaker copy is only a risk.
 - **No `profile apply`, `remove` or `update` in v1.** Scope was chosen on 2026-10-11 as: catalog tools,
@@ -49,22 +69,27 @@ framings of the same tool set:
   `agent_tools.yaml` cannot add a primitive to the MCP surface.
 - **FR-2** The v1 tools, by key:
 
-  | Key | Kind | Gated? | Source |
+  | Key | Kind | Gated by | Source |
   |---|---|---|---|
-  | `list_tools` | catalog | no | existing bridge |
-  | `search_catalog` | catalog | no | existing bridge |
-  | `tool_info` | catalog | no | existing bridge |
-  | `outdated` | catalog | no | **new** bridge over `updates.collect_candidates`/`make_row` (§FR-9) |
-  | `profile_diff` | catalog | no | **new** bridge over `profile.compare`/`snapshot.machine_facts` (§FR-10) |
-  | `install_tool` | catalog | **yes** | existing bridge |
-  | `fn_<key>` | function | **yes** | every `type: script` function, auto-exposed as for the agent |
+  | `list_tools` | catalog | — | existing bridge |
+  | `search_catalog` | catalog | — | existing bridge |
+  | `tool_info` | catalog | — | existing bridge |
+  | `outdated` | catalog | — | **new** bridge over `updates.collect_candidates`/`make_row` (§FR-9) |
+  | `profile_diff` | catalog | — | **new** bridge over `profile.compare`/`snapshot.machine_facts` (§FR-10) |
+  | `install_tool` | catalog | **`--allow-install`** | existing bridge |
+  | `fn_<key>` | function | **`--allow-functions`** | every `type: script` function, auto-exposed as for the agent |
+
+  The two flags are separate because the functions are not installs: today's seven include
+  `fn_aws_saml_reauth` (touches AWS credentials) and `fn_acc_check` (launches an AI agent against a URL).
+  Letting a flag called "install" switch those on would permit far more than its name promises (OQ-6).
 
   `outdated` and `profile_diff` are added to `agent_tools.yaml` and `agent/bridges.py`, so the local agent
   gains them too (this is M4's `outdated` half; `doctor` stays in M4).
-- **FR-3** **Gating is enforced at dispatch, not only at listing.** Without `--allow-install`, a gated tool
-  (`mutating: true`) is absent from `tools/list`, `GET /tools` and `/openapi.json`, **and** a `tools/call` or
+- **FR-3** **Gating is enforced at dispatch, not only at listing.** A `mutating: true` tool whose flag
+  (FR-2) is absent is missing from `tools/list`, `GET /tools` and `/openapi.json`, **and** a `tools/call` or
   `POST /tools/<name>` naming it is refused exactly as an unknown tool is. A client that learned a tool
-  name elsewhere gets nothing. (Same shape as the agent's rule that the denylist runs before the prompt.)
+  name elsewhere gets nothing. The flags are independent: `--allow-functions` alone never exposes
+  `install_tool`, and the reverse. (Same shape as the agent's rule that the denylist runs before the prompt.)
 - **FR-4** Every bridge reachable from the MCP surface must work with no workspace and no agent config
   (F-5). A test calls each non-primitive bridge with `ws=None, config=None`, so a future bridge that starts
   using them fails loudly rather than crashing under a client.
@@ -116,6 +141,19 @@ framings of the same tool set:
   client's first request is `server/discover` under protocol `2026-07-28`, and it falls back to
   `initialize` only when told the method is unknown (F-2). `resources/*`, `prompts/*` and any other
   method get `-32601` too.
+- **FR-16a** **A request's `id` is echoed back unchanged, type included.** Claude Code sends a *string* id
+  (`"server-discover-probe-1"`) and an integer **`0`** for `initialize` (F-8). A request is a notification
+  only if the key `id` is *absent* — never because its value is falsy — or the first real reply is
+  silently dropped. A test sends `id: 0`, `id: ""` and a string id.
+- **FR-16b** **Tool names match `^[a-zA-Z0-9_-]{1,64}$`**, the constraint Claude's tool API applies once a
+  client prefixes them (`mcp__devstuff__<key>`). Every current key passes (F-9); `registry.build()` output
+  is checked in a test, and a user catalog entry that breaks it is left out of the MCP toolbox with a
+  warning on stderr rather than breaking the client's whole `tools/list`.
+- **FR-16c** Each tool's `inputSchema` is `{"type": "object", "properties": …}` with `required` **omitted
+  when empty** (an empty `required` array is invalid in older JSON Schema drafts and some validators
+  reject it) and `additionalProperties: false`, so a client's schema check agrees with `bind()`'s
+  unexpected-parameter rule. The same schema object feeds MCP, `GET /tools` and OpenAPI, so the three
+  cannot disagree.
 - **FR-17** **Version negotiation:** the server supports `2025-11-25` (the only version the client was
   measured to send). If `initialize` asks for a version it does not support it answers with its own latest,
   as the spec requires; it never refuses to start a session for a version mismatch.
@@ -125,15 +163,44 @@ framings of the same tool set:
   raw newline. EOF on stdin ends the process with status `0`. Notifications get no reply.
 - **FR-20** **HTTP:** `POST /mcp` with a JSON body → `200` and a JSON body (`Content-Type:
   application/json`), `202` for a notification. `GET /mcp` and `DELETE /mcp` → `405` (no SSE stream, no
-  sessions); the client never sends them (F-3). `Mcp-Session-Id` is never issued.
+  sessions). Claude Code **does** send `GET /mcp` with `Accept: text/event-stream` right after
+  `initialized`; it treated the `405` as "this server has no stream" and stayed connected (F-8), which is
+  the spec's own provision. `Mcp-Session-Id` is never issued. The bearer token (FR-24) is checked on these
+  too, since Claude Code sends it on every request.
 
-### REST / OpenAPI framing
+### REST / OpenAPI framing (G-2)
 
 - **FR-21** `GET /tools` returns the exposed tools as the OpenAI function-calling array —
-  `AgentTool.to_schema()` output, unchanged. (The agent already emits this shape: Ollama's `tools[]` is
-  OpenAI's.)
-- **FR-22** `GET /openapi.json` returns an OpenAPI 3.1 document describing `POST /tools/<key>` per exposed
-  tool, with the `bind()` parameter schema as the request body. It lists only what FR-3 lists.
+  `AgentTool.to_schema()` output, with FR-16c's schema rules. (The agent already emits this shape:
+  Ollama's `tools[]` is OpenAI's.)
+- **FR-22** `GET /openapi.json` returns an **OpenAPI 3.1.0** document. For every exposed tool, exactly one
+  operation `POST /tools/<key>`:
+  - `operationId` is the tool key (what OpenAPI tool clients name a function after), `summary` the tool's
+    name, `description` the tool's description — plus, for a gated tool, one sentence saying it changes
+    this machine;
+  - `requestBody` is the shared FR-16c schema, `required: true` iff the tool has a required parameter;
+  - `responses`: `200` → a `ToolResult` schema (`{is_error: boolean, text: string}`, both required), and
+    `400`, `401`, `403`, `404`, `405`, `413` → an `Error` schema (`{error: string}`) — every status FR-23
+    can produce is documented, and no other is produced;
+  - a `bearerAuth` security scheme (`type: http`, `scheme: bearer`) applied to every operation;
+  - `servers[0].url` is built from the `Host` the client used (already validated by FR-26), so a client
+    in a container gets a URL it can follow, not `127.0.0.1`;
+  - `GET /tools` is documented too. `POST /mcp` is not: it is MCP's own protocol, not a REST operation, and
+    the document's `info.description` says so.
+  It lists only what FR-3 lists. It is generated from the same toolbox object as `tools/list`, never
+  maintained separately.
+- **FR-22a — valid.** The document passes `openapi-spec-validator` (OpenAPI 3.1) for each of the four flag
+  combinations (neither, install, functions, both). A test breaks a copy of the document and shows the
+  validator rejects it, so the check is known to be able to fail (measured, F-9).
+- **FR-22b — complete in both directions.** For every flag combination the *set* of `operationId`s equals
+  the set of names in `tools/list` equals the set in `GET /tools`; each tool's request schema is equal in
+  all three. A tool missing from the document **or** an operation naming no tool fails the test.
+- **FR-22c — truthful.** A test client that reads *only* `/openapi.json` — never the server's code or the
+  tool registry — builds a request body for every operation from its schema, calls it with the bearer
+  token, and asserts that the status is one the document lists for that operation and that a `200` body
+  validates against the documented `ToolResult` schema. A second pass sends deliberately bad requests
+  (non-object body, unknown parameter, wrong token, bad `Host`) and asserts each answer is a documented
+  status. Validity alone cannot catch a document that describes an API the server doesn't implement.
 - **FR-23** `POST /tools/<key>` runs the tool with the JSON-object body as arguments and returns `200`
   `{"is_error": bool, "text": str}` — the same two facts as MCP's result, including for tool failures.
   HTTP error statuses are reserved for the request itself: `400` bad JSON/not an object, `401` no/wrong
@@ -142,34 +209,53 @@ framings of the same tool set:
 
 ### HTTP security (FR-24…FR-28 apply to every HTTP route, including `/openapi.json`)
 
-- **FR-24** **Bearer token on every request.** `Authorization: Bearer <token>` compared in constant time. A
-  token is generated per run (`secrets.token_urlsafe(32)`) unless `--token-file PATH` names one. It is
-  written to a `0600` file and **its path, not the token, is printed**. The token never appears in a log
-  line, a URL, or stdout. Missing or wrong → `401`.
-- **FR-25** **Loopback by default.** `--host` defaults to `127.0.0.1`; `--port` defaults to a fixed port
-  (`8765`) so a client config survives a restart, and `0` asks the OS. Binding a non-loopback address needs
-  `--host` explicitly and prints a warning that there is no TLS and that anyone holding the token can use
-  every enabled tool.
+- **FR-24** **Bearer token on every request**, `Authorization: Bearer <token>`, compared in constant time.
+  The token is **persistent**: on first use it is generated (`secrets.token_urlsafe(32)`) into
+  `$XDG_STATE_HOME/devstuff/mcp-token` (default `~/.local/state/devstuff/mcp-token`; directory `0700`, file
+  `0600`) and reused on every later run, so a client's `Authorization` header — like its URL (FR-25) —
+  survives a restart. `--token-file PATH` names a different file; `--rotate-token` replaces the contents.
+  A token file readable by group or others is refused at startup. **The path, never the token, is printed**;
+  the token never appears in a log line, a URL or stdout. Missing or wrong → `401`.
+- **FR-25** **Loopback by default; the port is fixed.** `--host` defaults to `127.0.0.1`. `--port` defaults
+  to `8765`, so a client config survives a restart; `0` asks the OS. If the port is busy the server exits `1`
+  with a message — it **never** falls back to another port, which would break every configured client with
+  no explanation. A non-loopback `--host` is allowed (a container's `127.0.0.1` is the container itself, so
+  Open WebUI in Docker cannot otherwise reach the server) and prints a warning that there is no TLS and
+  that anyone holding the token can use every enabled tool. The README recommends an SSH tunnel to reach a
+  loopback server from another machine.
 - **FR-26** **`Host` and `Origin` are validated**, because a web page can send requests to
-  `http://localhost:8765` and DNS rebinding makes the browser's own origin checks meaningless. `Host` must
-  be the bound address or `localhost` with the right port. A request with an `Origin` header is refused
-  unless it is in `--allow-origin` (repeatable; empty by default). Failure → `403`, checked **before** the
-  token, so the response doesn't reveal whether a token is accepted.
-- **FR-27** `--allow-install` over HTTP changes nothing about FR-24…26 and adds nothing to them; the token
-  is simply the only thing standing between the network and `install_tool`. The startup banner states, in
-  one line, which tools are enabled and where.
+  `http://localhost:8765` and DNS rebinding makes the browser's own origin checks meaningless. `Host` is
+  accepted when its port is the bound port **and** its name is `localhost`, an IP address literal, or a name
+  given with `--allow-host` (repeatable; e.g. `host.docker.internal`). Any other hostname is refused:
+  rebinding needs a *name* the attacker controls, which an address literal is not, and a container reaches
+  the host as `host.docker.internal` or a bridge IP, so the check must not hard-code the bound address. A
+  request with an `Origin` header is refused unless listed in `--allow-origin` (repeatable; empty by
+  default). Failure → `403`, checked **before** the token, so the response doesn't reveal whether a token is
+  accepted.
+- **FR-27** Neither `--allow-install` nor `--allow-functions` changes FR-24…26 or adds to them over HTTP; the
+  token is simply the only thing standing between the network and every enabled tool. The startup banner
+  states, in one line, which tools are enabled and where.
 - **FR-28** No CORS headers are ever sent. Browsers are not a supported client.
 
 ### Command surface
 
-- **FR-29** `devstuff mcp [--http] [--host H] [--port N] [--token-file P] [--allow-origin O]...
-  [--allow-install]`. `--host/--port/--token-file/--allow-origin` without `--http` is a usage error (exit
-  `2`). `--list-tools` prints the tools that *would* be exposed with these flags, as the agent's
-  `--list`-style output, and exits `0` without starting a server.
+- **FR-29** `devstuff mcp [--http] [--host H] [--port N] [--token-file P] [--rotate-token]
+  [--allow-origin O]... [--allow-host H]... [--allow-install] [--allow-functions] [--list-tools]
+  [--print-config TARGET]`. The `--allow-install`/`--allow-functions` flags apply to stdio too; the
+  HTTP-only flags (`--host --port --token-file --rotate-token --allow-origin --allow-host`) without `--http`
+  are a usage error (exit `2`). `--list-tools` prints the tools that *would* be exposed with these flags and
+  exits `0` without starting a server.
 - **FR-30** Exit status: `0` on EOF/SIGINT/SIGTERM; `2` for usage errors; `1` if the HTTP port cannot be
   bound. A signal does **not** abort an in-flight install (killing apt half-way is worse than waiting):
   the server stops accepting new requests and exits when the running call returns. A second signal exits
   immediately.
+- **FR-31 — `--print-config TARGET`** (G-1) prints a ready-to-paste snippet for the flags given, then exits
+  `0` without starting a server. Targets: `claude-code` (the exact `claude mcp add` command for stdio, and
+  for `--http` the `--transport http … --header "Authorization: Bearer $(cat <token file>)"` form),
+  `claude-desktop` (the `mcpServers` JSON for `claude_desktop_config.json`) and `openapi` (the base URL,
+  `/openapi.json` URL and header). Commands use the **absolute path** of the running `devstuff` (a GUI
+  application usually does not inherit the shell's `PATH`; this is an expectation, not measured here) and
+  never contain the token itself.
 
 ---
 
@@ -207,42 +293,84 @@ framings of the same tool set:
   `snapshot.machine_facts`, `sort_diff_rows`), each row with `.to_json()`. The Click commands are not
   involved, so the bridges don't have to call or fake them.
 
+- **F-8 — the real Claude Code client, measured (2.1.296, isolated `HOME`).** `claude mcp add` +
+  `claude mcp list` (which performs a real handshake) reported `✔ Connected` for **both** a stdio stub and
+  an HTTP stub with a bearer header. Everything it sent, identical over both transports:
+  1. `server/discover` — **string id** `"server-discover-probe-1"`, protocol `2026-07-28`, answered `-32601`;
+  2. `initialize` — **integer id `0`**, protocol `2025-11-25`, capabilities `roots` + `elicitation`;
+  3. `notifications/initialized`;
+  4. HTTP only: `GET /mcp`, `Accept: text/event-stream` — answered `405`, and it **stayed connected**;
+  5. `tools/list` — id `1`.
+  `Authorization` was on every HTTP request including the `GET`; `Host` was `127.0.0.1:<port>`.
+  *Consequences:* FR-16 (confirmed by the product we care most about, not only by the SDK), FR-16a (an
+  `if not id` would have dropped the reply to `initialize`), FR-20 (`405` on `GET` is fine), FR-24.
+  **Not measured:** `tools/call` through Claude Code (needs a model turn and the user's credentials — the
+  live check in the development plan does it once, with consent); Claude Desktop (not installed here); how
+  Claude renders `isError`.
+- **F-9 — OpenAPI prototype and tool-name check.** A throwaway generator over the real
+  `agent.registry.build()` (non-primitive entries) produced 11 operations — four catalog tools and seven
+  `fn_*` — that **validate as OpenAPI 3.1.0** under `openapi-spec-validator`; the same document with one
+  operation's `responses` emptied is rejected, so the validator can fail. All 11 keys match
+  `^[a-zA-Z0-9_-]{1,64}$` (FR-16b) and no description is over 1000 characters. *Consequence:* FR-22a is a
+  check against a measured-working tool, not an aspiration. Not measured: any real OpenAPI *consumer*
+  (Open WebUI is not installed).
+
 ---
 
 ## 4. Security model
 
 | Property | Mechanism | Enforced or advisory |
 |---|---|---|
-| A client cannot reach a gated tool without `--allow-install` | FR-3: refusal at dispatch | **Enforced** |
+| A client cannot reach `install_tool` without `--allow-install`, or a `fn_*` tool without `--allow-functions` | FR-3: refusal at dispatch, flags independent | **Enforced** |
 | A client cannot reach the filesystem or a shell | FR-1: primitives are not in the toolbox | **Enforced** |
 | A client cannot read an arbitrary file through `profile_diff` | FR-10: bundle name only | **Enforced** |
 | An installer cannot corrupt or eat the protocol stream | FR-11/12: fd-level isolation | **Enforced** |
 | A web page cannot drive the HTTP server | FR-24/26/28: token + `Host`/`Origin` | **Enforced** |
+| A token file other users can read is refused | FR-24: mode check at startup | **Enforced** |
 | The client's own approval prompt before `install_tool` | client UX | **Advisory** — not a control |
 | A non-loopback bind is safe | FR-25 warns | **Advisory** — no TLS |
-| The model installs only what the user meant | none | **Out of scope**; `--allow-install` is the user's choice |
+| The model installs only what the user meant | none | **Out of scope**; the flags are the user's choice |
 
-`--allow-install` over stdio trusts the client process that launched the server (it can already run
+The allow flags over stdio trust the client process that launched the server (it can already run
 anything as the user). Over HTTP it trusts whoever holds the token — hence FR-24's file, not stdout.
 
 ---
 
 ## 5. Open questions
 
-| # | Question | Recommendation | Answer |
-|---|---|---|---|
-| OQ-1 | Build on the stdlib or the official SDK? | Stdlib; SDK as a test-time client only (SD-1) | Pending confirmation — the 2026-10-11 answer was "http, openapi.json-style, common tool system" and did not choose |
-| OQ-2 | Should `--host` accept a non-loopback address at all in v1? | Yes, warned (FR-25) | Pending |
-| OQ-3 | Fixed default port `8765` vs OS-assigned? | Fixed, so client configs survive restarts | Pending |
-| OQ-4 | Add `update`/`remove`/`profile_apply` as later gated tools? | Yes, under the same flag, each its own PR | Deferred (scope chosen 2026-10-11) |
-| OQ-5 | Does CI's Python range include versions the `mcp` test client supports? | Check at M-1; the conformance test skips when the SDK can't be imported | Pending |
-| OQ-6 | Should gated tools need `--allow-install` or a finer flag per tool? | One flag; per-tool allow-lists are a later `--allow KEY` if anyone asks | Pending |
+All six were answered on 2026-10-11: OQ-1/2/3/6 "as recommended" (with the changes noted), OQ-5 by
+measurement, OQ-4 deferred.
+
+| # | Question | Answer (2026-10-11) |
+|---|---|---|
+| OQ-1 | Build on the stdlib or the official SDK? | **Stdlib**; the SDK is a dev-only test client (SD-1) |
+| OQ-2 | Should `--host` accept a non-loopback address at all in v1? | **Yes**, warned (FR-25). Reason found while answering: a container's `127.0.0.1` is itself, so loopback-only would leave Open WebUI in Docker unable to reach the OpenAPI front end. This also forced the `Host` rule of FR-26 (IP literals and `--allow-host`, not "the bound address") |
+| OQ-3 | Fixed default port `8765` vs OS-assigned? | **Fixed** — *and a persistent token* (FR-24): the first draft kept the URL stable while regenerating the token each run, so a client config broke on restart anyway. Never fall back to another port (FR-25) |
+| OQ-4 | Add `update`/`remove`/`profile_apply` as later gated tools? | **Deferred.** Each its own PR, `update` first, behind the same two-flag model. `profile_apply @devops` includes docker, which needs sudo and cannot be answered over MCP |
+| OQ-5 | Does CI's Python range include versions the `mcp` test client supports? | **Resolved by measurement:** devstuff needs `>=3.11`, `mcp` 2.3.0 needs `>=3.10`, CI is `uv sync` on one default interpreter with no matrix. The conformance test still skips if the SDK is not importable |
+| OQ-6 | One flag for every state-changing tool? | **No — two:** `--allow-install` (`install_tool`) and `--allow-functions` (`fn_*`). The seven functions include `fn_aws_saml_reauth` and `fn_acc_check`, which are not installs. A per-tool `--allow KEY` list stays a later option |
 
 ---
 
 ## 6. Acceptance
 
-The feature is done when: the real `mcp` client completes `initialize` → `tools/list` → `tools/call`
-against both transports, a gated tool is invisible *and* uncallable without the flag, a fake installer that
-writes to every output route leaves the stdout stream as exactly the frames, and every FR above has a test
-that fails when the code it describes is broken (mutation-checked, as for `apply`).
+Done means **both goals pass** and every FR has a test that fails when the code it describes is broken
+(mutation-checked, as for `apply`).
+
+**G-1 — Claude (real clients, no stand-ins):**
+1. `claude mcp add` of the stdio command *and* of the HTTP URL with the bearer header, then
+   `claude mcp list` in an isolated `HOME`: both report `✔ Connected` (the F-8 method, run against
+   `devstuff mcp`). Skipped, with the reason shown, only when `claude` is not on `PATH`.
+2. The official `mcp` SDK client completes `initialize` → `tools/list` → `tools/call` over both transports.
+3. One live `tools/call` of a read-only tool through Claude Code itself, run once by hand with the user's
+   consent (it makes a model turn), reported separately from the automated checks.
+4. The snippets from `--print-config claude-code` run as printed and connect. The `claude-desktop` snippet
+   is checked for shape only — Desktop is not available here, and the report says so.
+5. A request with `id: 0`, `id: ""` and a string id each get a reply with the same id and type (FR-16a).
+
+**G-2 — OpenAPI:** FR-22a (valid), FR-22b (complete both ways, all four flag combinations) and FR-22c
+(a client driven only by the document gets documented statuses and schema-valid `200` bodies, and every
+bad request gets a documented status).
+
+**And:** a gated tool is invisible *and* uncallable without its own flag, and a fake installer that writes
+to every output route leaves stdout as exactly the frames.
