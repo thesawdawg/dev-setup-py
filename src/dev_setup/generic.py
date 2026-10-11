@@ -447,6 +447,10 @@ def _check_update_npm(tool: GenericTool) -> UpdateStatus:
 
 _T = TypeVar("_T")
 
+# Every `_once` probe, so `forget_probes` can drop them all without a list that has to be kept in
+# step with the decorators by hand.
+_MEMOS: list[Callable[[], object]] = []
+
 
 def _once(fn: Callable[[], _T]) -> Callable[[], _T]:
     """Memoise a no-argument probe so concurrent first callers wait instead of racing.
@@ -457,8 +461,10 @@ def _once(fn: Callable[[], _T]) -> Callable[[], _T]:
     per uv tool rather than one per run (docs/specs/outdated, finding F-1).
 
     The answer is fixed for the life of the process, so nothing here may be called after
-    something that changes it (an install or update) and expected to see the change;
-    `cache_clear()` exists for tests and for any future caller that does.
+    something that changes it (an install or update) and expected to see the change. A
+    caller that changes the machine and then reads it again calls `forget_probes()` between
+    the two (docs/specs/profile-apply, finding F-4: an install succeeded and the memo kept
+    reporting the tool as absent).
     """
     lock = threading.Lock()
     box: list[_T] = []
@@ -475,7 +481,18 @@ def _once(fn: Callable[[], _T]) -> Callable[[], _T]:
             box.clear()
 
     wrapper.cache_clear = cache_clear  # type: ignore[attr-defined]
+    _MEMOS.append(wrapper)
     return wrapper
+
+
+def forget_probes() -> None:
+    """Drop every memoised probe, so the next read of the machine is a fresh one.
+
+    Call it after anything that installs, updates or removes a tool and before reading state
+    that the change could have affected.
+    """
+    for memo in _MEMOS:
+        memo.cache_clear()  # type: ignore[attr-defined]
 
 
 class _Answer(NamedTuple):

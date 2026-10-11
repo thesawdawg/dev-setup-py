@@ -89,8 +89,8 @@ not an assumption that the installers worked.
 - **FR-10** `apply` is **non-interactive after the one confirmation**. It does not call
   `install_cmd._install_one` as it stands: that function prints a section header, checks
   `is_installed`, and ends by offering the tool's setup wizard (`offer_after_install`) — a prompt
-  in the middle of an unattended run (F-6). The shared part is factored out; the wizard offer stays
-  with `devstuff install`.
+  in the middle of an unattended run (F-6). `apply` has its own step runner, `apply_exec.perform`, which does only the work and reports how it
+  went; `install_cmd` is **not** modified (SD-10, decided 2026-10-11 while building A2).
 - **FR-11** Steps run **serially, in plan order**, each under the existing verbosity machinery
   (`verbose.step`, `-v`/`-vv`) so nothing here is a second way to run a subprocess.
 
@@ -170,7 +170,7 @@ Per the project convention (*measure the tool, don't recall it*). Date: 2026-10-
 | F-3 | **`update(version=pin)` on a tool that is not installed is a working one-step pinned install.** Measured in an isolated `UV_TOOL_DIR`: a `uvx` tool absent beforehand ended at `0.0.0.1`, the *older* of the package's two releases, with no install first. The `npm` command differs from the installer only by `@<version>` (`npm install -g name` vs `npm install -g name@ver`), and `apt` is `apt-get install pkg=ver` either way; `GenericTool.update` itself does not require the tool to be installed (only `update_cmd` checks). | FR-6 / SD-1: no install-then-update, and no change to the installers — the question `profile` §6 left open (teach `install()` a version?) is answered *no*. |
 | F-4 | **The uv probe memo (`_once`) goes stale across a state change.** Same measurement: `installed_version()` was `''` before the install, `''` *again after it succeeded*, and `'0.0.0.1'` only after `_uv_tool_versions.cache_clear()`. | FR-15 / NFR-5: the post-run comparison must drop every cached probe first. A naive "verify after install" would report a correct pin as unverifiable. Needs a test that fails without the clear. |
 | F-5 | `installed_version()` reads uv's list through `shutil.which("uv")`, so it is `''` whenever `uv` isn't on the *process's* PATH — while `is_installed()` can still be `True` (its `check_cmd` runs in a login shell). Measured with `~/.local/bin` removed from PATH: `hey-dave` and `ipython` both `is_installed=True`, `installed_version=''`. A machine that has just installed `uv` in this very run, in a shell that hasn't re-read its profile, is exactly this case. | FR-16: "installed, version unverified" is a real, distinct outcome of a successful pinned step, and must not be collapsed into failure or into `ok`. |
-| F-6 | `install_cmd._install_one` mixes four jobs: print a section, short-circuit on `is_installed`, check `missing_requires`, install, then `offer_after_install` (an interactive wizard prompt). `update_cmd._update_one` prompts to confirm for `bash`/`script` types. | FR-10: neither can be called from an unattended loop; the non-interactive core is factored out, and `install`/`update` keep their prompts by calling it. |
+| F-6 | `install_cmd._install_one` mixes four jobs: print a section, short-circuit on `is_installed`, check `missing_requires`, install, then `offer_after_install` (an interactive wizard prompt). `update_cmd._update_one` prompts to confirm for `bash`/`script` types. | FR-10: neither can be called from an unattended loop. `apply` gets its own small runner rather than a shared core (SD-10). |
 | F-7 | There is **no plan-preview helper on `master`**. `commands/_plan.py` exists only on the unmerged UI branch. | FR-4 builds its own table now, from `ui.table()`; adopt the shared helper if and when that branch lands (recorded so nobody builds a third). |
 
 ---
