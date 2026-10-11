@@ -107,9 +107,9 @@ Turn a profile into an install plan and run it.
 - **Ordering** comes from the existing `requires` graph (including auto-inferred edges such as
   `npm` → `nvm`). Do not write a second dependency resolver; if the existing one is not exposed in
   a reusable form, factor it out first.
-- **Plan before action**: `apply` shows what it will do and asks first. The plan-preview helper
-  `install`/`update` are gaining lives on the unmerged UI branch (`commands/_plan.py`); reuse it if it
-  has landed, rather than writing a second one.
+- **Plan before action**: `apply` shows what it will do and asks first. `install`/`remove`/`update` have a plan-preview helper (`commands/_plan.py`, spec
+  [`specs/plan-and-progress/`](specs/plan-and-progress/)); `apply` keeps its own plan table because its rows are
+  diff states, not commands.
 - **Failure policy** needs a decision in the spec: continue past a failed tool and summarise, or
   stop. Recommendation: continue, skip anything whose `requires` failed, and report at the end —
   a 40-tool apply that dies on tool 3 is worse than one that finishes 39.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import functools
 import hashlib
 import os
@@ -51,12 +52,49 @@ class UpdateStatus:
 def _run(cmd: list, *, cwd: Path | None = None) -> None:
     """Run a state-changing command (install/remove/update). Raises RuntimeError on failure.
 
-    Streams output when verbose, captures when not — captured output is discarded on
-    success and surfaced as the exception message on failure, which is the only reason
+    Three output modes: streams raw when verbose; feeds the live tail of the
+    active task view when there is one; otherwise captures — discarded on success
+    and surfaced as the exception message on failure, which is the only reason
     quiet mode can say anything useful about what went wrong.
     """
+    from dev_setup import ui
+
     verbose.command(cmd, cwd=cwd)
-    if verbose.enabled():
+    view = ui.current_view()
+    if view is not None:
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                # stdin stays inherited — sudo-style password prompts inside
+                # installers open /dev/tty directly, so they still work.
+            )
+        except OSError as e:
+            raise RuntimeError(str(e)) from e
+        assert proc.stdout is not None
+        # Chunked read, not line iteration: a `sudo` password prompt or a curl
+        # progress bar emits no newline, so `for line in proc.stdout` would
+        # leave it buffered in the pipe while the process waits on input —
+        # the terminal looks hung. \r counts as a display boundary too, and
+        # the trailing partial line is pushed to the tail so the prompt is
+        # visible while the process is still waiting.
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        buf = ""
+        while chunk := proc.stdout.read1(4096):
+            buf += decoder.decode(chunk)
+            *done, buf = re.split(r"\r\n|\r|\n", buf)
+            for line in done:
+                view.feed(line)
+            if buf:
+                view.feed(buf, partial=True)
+        if buf:
+            view.feed(buf)
+        rc = proc.wait()
+        if rc != 0:
+            raise RuntimeError(view.error_output() or f"exit code {rc}")
+    elif verbose.enabled():
         try:
             subprocess.run(cmd, check=True, cwd=cwd)
         except subprocess.CalledProcessError as e:
@@ -169,26 +207,51 @@ class GenericTool(Tool):
         checker = _CHECKERS.get(self.install_type)
         return checker(self) if checker else False
 
+    def plan_items(self, action: str = "install", version: str | None = None) -> list:
+        """Resolved preview of what `action` will run — real argv where the type
+        is deterministic (apt/npm/uvx/git), script body or URL for script/bash.
+        Also drives the task-view phase count, so keep counts in step with the
+        matching installer/remover/updater's `ui.phase` calls.
+        """
+        planner = _PLANNERS.get(self.install_type)
+        if planner is None:
+            return [("note", "", f"{action} via type '{self.install_type}'")]
+        return planner(self, action, version)
+
     def install(self) -> str | None:
         installer = _INSTALLERS.get(self.install_type)
         if installer is None:
             raise RuntimeError(f"Unsupported install type: {self.install_type!r}")
-        installer(self)
-        return self.get_version() or None
+        from dev_setup import ui
+        with ui.task_view(
+            f"Installing {self.name}", total=len(self.plan_items("install")) + 1
+        ):
+            installer(self)
+            with ui.phase("Verify install"):
+                version = self.get_version()
+        return version or None
 
     def remove(self) -> None:
         remover = _REMOVERS.get(self.install_type)
         if remover is None:
             raise RuntimeError(f"Unsupported remove type: {self.install_type!r}")
-        remover(self)
+        from dev_setup import ui
+        with ui.task_view(f"Removing {self.name}", total=len(self.plan_items("remove"))):
+            remover(self)
 
     def update(self, version: str | None = None) -> str | None:
         """Update an already-installed tool to the latest (or a specified) version."""
         updater = _UPDATERS.get(self.install_type)
         if updater is None:
             raise RuntimeError(f"Unsupported update type: {self.install_type!r}")
-        updater(self, version)
-        return self.get_version() or None
+        from dev_setup import ui
+        with ui.task_view(
+            f"Updating {self.name}", total=len(self.plan_items("update", version)) + 1
+        ):
+            updater(self, version)
+            with ui.phase("Verify"):
+                new_version = self.get_version()
+        return new_version or None
 
     def check_for_update(self) -> UpdateStatus:
         """Best-effort probe for a newer version. Never raises."""
@@ -241,9 +304,10 @@ class GenericTool(Tool):
 
 
 def _install_npm(tool: GenericTool) -> None:
+    from dev_setup import ui
     if not tool.npm_name:
         raise RuntimeError("npm_name not set")
-    with verbose.step(f"Installing {tool.name} via npm..."):
+    with ui.phase(f"npm install -g {tool.npm_name}"):
         _run(["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(tool.npm_name)}"])
 
 
@@ -272,18 +336,20 @@ def _install_uvx(tool: GenericTool) -> None:
             "uv is required to install uvx packages. "
             "Install it first: devstuff install uv"
         )
-    with verbose.step(f"Installing {tool.name} via uvx..."):
+    from dev_setup import ui
+    with ui.phase(f"uv tool install {tool.pip_name}"):
         _run([uv, "tool", "install"] + _uv_install_flags(tool) + [tool.pip_name])
 
 
 def _install_git(tool: GenericTool) -> None:
+    from dev_setup import ui
     if not tool.git_url:
         raise RuntimeError("git_url not set")
     dest = _git_clone_dest(tool.git_url)
-    with verbose.step(f"Cloning {tool.name}..."):
+    with ui.phase(f"git clone {tool.git_url}"):
         _run(["git", "clone", "--depth=1", tool.git_url, str(dest)])
     if tool.git_install_cmd:
-        with verbose.step("Running install command..."):
+        with ui.phase("post-clone install"):
             _run(["bash", "-c", tool.git_install_cmd], cwd=dest)
 
 
@@ -291,36 +357,39 @@ def _install_apt(tool: GenericTool) -> None:
     from dev_setup import ui
     if not tool.apt_packages:
         raise RuntimeError("apt_packages not set")
-    ui.info(f"Installing {tool.name} via apt...")
-    _run_apt_update()
-    _run(["sudo", "apt-get", "install", "-y"] + tool.apt_packages.split())
+    with ui.phase("apt-get update"):
+        _run_apt_update()
+    with ui.phase(f"apt-get install {tool.apt_packages}"):
+        _run(["sudo", "apt-get", "install", "-y"] + tool.apt_packages.split())
 
 
 def _install_script_url(tool: GenericTool) -> None:
     from dev_setup import ui
     if not tool.script_url:
         raise RuntimeError("script_url not set")
-    ui.info(f"Running install script for {tool.name}...")
-    script = _download_script(tool.script_url, expected_sha256=tool.sha256)
-    _run_bash_script(script)
+    with ui.phase(f"download {tool.script_url}"):
+        script = _download_script(tool.script_url, expected_sha256=tool.sha256)
+    with ui.phase("run install script"):
+        _run_bash_script(script)
 
 
 def _install_bash(tool: GenericTool) -> None:
     from dev_setup import ui
     if not tool.install_script:
         raise RuntimeError("install_script not set")
-    ui.info(f"Installing {tool.name}...")
-    _run_bash_script(tool.install_script)
+    with ui.phase("run install script"):
+        _run_bash_script(tool.install_script)
 
 
 # -- Update strategies --------------------------------------------------------
 
 
 def _update_npm(tool: GenericTool, version: str | None) -> None:
+    from dev_setup import ui
     if not tool.npm_name:
         raise RuntimeError("npm_name not set")
     target = f"{tool.npm_name}@{version or 'latest'}"
-    with verbose.step(f"Updating {tool.name} via npm..."):
+    with ui.phase(f"npm install -g {target}"):
         _run(["bash", "-lc", f"{_npm_init()} && npm install -g {shlex.quote(target)}"])
 
 
@@ -355,7 +424,8 @@ def _update_uvx(tool: GenericTool, version: str | None) -> None:
             f"to the latest release."
         )
 
-    with verbose.step(f"Updating {tool.name} via uv tool install..."):
+    from dev_setup import ui
+    with ui.phase(f"uv tool install --force {target}"):
         _run(cmd)
 
 
@@ -364,20 +434,22 @@ def _update_apt(tool: GenericTool, version: str | None) -> None:
     if not tool.apt_packages:
         raise RuntimeError("apt_packages not set")
     packages = tool.apt_packages.split()
-    _run_apt_update()
+    with ui.phase("apt-get update"):
+        _run_apt_update()
     if version:
         if len(packages) != 1:
             raise RuntimeError(
                 "Version pinning is only supported for apt tools with a single package."
             )
-        ui.info(f"Updating {tool.name} to version {version} via apt...")
-        _run(["sudo", "apt-get", "install", "-y", f"{packages[0]}={version}"])
+        with ui.phase(f"apt-get install {packages[0]}={version}"):
+            _run(["sudo", "apt-get", "install", "-y", f"{packages[0]}={version}"])
     else:
-        ui.info(f"Updating {tool.name} via apt...")
-        _run(["sudo", "apt-get", "install", "--only-upgrade", "-y"] + packages)
+        with ui.phase(f"apt-get install --only-upgrade {tool.apt_packages}"):
+            _run(["sudo", "apt-get", "install", "--only-upgrade", "-y"] + packages)
 
 
 def _update_git(tool: GenericTool, version: str | None) -> None:
+    from dev_setup import ui
     if version:
         raise RuntimeError(
             "Version pinning is not supported for git tools (shallow clone). "
@@ -388,9 +460,10 @@ def _update_git(tool: GenericTool, version: str | None) -> None:
     dest = _git_clone_dest(tool.git_url)
     if not dest.exists():
         raise RuntimeError(f"{tool.name} clone not found at {dest}")
-    with verbose.step(f"Pulling latest {tool.name}..."):
+    with ui.phase("git pull"):
         _run(["git", "-C", str(dest), "pull"])
-        if tool.git_install_cmd:
+    if tool.git_install_cmd:
+        with ui.phase("post-clone install"):
             _run(["bash", "-c", tool.git_install_cmd], cwd=dest)
 
 
@@ -720,16 +793,19 @@ def supports_pin(tool: GenericTool) -> bool:
 
 
 def _remove_npm(tool: GenericTool) -> None:
-    with verbose.step(f"Removing {tool.name}..."):
+    from dev_setup import ui
+    with ui.phase(f"npm uninstall -g {tool.npm_name}"):
         _run(["bash", "-lc", f"{_npm_init()} && npm uninstall -g {shlex.quote(tool.npm_name)}"])
 
 
 def _remove_uvx(tool: GenericTool) -> None:
+    from dev_setup import ui
     # An explicit remove_script wins, mirroring _remove_apt. Without this, a tool that
     # shares a pip_name with another entry (ansible-vault shares ansible's) would
     # uninstall the whole shared tool environment out from under it.
     if tool.remove_script:
-        _run_bash_script(tool.remove_script)
+        with ui.phase("run remove script"):
+            _run_bash_script(tool.remove_script)
         return
     uv = shutil.which("uv")
     if not uv:
@@ -737,28 +813,31 @@ def _remove_uvx(tool: GenericTool) -> None:
             "uv is required to remove uvx packages. "
             "Install it first: devstuff install uv"
         )
-    with verbose.step(f"Removing {tool.name}..."):
+    with ui.phase(f"uv tool uninstall {tool.pip_name}"):
         _run([uv, "tool", "uninstall", tool.pip_name])
 
 
 def _remove_git(tool: GenericTool) -> None:
+    from dev_setup import ui
     dest = _git_clone_dest(tool.git_url)
     if tool.git_remove_cmd:
         # Best-effort: the clone directory is removed below either way, so a remove
         # command that fails must not abort the removal.
-        with verbose.step("Running remove command..."):
+        with ui.phase("run remove command"):
             _probe(["bash", "-c", tool.git_remove_cmd], cwd=dest, log_at=verbose.VERBOSE)
     if dest.exists():
-        shutil.rmtree(dest)
+        with ui.phase(f"rm -rf {dest}"):
+            shutil.rmtree(dest)
 
 
 def _remove_apt(tool: GenericTool) -> None:
     from dev_setup import ui
-    ui.info(f"Removing {tool.name}...")
     if tool.remove_script:
-        _run_bash_script(tool.remove_script)
+        with ui.phase("run remove script"):
+            _run_bash_script(tool.remove_script)
     else:
-        _run(["sudo", "apt-get", "remove", "-y"] + tool.apt_packages.split())
+        with ui.phase(f"apt-get remove {tool.apt_packages}"):
+            _run(["sudo", "apt-get", "remove", "-y"] + tool.apt_packages.split())
 
 
 def _remove_script_url(tool: GenericTool) -> None:
@@ -768,8 +847,8 @@ def _remove_script_url(tool: GenericTool) -> None:
             "No remove script defined for this script-installed package. "
             "Remove manually then run: devstuff delete " + tool.key
         )
-    ui.info(f"Removing {tool.name}...")
-    _run_bash_script(tool.remove_script)
+    with ui.phase("run remove script"):
+        _run_bash_script(tool.remove_script)
 
 
 def _remove_bash(tool: GenericTool) -> None:
@@ -779,8 +858,8 @@ def _remove_bash(tool: GenericTool) -> None:
             f"No remove script defined for '{tool.key}'. "
             "Remove manually then run: devstuff delete " + tool.key
         )
-    ui.info(f"Removing {tool.name}...")
-    _run_bash_script(tool.remove_script)
+    with ui.phase("run remove script"):
+        _run_bash_script(tool.remove_script)
 
 
 # -- Installed-state strategies ---------------------------------------------------
@@ -841,6 +920,116 @@ _UPDATERS: dict[str, Callable[[GenericTool, str | None], None]] = {
 }
 
 
+# -- Plan previews ------------------------------------------------------------------
+# Each planner returns PlanItem tuples — (kind, label, detail) — rendered by
+# ui.plan_panel before an action runs, and counted for the task-view progress
+# bar. Commands get real resolved argv; script/bash show the body (or URL),
+# since that's the honest preview of what will execute.
+
+
+def _plan_npm(tool: GenericTool, action: str, version: str | None) -> list:
+    if action == "remove":
+        return [("cmd", "uninstall", f"npm uninstall -g {tool.npm_name}")]
+    if action == "update":
+        target = f"{tool.npm_name}@{version or 'latest'}"
+        return [("cmd", "update", f"npm install -g {target}  (via nvm)")]
+    return [("cmd", "install", f"npm install -g {tool.npm_name}  (via nvm)")]
+
+
+def _plan_uvx(tool: GenericTool, action: str, version: str | None) -> list:
+    import shlex as _shlex
+    if action == "remove":
+        if tool.remove_script:
+            return [("script", "remove script", tool.remove_script)]
+        return [("cmd", "uninstall", f"uv tool uninstall {tool.pip_name}")]
+    flags = _uv_install_flags(tool)
+    if action == "update":
+        target = f"{tool.pip_name}=={version}" if version else f"{tool.pip_name}@latest"
+        argv = ["uv", "tool", "install", "--force"] + flags + [target]
+    else:
+        argv = ["uv", "tool", "install"] + flags + [tool.pip_name]
+    return [("cmd", action, _shlex.join(argv))]
+
+
+def _plan_git(tool: GenericTool, action: str, version: str | None) -> list:
+    dest = _git_clone_dest(tool.git_url)
+    if action == "remove":
+        items = []
+        if tool.git_remove_cmd:
+            items.append(("script", "remove command", tool.git_remove_cmd))
+        items.append(("cmd", "delete clone", f"rm -rf {dest}"))
+        return items
+    if action == "update":
+        items = [("cmd", "pull", f"git -C {dest} pull")]
+        if tool.git_install_cmd:
+            items.append(("cmd", "post-clone install", tool.git_install_cmd))
+        return items
+    items = [("cmd", "clone", f"git clone --depth=1 {tool.git_url} {dest}")]
+    if tool.git_install_cmd:
+        items.append(("cmd", "post-clone install", tool.git_install_cmd))
+    return items
+
+
+def _plan_apt(tool: GenericTool, action: str, version: str | None) -> list:
+    if action == "remove":
+        if tool.remove_script:
+            return [("script", "remove script", tool.remove_script)]
+        return [("cmd", "remove", f"sudo apt-get remove -y {tool.apt_packages}")]
+    items = [("cmd", "apt update", "sudo apt-get update -q")]
+    if action == "update":
+        pkgs = tool.apt_packages.split()
+        if version and len(pkgs) == 1:
+            items.append(("cmd", "pin", f"sudo apt-get install -y {pkgs[0]}={version}"))
+        else:
+            items.append(
+                ("cmd", "upgrade", f"sudo apt-get install --only-upgrade -y {tool.apt_packages}")
+            )
+    else:
+        items.append(("cmd", "install", f"sudo apt-get install -y {tool.apt_packages}"))
+    return items
+
+
+def _plan_script(tool: GenericTool, action: str, version: str | None) -> list:
+    if action == "remove":
+        if tool.remove_script:
+            return [("script", "remove script", tool.remove_script)]
+        return [
+            ("note", "", f"No remove script — remove manually, then: devstuff delete {tool.key}")
+        ]
+    items: list = []
+    if action == "update":
+        items.append(("note", "", "re-runs the full installer — script tools have no narrower update"))
+    sha = f"  (sha256: {tool.sha256[:16]}…)" if tool.sha256 else ""
+    items.append(("cmd", "download", f"fetch {tool.script_url}{sha}"))
+    items.append(("note", "", "downloaded script runs via bash"))
+    return items
+
+
+def _plan_bash(tool: GenericTool, action: str, version: str | None) -> list:
+    if action == "remove":
+        if tool.remove_script:
+            return [("script", "remove script", tool.remove_script)]
+        return [
+            ("note", "", f"No remove script — remove manually, then: devstuff delete {tool.key}")
+        ]
+    items = []
+    if action == "update":
+        items.append(("note", "", "re-runs the full installer — bash tools have no narrower update"))
+    items.append(("script", "install script", tool.install_script))
+    return items
+
+
+_PLANNERS: dict[str, Callable[[GenericTool, str, str | None], list]] = {
+    "npm": _plan_npm,
+    "pip": _plan_uvx,
+    "uvx": _plan_uvx,
+    "git": _plan_git,
+    "apt": _plan_apt,
+    "script": _plan_script,
+    "bash": _plan_bash,
+}
+
+
 # -- Helpers ----------------------------------------------------------------------
 
 
@@ -859,7 +1048,14 @@ def _npm_global_installed(pkg: str) -> bool:
 def _run_apt_update() -> None:
     """Refresh apt's package lists. Deliberately non-fatal: a failing mirror shouldn't
     stop an install of a package that may already be cached."""
-    _probe(["sudo", "apt-get", "update", "-q"], log_at=verbose.VERBOSE)
+    from dev_setup import ui
+    if ui.current_view() is not None:
+        try:
+            _run(["sudo", "apt-get", "update", "-q"])
+        except RuntimeError:
+            pass
+    else:
+        _probe(["sudo", "apt-get", "update", "-q"], log_at=verbose.VERBOSE)
 
 
 def _npm_init() -> str:

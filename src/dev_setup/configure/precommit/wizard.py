@@ -87,11 +87,10 @@ def _ask_hooks(cfg: PreCommitConfig) -> list[str]:
             note = "fixes files" if hook.fixes else "reports only"
             if hook.needs:
                 note += f" · needs {hook.needs}"
+            # String title — a token list renders verbatim and never picks up
+            # the `highlighted` style, leaving the cursor invisible.
             choices.append(questionary.Choice(
-                title=[
-                    ("class:text", f"{hook.key:<{width}}"),
-                    ("class:instruction", f"{hook.description}  ({note})"),
-                ],
+                title=f"{hook.key:<{width}}{hook.description}  ({note})",
                 value=hook.key,
                 checked=hook.key in chosen,
             ))
