@@ -1,3 +1,9 @@
+## v2.14.0 (2026-10-11)
+
+### Features
+
+- **ui**: plan preview, live progress view and a guided add wizard
+
 ## v2.13.0 (2026-10-11)
 
 ### Features
