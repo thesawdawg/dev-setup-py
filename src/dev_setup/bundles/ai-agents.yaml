@@ -1,0 +1,10 @@
+# @ai-agents — Coding agents for the terminal. The npm-based ones pull in nvm automatically.
+# Apply with: devstuff profile apply @ai-agents
+# Names no versions, so it installs the latest of each; extra tools it needs are added for you.
+version: 1
+tools:
+  claude-code: {}
+  codex: {}
+  devin: {}
+  hey-dave: {}
+  pi: {}

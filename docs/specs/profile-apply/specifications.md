@@ -139,6 +139,15 @@ not an assumption that the installers worked.
   exists in the bundled catalog** (the two-direction enforcement the CI matrix has: a stale name in
   either place fails the suite, not a user's machine).
 - **FR-21** An unknown bundle name is exit 2 and lists the bundles that exist.
+- **FR-20a** (added at A5) Only a *leading* `@` marks a bundle, and the name is never turned into a path:
+  lookup lists the bundle directory and matches against what it finds, so `@../x` has nothing to
+  traverse. A bundle name is `[a-z][a-z0-9-]*`. A file that really starts with `@` is reached as `./@x`.
+  Bundles name keys only and pin nothing — a shipped version would be stale on release day.
+- **FR-20b** (added at A5) Shipped content, agreed 2026-10-11: `@essentials` (gh, git-lfs, lazygit, bat,
+  htop, yq, starship, nerd-font), `@python` (uv, python, ipython, pre-commit, commitizen), `@devops`
+  (docker, ansible, ansible-vault, aws, saml2aws, mkcert), `@languages` (go, java, php, python, ruby),
+  `@ai-agents` (claude-code, codex, devin, hey-dave, pi), `@ai-local` (ollama, lmstudio, llm-checker,
+  llamactl). No catch-all bundle; `homebrew` and `reptyr` are deliberately in none.
 
 ### Structure
 
@@ -179,6 +188,7 @@ Per the project convention (*measure the tool, don't recall it*). Date: 2026-10-
 | F-6 | `install_cmd._install_one` mixes four jobs: print a section, short-circuit on `is_installed`, check `missing_requires`, install, then `offer_after_install` (an interactive wizard prompt). `update_cmd._update_one` prompts to confirm for `bash`/`script` types. | FR-10: neither can be called from an unattended loop. `apply` gets its own small runner rather than a shared core (SD-10). |
 | F-7 | There is **no plan-preview helper on `master`**. `commands/_plan.py` exists only on the unmerged UI branch. | FR-4 builds its own table now, from `ui.table()`; adopt the shared helper if and when that branch lands (recorded so nobody builds a third). |
 | F-8 | **Seen live (2026-10-11), A4.** `is_installed()` for a `uvx` tool is `shutil.which(pip_name)`, so a tool installed into a bin directory that is not on the *process's* PATH reads `missing` immediately after a successful install. Reproduced in an isolated `UV_TOOL_BIN_DIR`: `uv tool list` showed `pycowsay v0.0.0.1`, `which pycowsay` found nothing, and both `apply` and an independent `diff` said `missing`; with the directory on PATH both said `ok` and the plan dropped the step. This is the common case on a fresh machine before the shell has re-read its profile. | FR-16: the verdict stays honest (it is the same test `diff` would give), but a `missing` right under a ✔ gets an explanatory line pointing at PATH. Not worked around — second-guessing `is_installed()` here would make `apply` and `diff` disagree. |
+| F-9 | **Measured at A5 (2026-10-11): the bundle files ship in the wheel with no packaging change.** `[tool.hatch.build.targets.wheel] packages = ["src/dev_setup"]` already includes every file under the package, the same way `tools.yaml` ships. Built the wheel, listed it (six `dev_setup/bundles/*.yaml`), installed it into a clean venv and ran `profile apply @devops --dry-run` and `diff @name` for all six from there; an unknown name exits 2 and lists the six. | FR-20: resolved with `importlib.resources`, as the catalog is. No `pyproject.toml` edit. |
 
 ---
 

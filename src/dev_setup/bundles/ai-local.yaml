@@ -1,0 +1,10 @@
+# @ai-local — Running models on this machine, and checking what it can run.
+# Note: lmstudio asks for sudo when libatomic1 is missing.
+# Apply with: devstuff profile apply @ai-local
+# Names no versions, so it installs the latest of each; extra tools it needs are added for you.
+version: 1
+tools:
+  llamactl: {}
+  llm-checker: {}
+  lmstudio: {}
+  ollama: {}

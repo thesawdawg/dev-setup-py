@@ -9,7 +9,7 @@ from pathlib import Path
 import click
 from rich.markup import escape
 
-from dev_setup import apply_exec, apply_plan, profile, registry, snapshot, ui, verbose
+from dev_setup import apply_exec, apply_plan, bundles, profile, registry, snapshot, ui, verbose
 from dev_setup.profile import DiffRow, DiffState
 
 _CUSTOM_NAMES_SHOWN = 6
@@ -104,7 +104,7 @@ _EXTRA_NAMES_SHOWN = 12
 
 
 @profile_cmd.command("diff")
-@click.argument("profile_file", metavar="PROFILE", type=click.Path(path_type=Path))
+@click.argument("profile_file", metavar="PROFILE")
 @click.option(
     "--all", "show_all", is_flag=True,
     help="Also list the tools that match, and the tools not in the profile, as rows.",
@@ -122,11 +122,12 @@ _EXTRA_NAMES_SHOWN = 12
     help="For --exit-code: don't count installed tools that aren't in the profile as a difference.",
 )
 def diff_cmd(
-    profile_file: Path, show_all: bool, as_json: bool, exit_code: bool, ignore_extras: bool
+    profile_file: str, show_all: bool, as_json: bool, exit_code: bool, ignore_extras: bool
 ) -> None:
     """Compare this machine to a profile.
 
-    Read-only. Each key is reported as ok, missing, drift (installed at a different version
+    PROFILE is a file, or `@name` for a profile that ships with devstuff (e.g. `@devops`;
+    `./@x` names a file that starts with an @). Read-only. Each key is reported as ok, missing, drift (installed at a different version
     than the profile pins), unverifiable (pinned, but the installed version can't be read),
     unpinnable (pinned, but that install type can't honour a pin), unknown-key (not in this
     machine's catalog) or extra (installed but not in the profile). The last three that mean
@@ -136,7 +137,7 @@ def diff_cmd(
     profile that can't be read or isn't valid is always 2, so 1 only ever means "differs".
     """
     try:
-        wanted = profile.load(profile_file)
+        wanted = bundles.load_arg(profile_file)
     except profile.ProfileError as exc:
         click.echo(f"error: {exc}", err=True)
         sys.exit(2)
@@ -145,7 +146,7 @@ def diff_cmd(
     if interactive:
         ui.print_banner()
     progress = (
-        verbose.step(f"Comparing this machine to {profile_file.name}...")
+        verbose.step(f"Comparing this machine to {Path(profile_file).name}...")
         if interactive else nullcontext()
     )
     with progress:
@@ -245,11 +246,11 @@ def _json_safe() -> Iterator[None]:
 
 
 def _show_plan(
-    plan: apply_plan.Plan, by_key: dict[str, object], profile_file: Path
+    plan: apply_plan.Plan, by_key: dict[str, object], profile_file: str
 ) -> None:
     if plan.steps:
         pinned_any = any(s.version for s in plan.steps)
-        tbl = ui.table(f"Plan for {profile_file.name}")
+        tbl = ui.table(f"Plan for {Path(profile_file).name}")
         tbl.add_column("Package", style="bold", no_wrap=True)
         tbl.add_column("Type", style=ui.CYAN, no_wrap=True)
         tbl.add_column("Action", no_wrap=True)
@@ -306,7 +307,7 @@ def _summarize(
     wanted: profile.Profile,
     run: apply_exec.RunResult | None,
     final: list[DiffRow],
-    profile_file: Path,
+    profile_file: str,
 ) -> None:
     S = apply_exec.Status
     by_state = {r.key: r.state for r in final}
@@ -340,13 +341,13 @@ def _summarize(
     total = len(wanted.tools)
     matching = sum(1 for r in final if r.state is DiffState.OK)  # only profile keys can be ok
     if matching == total and not remaining:
-        ui.success(f"This machine now matches {profile_file.name} ({matching} of {total} entries).")
+        ui.success(f"This machine now matches {Path(profile_file).name} ({matching} of {total} entries).")
     else:
-        ui.warn(f"{matching} of {total} entries match {profile_file.name}.")
+        ui.warn(f"{matching} of {total} entries match {Path(profile_file).name}.")
 
 
 @profile_cmd.command("apply")
-@click.argument("profile_file", metavar="PROFILE", type=click.Path(path_type=Path))
+@click.argument("profile_file", metavar="PROFILE")
 @click.option("--dry-run", is_flag=True, help="Show the plan and exit; change nothing and ask nothing.")
 @click.option("--yes", "-y", is_flag=True, help="Don't ask for confirmation.")
 @click.option(
@@ -359,11 +360,12 @@ def _summarize(
          "Needs --yes or --dry-run; -v has no effect.",
 )
 def apply_cmd(
-    profile_file: Path, dry_run: bool, yes: bool, missing_only: bool, as_json: bool
+    profile_file: str, dry_run: bool, yes: bool, missing_only: bool, as_json: bool
 ) -> None:
     """Make this machine match a profile.
 
-    Installs the profile's tools that are missing (with whatever they require, in order) and moves
+    PROFILE is a file, or `@name` for a profile that ships with devstuff: `@essentials`, `@python`,
+    `@devops`, `@languages`, `@ai-agents`, `@ai-local` (an unknown name lists them). Installs the profile's tools that are missing (with whatever they require, in order) and moves
     pinned tools to the pinned version. It never removes anything and never touches a tool the
     profile doesn't pin. The plan is shown first and confirmed — `--yes` skips the question,
     `--dry-run` stops after the plan.
@@ -377,7 +379,7 @@ def apply_cmd(
     be read, or a run that needs confirming with no terminal to ask on.
     """
     try:
-        wanted = profile.load(profile_file)
+        wanted = bundles.load_arg(profile_file)
     except profile.ProfileError as exc:
         click.echo(f"error: {exc}", err=True)
         sys.exit(2)
@@ -391,7 +393,7 @@ def apply_cmd(
     if interactive:
         ui.print_banner()
     progress = (
-        verbose.step(f"Comparing this machine to {profile_file.name}...")
+        verbose.step(f"Comparing this machine to {Path(profile_file).name}...")
         if interactive else nullcontext()
     )
     with progress:

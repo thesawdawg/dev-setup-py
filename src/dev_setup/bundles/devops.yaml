@@ -1,0 +1,12 @@
+# @devops — Containers, configuration management and cloud access.
+# Note: docker asks for sudo (and a re-login before your user can use it without sudo).
+# Apply with: devstuff profile apply @devops
+# Names no versions, so it installs the latest of each; extra tools it needs are added for you.
+version: 1
+tools:
+  ansible: {}
+  ansible-vault: {}
+  aws: {}
+  docker: {}
+  mkcert: {}
+  saml2aws: {}
