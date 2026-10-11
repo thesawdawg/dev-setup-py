@@ -66,7 +66,7 @@ didn't have, is stated as exactly that: not as passing.
 
 Refresh with the `gh pr list` command above when this looks stale.
 
-None, other than the PR that adds this file.
+None.
 
 ### Closed as dropped
 
@@ -84,3 +84,4 @@ start from a fresh branch off `origin/master` and replay the commits rather than
 | From | Owed |
 |---|---|
 | [#60](https://github.com/thesawdawg/dev-setup-py/pull/60) `profile apply`, bundles, docs (merged 2026-10-11, released as 2.13.0) | The first run of `make run-apply-tests` (in `dev/`) in the CI image. The test is written, and its `uv` + pinned-`commitizen` half was run against the real installers in an isolated `HOME`; the `yq` half and the container run have not happened. Tick the last box under M3 in `docs/ROADMAP.md` when it passes. |
+| [#62](https://github.com/thesawdawg/dev-setup-py/pull/62) plan preview, live progress view and the guided `add` wizard (merged 2026-10-11, released as 2.14.0) | (1) About ten older sites still put error text into `ui.error`/`ui.dim` unescaped, which raises `MarkupError` on a `[/…]`-shaped string: `configure_cmd`, `doctor_cmd`, `run_cmd`, `skills_cmd`, the commitizen and reptyr wizards, `add_cmd`. Escape with `rich.markup.escape` when touching one (see `docs/specs/plan-and-progress/`, F-1). (2) Not run live: `update` and its picker, the `install`/`remove` pickers, and the `npm`, `apt` and `git` installers under the progress view; unit-tested only. (3) Open design points, deliberately unchanged: a missing requirement asks three questions, and the `add` step counter reads `1/7` then `2/8`. |
