@@ -1,7 +1,7 @@
 # Development plan: `devstuff profile apply`
 
 **Date:** 2026-10-10
-**Status:** In progress — A1 done 2026-10-10, A2–A3 done 2026-10-11
+**Status:** In progress — A1 done 2026-10-10, A2–A4 done 2026-10-11
 
 ---
 
@@ -15,7 +15,7 @@ machine — the order that worked for `outdated` and `profile`.
 | A1 | **Planner** — pure `build_plan(rows, tools)`: row → action table, dependency closure across the plan with de-duplication, ordering, the skip-because-dependency-failed propagation as a pure function over results | FR-2, 3, 9, 22 | **Done** 2026-10-10 |
 | A2 | **Step runner** — `apply_exec.perform` (install / pinned install in one call, failure as a result, never a wizard offer); `generic.forget_probes()` that clears every memoised probe. `install_cmd` untouched (SD-10) | FR-6, 7, 10, NFR-5 | **Done** 2026-10-11 |
 | A3 | **Executor** — runs a `Plan` serially under the failure policy, handles `^C` between steps, returns per-step results | FR-8, 9, 11, 19 | **Done** 2026-10-11 |
-| A4 | **`devstuff profile apply`** — plan table, `--dry-run`, `--yes`, TTY refusal, `--missing-only`, final re-measurement, summary, exit status, `--json` | FR-4, 5, 12–18, 23, NFR-1–4 | Not started |
+| A4 | **`devstuff profile apply`** — plan table, `--dry-run`, `--yes`, TTY refusal, `--missing-only`, final re-measurement, summary, exit status, `--json` | FR-4, 5, 12–18, 23, NFR-1–4 | **Done** 2026-10-11 |
 | A5 | **Bundles** — `@name` resolution, the shipped files, the two data tests; also accepted by `diff` | FR-20, 21 | Not started |
 | A6 | **Docs + integration** — README, CLAUDE.md rules, roadmap, specs index; a Docker integration test that applies a profile to an empty container and diffs clean | NFR-4 | Not started |
 
@@ -70,7 +70,7 @@ A survivor means a test is missing, not that the mutation was unfair.
 1. **Isolated uv end to end.** With `UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` pointed at a scratch directory,
    apply a profile pinning a small package at its *older* release (as measured in F-3), then run
    `profile diff` on the same file: clean. Apply again: empty plan.
-2. **A deliberate failure.** *(Run against the executor alone on 2026-10-11, in an isolated `UV_TOOL_DIR`: the real pinned install succeeded and read back `0.0.0.1`, an impossible pin failed with uv's message, and its dependent was skipped unattempted. To repeat through the command in A4.)* A profile naming a package version that doesn't exist: the step fails,
+2. **A deliberate failure.** *(Run on 2026-10-11 through the command, in an isolated `HOME`, catalog and `UV_TOOL_DIR`: the real pinned install succeeded, an impossible pin failed with uv's message, its dependent was skipped unattempted, the unknown key was reported, and the exit status was 1. That run is also what found F-8.)* A profile naming a package version that doesn't exist: the step fails,
    dependents are skipped, siblings proceed, exit status 1, and `diff` agrees with the summary.
 3. **Network blocked.** Planning and `--dry-run` work offline; only the install steps fail, with
    their own error.
