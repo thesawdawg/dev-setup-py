@@ -66,13 +66,18 @@ didn't have, is stated as exactly that: not as passing.
 
 Refresh with the `gh pr list` command above when this looks stale.
 
-| PR | Branch | Checks | Comments / reviews | Notes |
-|---|---|---|---|---|
-| [#51](https://github.com/thesawdawg/dev-setup-py/pull/51) proxmox `pve-*` functions and connection wizard | `claude/proxmox-management-tools-smmiwc` | Lint & unit tests pass | none | 24 files, +5442. Last updated 2026-09-16; 36 commits behind `master`. GitHub has not computed mergeability. |
-| [#43](https://github.com/thesawdawg/dev-setup-py/pull/43) host compatibility layer, with Termux support | `claude/termux-compatibility-layer-m9xiww` | Lint & unit tests pass | none | 26 files, +3986. Last updated 2026-08-15; 43 commits behind `master`. GitHub has not computed mergeability. |
+None, other than the PR that adds this file.
 
-Both are green but old, and neither has had a review. Expect conflicts: `master` has moved a lot
-(the UI rewrite, `outdated`, `profile`) since either branch point.
+### Closed as dropped
+
+Closed unmerged on 2026-10-11 because they had gone stale: both were green but unreviewed, and 36 and
+43 commits behind `master`. Their branches are **kept**, so the work can be revived if it is wanted;
+start from a fresh branch off `origin/master` and replay the commits rather than merging `master` in.
+
+| Was | Branch | Tip |
+|---|---|---|
+| [#51](https://github.com/thesawdawg/dev-setup-py/pull/51) proxmox `pve-*` functions and connection wizard | `claude/proxmox-management-tools-smmiwc` | `03907de` |
+| [#43](https://github.com/thesawdawg/dev-setup-py/pull/43) host compatibility layer, with Termux support | `claude/termux-compatibility-layer-m9xiww` | `282c551` |
 
 ## Follow-ups owed by merged PRs
 
