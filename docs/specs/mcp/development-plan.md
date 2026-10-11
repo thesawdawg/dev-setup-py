@@ -11,8 +11,8 @@ targeting `master` from a branch cut **after** this spec merges (never stacked o
 
 | M | Delivers | Needs |
 |---|---|---|
-| **M-1** | Measure F-6 first. Then `agent/bridges.py` + `agent_tools.yaml`: `outdated` and `profile_diff`; FR-4 test | — |
-| **M-2** | `src/dev_setup/mcp/`: `core.py` (dispatch, gating, JSON-RPC handling — pure), `stdio.py` (FR-11/12/19), `commands/mcp_cmd.py` (stdio only) | M-1 |
+| **M-1** | Measure what remains of F-6/F-11: does sudo's line survive `_run`'s capture (FR-13)? Then `agent/bridges.py` + `agent_tools.yaml`: `outdated` and `profile_diff`; FR-4 test; the FR-1a classification table and its forcing test | — |
+| **M-2** | `src/dev_setup/mcp/`: `core.py` (classification, dispatch, gating, probe lifecycle FR-8a, JSON-RPC handling — pure), `stdio.py` (FR-11/11a/12/19, incl. the detach + supervisor), `commands/mcp_cmd.py` (stdio only) | M-1 |
 | **M-3** | `mcp/http.py`: `POST /mcp`, token/Host/Origin (FR-20, 24–28); then REST + OpenAPI (FR-21–23) | M-2 |
 | **M-4** | **G-1:** conformance tests (real SDK client; real `claude mcp list`); `--print-config` (FR-31). **G-2:** OpenAPI validity, both-direction coverage and the document-driven client (FR-22a–c). One live `tools/call` through Claude Code, with consent. README, CLAUDE.md section, specs index, roadmap | M-3 |
 
@@ -21,7 +21,8 @@ targeting `master` from a branch cut **after** this spec merges (never stacked o
 ```
 src/dev_setup/mcp/
 ├── __init__.py
-├── core.py     # pure: Toolbox (derive + gate), dispatch(), handle_jsonrpc(). No I/O, no sockets
+├── core.py     # pure: Toolbox (derive + classify + gate), dispatch(), handle_jsonrpc(), probe lifecycle. No I/O, no sockets
+├── process.py  # FR-11a: setsid / fork-supervisor / /dev/tty verify (injectable so the refusal path is testable)
 ├── stdio.py    # the fd move (FR-11) and the line loop
 ├── http.py     # ThreadingHTTPServer: auth, Host/Origin, /mcp, /tools, /openapi.json
 ├── token.py    # persistent 0600 token file, mode check, --rotate-token
@@ -66,6 +67,19 @@ real SDK client — `mcp` in the **dev** dependency group — against `devstuff 
 `initialize`, `tools/list`, `tools/call` of a read-only tool, and a gated tool absent without the flag and
 present with it. This is the test that would have caught F-2.
 
+**Review-driven tests (spec §5a), each with the mutation that must break it:**
+- *Classification (FR-1a):* the exact F-10a user file under all four flag combinations; a forcing test over
+  `agent.bridges._BRIDGES`. Mutation: gate on `tool.mutating` instead — the override test must fail.
+- *Probe freshness (FR-8a):* a fake machine changed between calls; an install that fails after changing state;
+  a slow fake probe overlapping a mutation (the retry, and the note when it cannot retry). Mutation: drop the
+  `finally` clear, drop the 0→1 clear, drop the retry — one named test each.
+- *No terminal (FR-11a):* a pty harness (it must answer `ESC[6n`, per `CLAUDE.md`) running the server with each
+  gate flag; `/dev/tty` unreachable in the server and a child; real `sudo -k true` fails fast. Detach is
+  injectable, so a forced failure shows the exit-1 refusal with a gate flag and the warn-and-serve path
+  without one. Mutation: drop the verify, and drop the supervisor's signal forwarding.
+- *OpenAPI (FR-22b/c, FR-23):* every body row; `openai_tool_list` reserved; per-operation response schemas.
+  Mutation: validate every `200` against `ToolResult`, treat an absent body as an error — each must fail.
+
 **Mutation check:** the restore-in-`finally` harness used for `apply` and the progress view — break each
 FR's code (remove the gate from dispatch, make `-32601` return `{}`, drop the `dup2`, compare the token
 with `==` order-swapped, skip the `Origin` check), confirm a named test fails, and verify the working tree
@@ -81,12 +95,13 @@ FR-13's message. Anything not run live is listed as not run.
 | Risk | Mitigation |
 |---|---|
 | Protocol drift: clients move to `2026-07-28` and beyond | Conformance test against the current SDK; FR-16 means a newer client falls back rather than failing; revisit when the fallback stops being offered |
+| The detach (FR-11a) changes process identity: Ctrl-C no longer reaches the server, and the fork path leaves a supervisor | The supervisor forwards `SIGINT`/`SIGTERM` and mirrors the exit status; tested under a pty. Built and measured in M-2 — until then the fork path is a design, not a measurement (F-11) |
 | `dup2` is process-wide and POSIX-only | `devstuff` targets Linux (README); the module refuses to start on a platform without `os.dup2`, with a message, rather than starting unprotected |
 | Claude changes its handshake again (it already moved from `initialize` to `server/discover`-first) | The `claude mcp list` test runs against whatever `claude` is installed, so a release that stops connecting fails the suite on the next run; FR-16 means an unknown method degrades rather than errors |
 | Claude Desktop can't be run here | The `claude-desktop` snippet is checked for shape only and the report says so; stdio is the transport it uses, and that path is covered by the Claude Code and SDK tests |
 | A tool prints to the *original* stdout via a saved file object | The private fd is only reachable from `stdio.py`; a test greps that nothing else holds it |
 | HTTP exposes `install_tool` to the network | Loopback default, token, `Host`/`Origin`, the flag, and the one-line banner (FR-25/27); no claim beyond that |
-| `list_tools` probes every tool (seconds on a cold machine) and a client times out | Measure at M-2; if slow, cache within one request only — never across requests (a stale "installed" answer is worse than a slow one) |
+| `list_tools` probes every tool (seconds on a cold machine) and a client times out | Measure at M-2; if slow, share probes only within a burst of concurrent requests and clear them per FR-8a — never keep them across idle time or a mutation (a stale "installed" answer is worse than a slow one) |
 | The conformance dev dependency fails to resolve on some CI Python | OQ-5; the test skips rather than breaks the suite |
 
 ## Out of scope for this plan
