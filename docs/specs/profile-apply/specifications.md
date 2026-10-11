@@ -98,7 +98,9 @@ not an assumption that the installers worked.
 
 - **FR-12** After printing the plan, `apply` asks for confirmation (OQ-5). `--yes` skips the
   question. With **no TTY and no `--yes` it refuses**, exit 2, saying so — it must never hang on a
-  prompt nobody can answer, and must never proceed unattended on its own.
+  prompt nobody can answer, and must never proceed unattended on its own. *(Refined 2026-10-11:
+  the refusal applies only when there is something to confirm; with an empty plan FR-14 already
+  says nothing is asked, so there is nothing to refuse.)*
 - **FR-13** `--dry-run` prints the plan and exits 0 without running or asking anything. It is the
   same text a real run shows before the question, so what is previewed is what runs.
 - **FR-14** When the plan has nothing to do (everything is `ok` or unactionable), `apply` says so
@@ -112,14 +114,18 @@ not an assumption that the installers worked.
 - **FR-16** The summary names, with a reason each: the steps that **failed**, the steps **skipped
   because a dependency failed**, and the entries **left unactionable** (FR-2). A pinned step that
   succeeded but whose version can't be read back is reported as **installed, version unverified** —
-  not as a failure and not as `ok` (F-5).
+  not as a failure and not as `ok` (F-5). A step that succeeded but whose tool is **still not
+  detected** says so and names PATH as the first place to look (F-8) — a bare `missing` under a ✔
+  is baffling.
 - **FR-17** **Exit status** is the final comparison's, restricted to the profile's own keys:
   **0** if every entry in the profile now reads `ok`; **1** if any does not; **2** for a profile
   that can't be loaded or a refusal to run unattended (FR-12). `extra` rows never affect it.
   A dry run exits 0 whatever the plan holds (FR-13).
-- **FR-18** `--json` writes one JSON document to stdout and nothing else: the plan, the per-step
-  results, and the final rows (same `to_json` shape as `diff`). Everything human goes to stderr or
-  is suppressed, so the output parses (NFR-1). `--json` implies it will not prompt: it requires
+- **FR-18** `--json` writes one JSON document to stdout and nothing else: `{plan, run, rows}` — the
+  plan, the per-step results (`null` for `--dry-run`), and the rows (same `to_json` shape as
+  `diff`). Everything human goes to stderr or is suppressed, so the output parses (NFR-1). Installers
+  print through `ui` and, under `-v`, stream a subprocess straight to the inherited stdout where no
+  redirect reaches it, so under `--json` stdout is pointed at stderr and **`-v` has no effect**. `--json` implies it will not prompt: it requires
   `--yes` or `--dry-run` (exit 2 otherwise).
 - **FR-19** A `^C` between steps stops the run cleanly: the steps already done stay done, the
   summary of what was and wasn't applied is still printed, and the exit status is non-zero. A
@@ -172,6 +178,7 @@ Per the project convention (*measure the tool, don't recall it*). Date: 2026-10-
 | F-5 | `installed_version()` reads uv's list through `shutil.which("uv")`, so it is `''` whenever `uv` isn't on the *process's* PATH — while `is_installed()` can still be `True` (its `check_cmd` runs in a login shell). Measured with `~/.local/bin` removed from PATH: `hey-dave` and `ipython` both `is_installed=True`, `installed_version=''`. A machine that has just installed `uv` in this very run, in a shell that hasn't re-read its profile, is exactly this case. | FR-16: "installed, version unverified" is a real, distinct outcome of a successful pinned step, and must not be collapsed into failure or into `ok`. |
 | F-6 | `install_cmd._install_one` mixes four jobs: print a section, short-circuit on `is_installed`, check `missing_requires`, install, then `offer_after_install` (an interactive wizard prompt). `update_cmd._update_one` prompts to confirm for `bash`/`script` types. | FR-10: neither can be called from an unattended loop. `apply` gets its own small runner rather than a shared core (SD-10). |
 | F-7 | There is **no plan-preview helper on `master`**. `commands/_plan.py` exists only on the unmerged UI branch. | FR-4 builds its own table now, from `ui.table()`; adopt the shared helper if and when that branch lands (recorded so nobody builds a third). |
+| F-8 | **Seen live (2026-10-11), A4.** `is_installed()` for a `uvx` tool is `shutil.which(pip_name)`, so a tool installed into a bin directory that is not on the *process's* PATH reads `missing` immediately after a successful install. Reproduced in an isolated `UV_TOOL_BIN_DIR`: `uv tool list` showed `pycowsay v0.0.0.1`, `which pycowsay` found nothing, and both `apply` and an independent `diff` said `missing`; with the directory on PATH both said `ok` and the plan dropped the step. This is the common case on a fresh machine before the shell has re-read its profile. | FR-16: the verdict stays honest (it is the same test `diff` would give), but a `missing` right under a ✔ gets an explanatory line pointing at PATH. Not worked around — second-guessing `is_installed()` here would make `apply` and `diff` disagree. |
 
 ---
 
