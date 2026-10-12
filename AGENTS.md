@@ -66,7 +66,9 @@ didn't have, is stated as exactly that: not as passing.
 
 Refresh with the `gh pr list` command above when this looks stale.
 
-None.
+| PR | Branch | Base | Notes |
+|---|---|---|---|
+| [#76](https://github.com/thesawdawg/dev-setup-py/pull/76) `tmux`, `gum`, `bubblewrap` (+ `socat`) tools; Druid, Homepage, Server Box and tmux wiki links | `feat/tmux-gum-bubblewrap-links` | `master` | Opened 2026-10-12. Also carries the AGENTS.md #75 follow-up commit. Not yet run: a real install of any of the three (no Docker on the dev host); the CI canary is their first run. |
 
 ### Closed as dropped
 
