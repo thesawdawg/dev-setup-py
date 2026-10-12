@@ -1,3 +1,9 @@
+## v2.22.0 (2026-10-12)
+
+### Features
+
+- **syncthing**: add the syncthing tool and a device-pairing configurator
+
 ## v2.21.0 (2026-10-12)
 
 ### Features
