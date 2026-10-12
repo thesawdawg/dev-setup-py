@@ -1,3 +1,9 @@
+## v2.19.0 (2026-10-12)
+
+### Features
+
+- **links**: add eight developer links
+
 ## v2.18.0 (2026-10-12)
 
 ### Features
