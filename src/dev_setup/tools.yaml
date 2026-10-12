@@ -145,6 +145,32 @@ tools:
       set -euo pipefail
       sudo rm -f /usr/local/bin/bat
 
+  bubblewrap:
+    name: bubblewrap + socat
+    description: Unprivileged sandbox (bwrap) and its network relay (socat) - what Claude Code's /sandbox needs on Linux
+    category: tools
+    type: apt
+    apt_packages: bubblewrap socat
+    # Both halves, not just bwrap: flatpak Depends: bubblewrap, and the homebrew
+    # entry installs it, so bwrap alone must not count as installed or install_cmd
+    # would early-return and socat would never arrive.
+    check_cmd: command -v bwrap >/dev/null 2>&1 && command -v socat >/dev/null 2>&1
+    version_cmd: bwrap
+    help_cmd: bwrap --help
+    docs_url: https://github.com/containers/bubblewrap
+    remove_script: |
+      set -euo pipefail
+      # apt-get remove -y also removes every package that depends on these (flatpak
+      # depends on bubblewrap), without asking. Simulate first and refuse if it would.
+      extra=$(apt-get -s remove bubblewrap socat 2>/dev/null | awk '/^Remv /{print $2}' | grep -vxE 'bubblewrap|socat' || true)
+      if [ -n "$extra" ]; then
+        echo "Not removing: apt would also remove packages that depend on bubblewrap or socat:" >&2
+        echo "$extra" >&2
+        echo "Remove those first, or run apt-get remove yourself and review its list." >&2
+        exit 1
+      fi
+      sudo apt-get remove -y bubblewrap socat
+
   claude-code:
     name: Claude Code
     description: Anthropic's agentic coding CLI
@@ -372,6 +398,28 @@ tools:
       open(path, "w").write("\n".join(out) + ("\n" if out else ""))
       PY
       fi
+
+  gum:
+    name: gum
+    description: Prompts, pickers, spinners and styled output for shell scripts (Charm)
+    category: tools
+    type: bash
+    check_cmd: gum
+    help_cmd: gum --help
+    docs_url: https://github.com/charmbracelet/gum
+    install_script: |
+      set -euo pipefail
+      # Charm's apt repo, not the Ubuntu archive: the archive ships gum 0.17, upstream is 2.x.
+      # The key is ASCII-armoured and apt reads it as-is from a .asc path, so no gpg is needed.
+      sudo install -d -m 0755 /etc/apt/keyrings
+      sudo curl -fsSL -o /etc/apt/keyrings/charm.asc https://repo.charm.sh/apt/gpg.key
+      echo "deb [signed-by=/etc/apt/keyrings/charm.asc] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list >/dev/null
+      sudo apt-get update -q
+      sudo apt-get install -y gum
+    remove_script: |
+      set -euo pipefail
+      sudo apt-get remove -y gum
+      echo "The Charm apt source and keyring were left in place; other Charm tools may use them."
 
   homebrew:
     name: Homebrew
@@ -889,6 +937,16 @@ tools:
       echo "Config and keys in ~/.local/state/syncthing were left in place."
       echo "The apt source and keyring were left in place — they may predate this install."
       echo "Linger (loginctl enable-linger), if it was enabled, was left unchanged."
+
+  tmux:
+    name: tmux
+    description: Terminal multiplexer - persistent sessions, windows and panes
+    category: tools
+    type: apt
+    apt_packages: tmux
+    check_cmd: tmux
+    help_cmd: tmux -h
+    docs_url: https://github.com/tmux/tmux/wiki
 
   uv:
     name: uv

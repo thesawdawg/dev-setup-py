@@ -24,6 +24,9 @@ from dev_setup import registry
 _EXTRA_EXECUTABLES: dict[str, tuple[str, ...]] = {
     "ansible": ("ansible-playbook", "ansible-galaxy", "ansible-vault", "ansible-doc"),
     "ansible-vault": ("ansible-playbook",),
+    # check_cmd already requires both binaries; keep socat as a belt-and-braces
+    # assertion that the container really has it.
+    "bubblewrap": ("socat",),
 }
 
 # Tools excluded from automated CI testing — with explicit reasons
