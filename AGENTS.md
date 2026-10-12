@@ -62,7 +62,7 @@ When you open or update a PR, say in its body what was **run** and what was **no
 exists but has not had its first real run, or that needs a sudo or Docker the author's machine
 didn't have, is stated as exactly that: not as passing.
 
-## Open PRs (snapshot, 2026-10-11)
+## Open PRs (snapshot, 2026-10-12)
 
 Refresh with the `gh pr list` command above when this looks stale.
 

@@ -8,8 +8,8 @@ bridges, FR-1a's classification in `mcp/core.py`, the FR-4 test, F-12/F-13). **M
 stdio server (`devstuff mcp`, FR-1–19, FR-29/30 for stdio) with the detach and supervisor measured (F-14); HTTP,
 REST and OpenAPI (M-3) and `--print-config` (M-4) are not. **M-3 built 2026-10-12**: `--http`, the token file,
 `POST /mcp`, REST and `/openapi.json` (F-15). **M-4 built 2026-10-12**: `--print-config`, the SDK and
-`claude mcp list` conformance suites (F-16). Not yet run: the one live `tools/call` through Claude Code (§6, G-1.3),
-which makes a model turn and waits for the user's consent.
+`claude mcp list` conformance suites (F-16). The one live `tools/call` through Claude Code (§6, G-1.3) was run
+2026-10-12 with the user's consent, over stdio (F-17); the same call over HTTP was not.
 **Authors:** Sawyer + Claude
 **Roadmap:** new (overlaps [M4](../../ROADMAP.md): the `outdated` agent tool is built once and serves both)
 **Builds on:** [`agent/`](../agent/) (the tool registry, `AgentTool.to_schema()` / `bind()` and the
@@ -395,9 +395,8 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   `Authorization` was on every HTTP request including the `GET`; `Host` was `127.0.0.1:<port>`.
   *Consequences:* FR-16 (confirmed by the product we care most about, not only by the SDK), FR-16a (an
   `if not id` would have dropped the reply to `initialize`), FR-20 (`405` on `GET` is fine), FR-24.
-  **Not measured:** `tools/call` through Claude Code (needs a model turn and the user's credentials — the
-  live check in the development plan does it once, with consent); Claude Desktop (not installed here); how
-  Claude renders `isError`.
+  **Not measured here:** Claude Desktop (not installed); how Claude renders `isError`. (`tools/call` through
+  Claude Code was measured later: F-17.)
 - **F-9 — OpenAPI prototype and tool-name check.** A throwaway generator over the real
   `agent.registry.build()` (non-primitive entries) produced 11 operations — four catalog tools and seven
   `fn_*` — that **validate as OpenAPI 3.1.0** under `openapi-spec-validator`; the same document with one
@@ -510,6 +509,19 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   `--print-config` with `--list-tools` is a usage error, since each prints and exits.
   *Not measured:* Claude Desktop (not installed here, so its snippet is checked for shape only), and the
   expectation that a GUI app does not inherit the shell's `PATH` (it is why the path is absolute, not a finding).
+- **F-17 — the live `tools/call` through Claude Code (2026-10-12, 2.1.296, with the user's consent).** One
+  `claude -p` turn (real login, so a model turn; $0.053, 3 turns) with a throwaway `--mcp-config` naming
+  `devstuff mcp` over **stdio** and `--strict-mcp-config`, allowed tool `mcp__devstuff__tool_info` only, no session
+  saved. The `init` event listed the server `connected` and exactly the five read-only tools as
+  `mcp__devstuff__*`. The model first called its own `ToolSearch` (`select:mcp__devstuff__tool_info`) to load the
+  deferred tool's schema, then `tool_info {"key": "uv"}`; the result came back with `is_error` absent and our text
+  verbatim (`key: uv … install type: bash / installed: yes`), and the model answered from it (`bash` install
+  script, already installed). Nothing was installed and no gated tool was reachable; the user's own Claude
+  configuration was not changed. *Consequences:* G-1.3 is met for stdio. Claude Code lists MCP tools as
+  *deferred* and loads a schema on demand, so a tool's name and description are what a model sees first —
+  FR-16b's name rule and the descriptions matter more than the schema. *Not measured:* the same call over HTTP
+  (the dispatcher is shared and `claude mcp list` connects over it, but a model turn over HTTP was not made), an
+  `isError` result rendered by Claude, and any tool that mutates.
 - **F-12 — the agent catalog had no list-typed parameter (found building M-1).** `outdated`'s `packages`
   (FR-9) is a list of keys, and `agent/catalog.py`'s `PARAM_TYPES` was `string`, `integer`, `number`,
   `boolean`. Decision: add `array` — always an array of strings, advertised as
@@ -607,7 +619,7 @@ Done means **both goals pass** and every FR has a test that fails when the code 
    `devstuff mcp`). Skipped, with the reason shown, only when `claude` is not on `PATH`.
 2. The official `mcp` SDK client completes `initialize` → `tools/list` → `tools/call` over both transports.
 3. One live `tools/call` of a read-only tool through Claude Code itself, run once by hand with the user's
-   consent (it makes a model turn), reported separately from the automated checks.
+   consent (it makes a model turn), reported separately from the automated checks. **Done 2026-10-12, stdio (F-17).**
 4. The snippets from `--print-config claude-code` run as printed and connect. The `claude-desktop` snippet
    is checked for shape only — Desktop is not available here, and the report says so.
 5. A request with `id: 0`, `id: ""` and a string id each get a reply with the same id and type (FR-16a).
