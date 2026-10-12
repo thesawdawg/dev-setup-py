@@ -1,3 +1,9 @@
+## v2.18.0 (2026-10-12)
+
+### Features
+
+- **mcp**: M-4 — --print-config, and the SDK and Claude Code conformance suites
+
 ## v2.17.0 (2026-10-12)
 
 ### Features
