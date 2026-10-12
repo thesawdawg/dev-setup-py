@@ -162,3 +162,27 @@ links:
     description: Automates Docker container image updates, with scheduling, registry auth, notifications, and an HTTP API
     category: containers
     url: https://watchtower.nickfedor.com/
+
+  regex101:
+    name: regex101
+    description: Online regex tester, builder, converter, and debugger across PCRE2, JavaScript, Python, Go, Java, .NET, and Rust flavors
+    category: utilities
+    url: https://regex101.com/
+
+  prometheus-docs:
+    name: Prometheus
+    description: Open source metrics and monitoring — time-series storage, the PromQL query language, and alerting
+    category: monitoring
+    url: https://prometheus.io/
+
+  cvedetails:
+    name: CVEdetails
+    description: CVE vulnerability database combining CVE records with exploits, EPSS and CISA KEV flags, and search by vendor, product, or date
+    category: security
+    url: https://www.cvedetails.com/
+
+  security-onion:
+    name: Security Onion
+    description: Free and open platform for network and host visibility, honeypots, and log and case management, with a Pro edition
+    category: security
+    url: https://securityonionsolutions.com/software
