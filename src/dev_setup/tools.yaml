@@ -45,6 +45,32 @@ tools:
       set -euo pipefail
       echo "ansible-vault is bundled with the ansible package — run 'devstuff remove ansible' to uninstall it."
 
+  arcane-cli:
+    name: Arcane CLI
+    description: Command-line client for an Arcane Docker management server (containers, projects, images, environments)
+    category: tools
+    type: bash
+    check_cmd: arcane-cli
+    help_cmd: arcane-cli --help
+    docs_url: https://getarcane.app/docs/reference/cli/install.html
+    install_script: |
+      set -euo pipefail
+      # The release assets carry no version in their names, so `latest/download` needs no API call.
+      case "$(uname -m)" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *) echo "arcane-cli: no release binary is handled here for $(uname -m)" >&2; exit 1 ;;
+      esac
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl -fsSL -o "$tmpdir/arcane-cli.tar.gz" "https://github.com/getarcaneapp/arcane/releases/latest/download/arcane-cli_linux_${arch}.tar.gz"
+      tar -C "$tmpdir" -xzf "$tmpdir/arcane-cli.tar.gz" arcane-cli
+      sudo mv "$tmpdir/arcane-cli" /usr/local/bin/arcane-cli
+      sudo chmod +x /usr/local/bin/arcane-cli
+    remove_script: |
+      set -euo pipefail
+      sudo rm -f /usr/local/bin/arcane-cli
+
   aws:
     name: AWS CLI
     description: Amazon Web Services command line interface (v2)
@@ -253,6 +279,16 @@ tools:
     remove_script: |
       set -euo pipefail
       sudo apt-get remove -y gh
+
+  ghgrab:
+    name: ghgrab
+    description: TUI and CLI for downloading files, folders, and release assets from GitHub and other git forges without cloning
+    category: tools
+    type: uvx
+    pip_name: ghgrab
+    check_cmd: ghgrab
+    help_cmd: ghgrab --help
+    docs_url: https://ghgrab.readthedocs.io/en/latest/
 
   git-lfs:
     name: Git LFS

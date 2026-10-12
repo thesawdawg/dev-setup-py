@@ -1615,9 +1615,11 @@ links:
 
 ---
 
+| `arcane-cli` | Arcane CLI | Command-line client for an Arcane Docker management server (needs a running server) | `arcane-cli --help` |
 | `bat` | bat | cat replacement with syntax highlighting and git integration (`devstuff configure bat`) | `bat --help` |
 | `commitizen` | Commitizen | Conventional-commit prompt, semantic version bumping, and changelog generation (`devstuff configure commitizen`) | `cz --help` |
 | `gh` | GitHub CLI | GitHub's official CLI | `gh --help` |
+| `ghgrab` | ghgrab | TUI and CLI for downloading files, folders, and release assets from GitHub and other git forges without cloning | `ghgrab --help` |
 | `git-lfs` | Git LFS | Git extension for versioning large files | `git lfs --help` |
 | `htop` | htop | Interactive process and resource monitor | `man htop` |
 | `homebrew` | Homebrew | Package manager for Linux (and macOS) | `brew --help` |
