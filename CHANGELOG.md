@@ -1,3 +1,9 @@
+## v2.21.0 (2026-10-12)
+
+### Features
+
+- **links**: add regex101, Prometheus, CVEdetails and Security Onion
+
 ## v2.20.0 (2026-10-12)
 
 ### Features
