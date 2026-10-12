@@ -1,3 +1,9 @@
+## v2.17.0 (2026-10-12)
+
+### Features
+
+- **mcp**: M-3 — devstuff mcp --http: MCP, REST and an OpenAPI document
+
 ## v2.16.0 (2026-10-12)
 
 ### Features
