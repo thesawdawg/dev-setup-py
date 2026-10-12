@@ -1,3 +1,9 @@
+## v2.20.0 (2026-10-12)
+
+### Features
+
+- **tools**: add ghgrab and arcane-cli
+
 ## v2.19.0 (2026-10-12)
 
 ### Features
