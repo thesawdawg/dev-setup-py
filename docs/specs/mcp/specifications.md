@@ -4,7 +4,9 @@
 **Status:** Approved 2026-10-11 with OQ-1/2/3/6 resolved as recommended (§5), plus two goals that outrank the
 rest (G-1, G-2 below). Findings F-1…F-11 were measured on 2026-10-11 (F-6 closed by F-11); the five points of
 the 2026-10-11 PR review are folded in (§5a). **M-1 built 2026-10-12** (the `outdated` / `profile_diff`
-bridges, FR-1a's classification in `mcp/core.py`, the FR-4 test, F-12/F-13); the server itself is not.
+bridges, FR-1a's classification in `mcp/core.py`, the FR-4 test, F-12/F-13). **M-2 built 2026-10-12**: the
+stdio server (`devstuff mcp`, FR-1–19, FR-29/30 for stdio) with the detach and supervisor measured (F-14); HTTP,
+REST and OpenAPI (M-3) and `--print-config` (M-4) are not.
 **Authors:** Sawyer + Claude
 **Roadmap:** new (overlaps [M4](../../ROADMAP.md): the `outdated` agent tool is built once and serves both)
 **Builds on:** [`agent/`](../agent/) (the tool registry, `AgentTool.to_schema()` / `bind()` and the
@@ -329,8 +331,10 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 - **FR-30** Exit status: `0` on EOF/SIGINT/SIGTERM; `2` for usage errors; `1` if the HTTP port cannot be
   bound. A signal does **not** abort an in-flight install (killing apt half-way is worse than waiting):
   the server stops accepting new requests and exits when the running call returns. A second signal exits
-  immediately. When FR-11a forked, the supervisor forwards both signals to the server and exits with its
-  status, so a terminal's Ctrl-C behaves as above even though the server no longer has the terminal.
+  immediately (status `128+N`). When FR-11a forked, the supervisor forwards both signals — and **`SIGHUP` as
+  `SIGTERM`**, since a closing terminal sends it and the detached server would otherwise be orphaned and keep
+  running (F-14) — to the server and exits with its status (a signalled server reads as `128+N`), so a
+  terminal's Ctrl-C behaves as above even though the server no longer has the terminal.
 - **FR-31 — `--print-config TARGET`** (G-1) prints a ready-to-paste snippet for the flags given, then exits
   `0` without starting a server. Targets: `claude-code` (the exact `claude mcp add` command for stdio, and
   for `--http` the `--transport http … --header "Authorization: Bearer $(cat <token file>)"` form),
@@ -420,7 +424,28 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 
   *Consequence:* FR-11a and FR-13. Not measured: an interactive Claude Code session (only `mcp list`);
   a client launched from a desktop with no terminal at all (there `/dev/tty` is absent anyway); the fork
-  supervisor itself — it is a design, to be built and measured in M-2.
+  supervisor itself — measured in M-2 (F-14).
+- **F-14 — M-2, measured against the built server (2026-10-12).**
+  *Detach.* Under a real pty (a session leader with a controlling terminal, as a shell hands it): the
+  process-group-leader case raised `EPERM` from `setsid`, forked, and the child had its own session, a
+  different parent and **no reachable `/dev/tty`**; the same probe without the detach **could** open it (the
+  control). In the detached child `sudo -k` then `sudo true` exited non-zero at once with `A terminal is
+  required to authenticate` and never prompted. The supervisor forwarded `SIGINT`/`SIGTERM`, mirrored the
+  server's exit status (7), and read a `SIGKILL`ed server as 137. *Not covered:* an interactive Claude Code
+  session, and a client launched with no terminal at all.
+  *Decisions the spec did not make:* (1) the supervisor also maps **`SIGHUP` → `SIGTERM`** (FR-30 above);
+  (2) each request runs on its own thread, because FR-8 says a read is never blocked and a stdio client sends
+  a `tools/list` while an install is still running on the same pipe; (3) EOF waits for requests still
+  running, then exits `0` (FR-30's "do not abort an install", applied to a client that went away); (4) the
+  channel's write end is **unbuffered**: a frame a dead client never took must not sit in a buffer and fail
+  again at interpreter exit; (5) a stdio line over 1 MiB is answered `-32600` with `id: null` and the rest of
+  the line is discarded, so its tail is not read as the next frame (FR-18 only says "refused"); (6)
+  `InstallFailed` (a `SandboxError` subclass raised by `bridges.install_tool`) is how the server tells an
+  installer failure from "unknown tool" when it adds FR-13's hint.
+  *Clients.* The official SDK client (`mcp` 2.3.0) completed `server/discover` → `initialize` →
+  `tools/list` → `tools/call` over stdio: 5 tools read-only, 13 with both flags; `install_tool` refused as an
+  unknown tool without its flag, bad arguments a tool error. Claude Code 2.1.296 `claude mcp list` reported
+  `✔ Connected` for the stdio server.
 - **F-12 — the agent catalog had no list-typed parameter (found building M-1).** `outdated`'s `packages`
   (FR-9) is a list of keys, and `agent/catalog.py`'s `PARAM_TYPES` was `string`, `integer`, `number`,
   `boolean`. Decision: add `array` — always an array of strings, advertised as

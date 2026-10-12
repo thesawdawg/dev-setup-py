@@ -33,6 +33,7 @@ def _register_commands() -> None:
     from dev_setup.commands.install_cmd import install_cmd
     from dev_setup.commands.links_cmd import links_cmd
     from dev_setup.commands.list_cmd import list_cmd
+    from dev_setup.commands.mcp_cmd import mcp_cmd
     from dev_setup.commands.outdated_cmd import outdated_cmd
     from dev_setup.commands.profile_cmd import profile_cmd
     from dev_setup.commands.remove_cmd import remove_cmd
@@ -61,6 +62,7 @@ def _register_commands() -> None:
     cli.add_command(links_cmd, "link")
     cli.add_command(skills_cmd, "skills")
     cli.add_command(agent_cmd, "agent")
+    cli.add_command(mcp_cmd, "mcp")
 
     _add_verbose_option(cli)
 

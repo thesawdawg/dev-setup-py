@@ -1132,6 +1132,33 @@ confirmation.
 
 ---
 
+## MCP server (`devstuff mcp`)
+
+`devstuff mcp` serves devstuff's tools to an MCP client over **stdio**. It is started *by* the client, not by
+hand. Register it with Claude Code:
+
+```bash
+claude mcp add devstuff -- devstuff mcp                        # read-only tools only
+claude mcp add devstuff -- devstuff mcp --allow-install        # also install_tool
+```
+
+| Flag | Effect |
+|---|---|
+| *(none)* | `list_tools`, `search_catalog`, `tool_info`, `outdated`, `profile_diff` — nothing that changes the machine |
+| `--allow-install` | adds `install_tool`, which installs a catalog tool as you |
+| `--allow-functions` | adds every `type: script` function as `fn_<key>` |
+| `--list-tools` | print what these flags would expose, and which gate each tool sits behind; starts nothing |
+
+A tool whose flag is off is not hidden but **absent and refused**: a call naming it is answered as an unknown tool.
+Workspace tools (`read_file`, `run_command`, …) never exist here — the client already has files and a shell.
+
+The server has **no terminal**: an installer that needs a `sudo` password fails at once with a message telling the
+client to run `devstuff install <key>` in a terminal, rather than waiting for a password nobody can type.
+Logs (`-v`, `-vv`) go to stderr. HTTP and OpenAPI front ends are still to come; see
+[`docs/specs/mcp/`](docs/specs/mcp/).
+
+---
+
 ## Agent
 
 `devstuff agent` opens an interactive session with a **local** model (via [Ollama](https://ollama.com))
