@@ -114,3 +114,51 @@ links:
     description: Curated list of free developer tools, editors, hosting, and resources
     category: discovery
     url: https://fmhy.net/developer-tools
+
+  crontab-guru:
+    name: crontab guru
+    description: Editor for cron schedule expressions that explains in plain English when a schedule runs
+    category: utilities
+    url: https://crontab.guru/
+
+  distrosea:
+    name: DistroSea
+    description: Test drive Linux distributions online, in the browser, without installing them
+    category: utilities
+    url: https://distrosea.com/
+
+  oslo-vsc:
+    name: Oslo
+    description: VS Code theme maker — pick colours, preview them on sample code, and package the theme as a .vsix extension
+    category: editors
+    url: https://oslo-vsc.netlify.app/
+
+  playwright-docs:
+    name: Playwright Documentation
+    description: Web automation for testing, scripting, and AI agents across Chromium, Firefox, and WebKit
+    category: web
+    url: https://playwright.dev/
+
+  bootstrap-docs:
+    name: Bootstrap 5.3 Documentation
+    description: Frontend toolkit — getting started, CDN links, global settings, components, and utilities
+    category: web
+    url: https://getbootstrap.com/docs/5.3/getting-started/introduction/
+
+  redoc-repo:
+    name: Redoc Repository
+    description: Generates browsable API reference docs from OpenAPI/Swagger definitions, as a static page, Docker image, or React component
+    category: web
+    url: https://github.com/Redocly/redoc
+
+  duckdb-docs:
+    name: DuckDB Documentation
+    description: In-process analytical SQL database — client APIs, SQL dialect, data import/export, and extensions
+    category: data
+    url: https://duckdb.org/docs/current/
+
+  watchtower-docs:
+    name: Watchtower Documentation
+    description: Automates Docker container image updates, with scheduling, registry auth, notifications, and an HTTP API
+    category: containers
+    url: https://watchtower.nickfedor.com/
