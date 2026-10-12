@@ -177,7 +177,8 @@ def test_a_notification_is_the_absence_of_the_id_key_and_gets_no_reply():
 
 
 def test_an_unknown_method_is_minus_32601_not_an_empty_result():
-    """FR-16: the real client falls back from `server/discover` only when told the method is unknown."""
+    """FR-16: JSON-RPC's answer to an unimplemented method. The real clients would also tolerate `{}`
+    (F-16), so nothing but this test and the raw-frame one in the conformance suite holds the line."""
     for method in ("server/discover", "resources/list", "prompts/list", "completion/complete"):
         reply = rpc(dispatcher(), method)
         assert reply["error"]["code"] == -32601 and "result" not in reply

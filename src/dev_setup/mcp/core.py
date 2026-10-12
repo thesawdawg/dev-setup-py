@@ -413,8 +413,9 @@ class Dispatcher:
         if method == "tools/call":
             return self._tools_call(params)
         # Everything else — `server/discover`, resources/*, prompts/*, notifications — is "method not
-        # found". The current official client opens with `server/discover` and falls back to
-        # `initialize` only when told it is unknown; an empty result would stall it (F-2, FR-16).
+        # found", which is JSON-RPC's own answer for a method a server does not implement. The current
+        # official client opens with `server/discover` and falls back to `initialize`. Neither real client
+        # *enforces* -32601 (both also fall back on `{}`, F-16), so only a raw-frame test pins it.
         raise _RpcError(-32601, f"method not found: {method}")
 
     def _initialize(self, params: Any) -> dict[str, Any]:
