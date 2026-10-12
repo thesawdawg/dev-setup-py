@@ -56,6 +56,7 @@ jobs:
           - arcane-cli  # release binary into /usr/local/bin
           - aws
           - bat
+          - bubblewrap  # apt: bubblewrap + socat for Claude Code /sandbox
           - claude-code # npm tool, installs nvm first via `requires`
           - codex       # npm tool, installs nvm first via `requires`
           - commitizen  # uvx tool, requires uv
@@ -64,6 +65,7 @@ jobs:
           - ghgrab      # uvx tool, requires uv
           - git-lfs
           - go
+          - gum         # Charm apt repo
           - hey-dave    # uvx tool, requires uv + a managed Python 3.14
           - homebrew    # slow: builds from source
           - htop
@@ -85,6 +87,7 @@ jobs:
           - saml2aws
           - starship
           - syncthing   # official apt repo (v2); no systemd user session in CI
+          - tmux
           - uv
           - yq
 

@@ -1619,10 +1619,12 @@ links:
 
 | `arcane-cli` | Arcane CLI | Command-line client for an Arcane Docker management server (needs a running server) | `arcane-cli --help` |
 | `bat` | bat | cat replacement with syntax highlighting and git integration (`devstuff configure bat`) | `bat --help` |
+| `bubblewrap` | bubblewrap + socat | Unprivileged sandbox (bwrap) and network relay (socat) — what Claude Code's /sandbox needs on Linux | `bwrap --help` |
 | `commitizen` | Commitizen | Conventional-commit prompt, semantic version bumping, and changelog generation (`devstuff configure commitizen`) | `cz --help` |
 | `gh` | GitHub CLI | GitHub's official CLI | `gh --help` |
 | `ghgrab` | ghgrab | TUI and CLI for downloading files, folders, and release assets from GitHub and other git forges without cloning | `ghgrab --help` |
 | `git-lfs` | Git LFS | Git extension for versioning large files | `git lfs --help` |
+| `gum` | gum | Prompts, pickers, spinners and styled output for shell scripts (Charm) | `gum --help` |
 | `htop` | htop | Interactive process and resource monitor | `man htop` |
 | `homebrew` | Homebrew | Package manager for Linux (and macOS) | `brew --help` |
 | `ipython` | IPython | Enhanced interactive Python shell with rich tab completion and magic commands | `ipython --help` |
@@ -1644,6 +1646,7 @@ links:
 | `saml2aws` | saml2aws | SAML → AWS STS credentials CLI (Versent) | `saml2aws --help` |
 | `starship` | Starship | Fast, cross-shell customizable prompt (`devstuff configure starship`) | `starship --help` |
 | `syncthing` | Syncthing | Peer-to-peer file sync daemon (`devstuff configure syncthing` to pair devices) | `syncthing --help` |
+| `tmux` | tmux | Terminal multiplexer — persistent sessions, windows and panes | `tmux -h` |
 | `yq` | yq | Portable command-line YAML/JSON/XML processor | `yq --help` |
 
 ### Languages

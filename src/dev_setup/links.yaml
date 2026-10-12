@@ -73,6 +73,12 @@ links:
     category: shell
     url: https://starship.rs/config/
 
+  tmux-wiki:
+    name: tmux Wiki
+    description: The official tmux wiki — getting started, FAQ, formats and configuration
+    category: shell
+    url: https://github.com/tmux/tmux/wiki
+
   conventional-commits:
     name: Conventional Commits
     description: The commit message specification used by commitizen
@@ -157,11 +163,23 @@ links:
     category: data
     url: https://duckdb.org/docs/current/
 
+  druid-docs:
+    name: Apache Druid Documentation
+    description: Real-time analytics (OLAP) database — design, ingestion and querying
+    category: data
+    url: https://druid.apache.org/docs/latest/design/
+
   watchtower-docs:
     name: Watchtower Documentation
     description: Automates Docker container image updates, with scheduling, registry auth, notifications, and an HTTP API
     category: containers
     url: https://watchtower.nickfedor.com/
+
+  homepage-docs:
+    name: Homepage
+    description: Self-hosted application dashboard configured with YAML or Docker labels
+    category: containers
+    url: https://gethomepage.dev/
 
   regex101:
     name: regex101
@@ -174,6 +192,12 @@ links:
     description: Open source metrics and monitoring — time-series storage, the PromQL query language, and alerting
     category: monitoring
     url: https://prometheus.io/
+
+  serverbox-docs:
+    name: Server Box Documentation
+    description: App for monitoring and managing Linux servers over SSH — status, terminal, SFTP, containers
+    category: monitoring
+    url: https://serverbox.lolli.tech/docs/
 
   cvedetails:
     name: CVEdetails
