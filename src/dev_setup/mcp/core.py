@@ -167,6 +167,24 @@ class Toolbox:
         out["additionalProperties"] = False
         return out
 
+    def requires_body(self, name: str) -> bool:
+        """Whether a REST call to this tool must carry a body: it has a required parameter (FR-23)."""
+        return bool(self.input_schema(self._tools[name]).get("required"))
+
+    def openai_tools(self) -> list[dict[str, Any]]:
+        """`GET /tools`: the OpenAI function-calling array, with FR-16c's schema rules (FR-21)."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": key,
+                    "description": tool.description,
+                    "parameters": self.input_schema(tool),
+                },
+            }
+            for key, tool in self._tools.items()
+        ]
+
     def describe(self) -> list[dict[str, Any]]:
         """The MCP `tools/list` entries."""
         return [
@@ -201,6 +219,14 @@ def to_mcp_result(result: ToolResult) -> dict[str, Any]:
     if result.note:
         content.append({"type": "text", "text": result.note})
     return {"content": content, "isError": result.is_error}
+
+
+def rest_result(result: ToolResult) -> dict[str, Any]:
+    """The REST body for a call: the same facts as MCP's result (FR-23). `note` only when there is one."""
+    out: dict[str, Any] = {"is_error": result.is_error, "text": result.text}
+    if result.note:
+        out["note"] = result.note
+    return out
 
 
 def _install_hint(key: str) -> str:

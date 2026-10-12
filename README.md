@@ -1154,8 +1154,41 @@ Workspace tools (`read_file`, `run_command`, …) never exist here — the clien
 
 The server has **no terminal**: an installer that needs a `sudo` password fails at once with a message telling the
 client to run `devstuff install <key>` in a terminal, rather than waiting for a password nobody can type.
-Logs (`-v`, `-vv`) go to stderr. HTTP and OpenAPI front ends are still to come; see
-[`docs/specs/mcp/`](docs/specs/mcp/).
+Logs (`-v`, `-vv`) go to stderr. Design and measurements: [`docs/specs/mcp/`](docs/specs/mcp/).
+
+### Over HTTP, and as an OpenAPI tool server
+
+```bash
+devstuff mcp --http                           # 127.0.0.1:8765, this machine only
+devstuff mcp --http --allow-install           # …and install_tool
+claude mcp add --transport http devstuff http://127.0.0.1:8765/mcp \
+  --header "Authorization: Bearer $(cat ~/.local/state/devstuff/mcp-token)"
+```
+
+One server, three ways in — all of them show **the same tools**, and all need `Authorization: Bearer <token>`:
+
+| Path | What it is |
+|---|---|
+| `POST /mcp` | MCP (Streamable HTTP, JSON responses; no sessions, no stream) — Claude Code, Claude Desktop, any MCP client |
+| `GET /tools` | The tools as an OpenAI function-calling array |
+| `POST /tools/<name>` | Run one tool: a JSON object body in, `{"is_error": …, "text": …}` out |
+| `GET /openapi.json` | An OpenAPI 3.1 document for the two rows above — point Open WebUI or any OpenAPI tool client at it |
+
+The token is created on first use in `~/.local/state/devstuff/mcp-token` (mode `0600`) and **reused on every
+run**, so a client's configuration survives a restart. `devstuff` prints the file's path, never its contents.
+`--rotate-token` replaces it; a token file that group or others can read is refused.
+
+| Flag | Meaning |
+|---|---|
+| `--host ADDR` / `--port N` | Default `127.0.0.1:8765`. A busy port is an error — it never picks another, which would break every configured client. `--port 0` asks the OS |
+| `--allow-host NAME` | Also accept this name in the `Host` header, e.g. `host.docker.internal` (Open WebUI in Docker reaches the host that way). `localhost` and IP addresses are always accepted |
+| `--allow-origin ORIGIN` | Accept requests from this browser origin. Default none: a request carrying an `Origin` is refused, so a web page cannot drive the server |
+| `--token-file PATH` | Keep the token elsewhere |
+
+A non-loopback `--host` is allowed and **warned about**: there is no TLS, so the token crosses the network in the
+clear, and anyone holding it can use every enabled tool. To reach a loopback server from another machine, tunnel
+instead, with the *same* local port (the `Host` header must carry the bound port):
+`ssh -L 8765:127.0.0.1:8765 you@host`.
 
 ---
 
