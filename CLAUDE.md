@@ -701,6 +701,20 @@ the `mutating` label or the key — and a test fails when a bridge is added to `
 - **The server detaches from its terminal first** (`process.detach`): `/dev/null` stdin does *not* stop `sudo`
   prompting on `/dev/tty`. `setsid`, else fork + supervisor (`EPERM` from a shell), then verify and fail closed.
   The supervisor forwards `SIGHUP` as `SIGTERM` or a closed terminal orphans the server.
+- **HTTP: three checks stand in front of every route, in this order — `Origin`/`Host` (403), then the bearer
+  token (401, `hmac.compare_digest`), then the route.** `Host` is checked before the token so a 403 never reveals
+  whether a token would have been accepted; it must carry the *bound port* and name `localhost`, an IP literal
+  or an `--allow-host` name (DNS rebinding needs a name the attacker controls). There are no CORS headers, ever.
+  The token file is `0600`, persistent (a fresh token per run broke every configured client), refused if
+  group/other-readable *even when rotating*, and never printed — the path is.
+- **A gated-off tool is indistinguishable from a made-up one over HTTP too**: 404 for POST, 405 for any other
+  method on `/tools/<anything>`. `OpenAPI` is generated from the same `Toolbox` as `tools/list`, and
+  `tests/test_mcp_openapi.py` checks it three ways — the validator (necessary: it accepts an operation with no
+  `responses` and a `security` entry naming no scheme), set equality across all framings, and a client that reads
+  *only* the document and checks statuses and bodies against each operation's own schema.
+- **Shutdown must not wait for idle keep-alive connections** (`McpHTTPServer.server_close` wakes them) — only for
+  running calls. `ThreadingMixIn.server_close` joins every request thread, so one forgotten connection made
+  SIGTERM hang forever until a test caught it.
 - **Reads are never blocked by an install; they are kept honest.** `generic._once` memos live as long as the
   process, so `Dispatcher` clears them when a burst of reads starts and after every mutation (in `finally`), and
   re-runs a read a mutation straddled. The advisory note is a *separate* content item so JSON stays parseable.

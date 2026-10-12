@@ -422,11 +422,6 @@ def test_the_server_has_no_controlling_terminal_of_its_own(server):
     assert "attached to a controlling terminal" not in s.stderr
 
 
-def test_the_flags_that_do_not_exist_yet_are_a_usage_error(server):
-    s = server("--http")
-    assert s.proc.wait(15) == 2
-
-
 def test_list_tools_prints_what_would_be_exposed_and_exits_without_serving(home):
     def run(*flags):
         return subprocess.run(

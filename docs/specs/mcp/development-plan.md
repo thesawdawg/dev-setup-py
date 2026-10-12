@@ -13,7 +13,7 @@ targeting `master` from a branch cut **after** this spec merges (never stacked o
 |---|---|---|
 | **M-1** ✅ 2026-10-12 | Measure what remains of F-6/F-11: does sudo's line survive `_run`'s capture (FR-13)? Then `agent/bridges.py` + `agent_tools.yaml`: `outdated` and `profile_diff`; FR-4 test; the FR-1a classification table and its forcing test | — |
 | **M-2** ✅ 2026-10-12 | `src/dev_setup/mcp/`: `core.py` (classification, dispatch, gating, probe lifecycle FR-8a, JSON-RPC handling — pure), `stdio.py` (FR-11/11a/12/19, incl. the detach + supervisor), `commands/mcp_cmd.py` (stdio only) | M-1 |
-| **M-3** | `mcp/http.py`: `POST /mcp`, token/Host/Origin (FR-20, 24–28); then REST + OpenAPI (FR-21–23) | M-2 |
+| **M-3** ✅ 2026-10-12 | `mcp/http.py`: `POST /mcp`, token/Host/Origin (FR-20, 24–28); then REST + OpenAPI (FR-21–23); `mcp/token.py`, `mcp/openapi.py`, the `--http` flags | M-2 |
 | **M-4** | **G-1:** conformance tests (real SDK client; real `claude mcp list`); `--print-config` (FR-31). **G-2:** OpenAPI validity, both-direction coverage and the document-driven client (FR-22a–c). One live `tools/call` through Claude Code, with consent. README, CLAUDE.md section, specs index, roadmap | M-3 |
 
 ## Layout

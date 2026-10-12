@@ -165,7 +165,7 @@ Serve devstuff's catalog-aware tools to any MCP or OpenAPI client, so an AI clie
 or inspect a tool instead of guessing at `apt` and `npm` itself.
 
 **Spec:** [`specs/mcp/`](specs/mcp/) — **approved**, 2026-10-11 (findings measured; two goals: Claude compatibility, OpenAPI coverage).
-**Progress:** M-1 (bridges, classification) and M-2 (the stdio server, `devstuff mcp`) built 2026-10-12; M-3 (HTTP, REST, OpenAPI) and M-4 (conformance, `--print-config`, docs) remain.
+**Progress:** M-1 (bridges, classification), M-2 (the stdio server) and M-3 (`--http`: MCP at `POST /mcp`, REST, `/openapi.json`, the token file) built 2026-10-12; M-4 (conformance suite, `--print-config`, docs) remains.
 
 - Three framings, one dispatcher: MCP over stdio, MCP over HTTP, and OpenAPI/REST (`/openapi.json`, `/tools`).
 - Read-only tools by default (`list_tools`, `search_catalog`, `tool_info`, `outdated`, `profile_diff`);

@@ -6,7 +6,8 @@ rest (G-1, G-2 below). Findings F-1…F-11 were measured on 2026-10-11 (F-6 clos
 the 2026-10-11 PR review are folded in (§5a). **M-1 built 2026-10-12** (the `outdated` / `profile_diff`
 bridges, FR-1a's classification in `mcp/core.py`, the FR-4 test, F-12/F-13). **M-2 built 2026-10-12**: the
 stdio server (`devstuff mcp`, FR-1–19, FR-29/30 for stdio) with the detach and supervisor measured (F-14); HTTP,
-REST and OpenAPI (M-3) and `--print-config` (M-4) are not.
+REST and OpenAPI (M-3) and `--print-config` (M-4) are not. **M-3 built 2026-10-12**: `--http`, the token file,
+`POST /mcp`, REST and `/openapi.json` (F-15); `--print-config` and the formal conformance suite (M-4) are not.
 **Authors:** Sawyer + Claude
 **Roadmap:** new (overlaps [M4](../../ROADMAP.md): the `outdated` agent tool is built once and serves both)
 **Builds on:** [`agent/`](../agent/) (the tool registry, `AgentTool.to_schema()` / `bind()` and the
@@ -446,6 +447,35 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   `tools/list` → `tools/call` over stdio: 5 tools read-only, 13 with both flags; `install_tool` refused as an
   unknown tool without its flag, bad arguments a tool error. Claude Code 2.1.296 `claude mcp list` reported
   `✔ Connected` for the stdio server.
+- **F-15 — M-3, measured against the built server (2026-10-12).**
+  *The OpenAPI validator is necessary, not sufficient (FR-22a).* `openapi-spec-validator` 0.9.0 rejected a
+  document with no `info`, a duplicate `operationId`, a schema `type: bogus`, a dangling `$ref`, a status key
+  `99`, and a response with no `description`. It **accepted** a top-level `security` entry naming a scheme
+  that does not exist — so the document test checks that itself — and, as OpenAPI 3.1 allows, an operation
+  with **no `responses` at all**, which is why the validator's control breaks things it demonstrably rejects.
+  Validity says nothing about truth, which is what FR-22c's client is for.
+  *A hang found by a test:* a client that leaves a keep-alive connection open made `server_close()` wait on
+  that connection's thread for ever, so SIGTERM never ended the server. FR-30 says wait for running *calls*, not
+  idle sockets: connections are now tracked as idle (inside the request-line read) or busy; shutdown wakes the
+  idle ones, and a busy one is told `Connection: close` after its response.
+  *Decisions the spec did not make:* (1) a request carrying `Transfer-Encoding` (a chunked body) is `400`, not
+  guessed at; (2) a rejected request's unread body is read and discarded (up to 16 MiB, else the connection is
+  closed) *before* the answer is sent, so its bytes are never parsed as the next request and a client that sent a large
+  refused body gets the `413` instead of a connection reset (**measured**: without this, a client sending 8 MB
+  got `BrokenPipe` and never saw the status; with it, bodies up to the 16 MiB bound are answered, above which
+  the client may still see a reset); (3) a path under `/tools/` is `405`
+  for every method but `POST` **whether or not the tool exists**, so a gated-off tool and a made-up one are
+  indistinguishable; (4) `HEAD`, `OPTIONS`, `PUT`, `PATCH` are `405`, so a CORS preflight is simply a method nobody
+  supports; (5) `404` is documented on every tool operation but cannot be reached from the document's own
+  paths — every path in it is in the toolbox — so it exists for a client holding an older document after a
+  restart with different flags, and the truthfulness test names that one exception rather than hiding it; (6)
+  `--allow-host` takes a bare name and `--allow-origin` an exact origin (`http://localhost:3000`, no trailing
+  slash), both validated as usage errors; (7) a token file with loose permissions is refused **even with
+  `--rotate-token`**, because quietly fixing the mode would hide that the old secret was exposed, and a
+  hand-written token under 16 characters is refused; (8) `Host` must carry the bound port, so an SSH tunnel has
+  to use the same local port (`-L 8765:127.0.0.1:8765`) and a Docker port mapping to a different host port needs
+  that port to be the bound one; (9) `serve_forever` polls every 0.1 s instead of 0.5 s, which is how long a
+  shutdown would otherwise take to be noticed.
 - **F-12 — the agent catalog had no list-typed parameter (found building M-1).** `outdated`'s `packages`
   (FR-9) is a list of keys, and `agent/catalog.py`'s `PARAM_TYPES` was `string`, `integer`, `number`,
   `boolean`. Decision: add `array` — always an array of strings, advertised as

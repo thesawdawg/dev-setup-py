@@ -33,8 +33,12 @@ class Channel:
     wfile: BinaryIO
 
 
-def isolate_stdio() -> Channel:
+def isolate_stdio(*, channel: bool = True) -> Channel | None:
     """Move the protocol onto private descriptors and repoint the standard ones (FR-11).
+
+    `channel=False` is the HTTP server: it has no protocol on stdio, but an installer that prints to
+    fd 1 or reads fd 0 must still be kept off the terminal, so the standard descriptors are repointed
+    and nothing is kept.
 
     The private fds are not inheritable (PEP 446 makes `os.dup` results so), so no child can read
     from or write to the channel; fd 0 and fd 1 stay inheritable, so a child that reads stdin sees
@@ -45,12 +49,14 @@ def isolate_stdio() -> Channel:
             stream.flush()
         except (OSError, ValueError):
             pass
-    in_fd = os.dup(0)
-    out_fd = os.dup(1)
+    in_fd = os.dup(0) if channel else -1
+    out_fd = os.dup(1) if channel else -1
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, 0)
     os.close(devnull)
     os.dup2(2, 1)
+    if not channel:
+        return None
     # Unbuffered out: a reply is written whole and at once, and there is no buffer left holding a
     # frame a dead client never took (which would be flushed, and fail, again at interpreter exit).
     return Channel(os.fdopen(in_fd, "rb"), os.fdopen(out_fd, "wb", buffering=0))
@@ -144,6 +150,7 @@ def run(dispatcher: Dispatcher) -> int:
     exits immediately (FR-30).
     """
     channel = isolate_stdio()
+    assert channel is not None
     received = 0
 
     def on_signal(signum: int, _frame: object) -> None:
