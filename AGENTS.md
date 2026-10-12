@@ -66,7 +66,9 @@ didn't have, is stated as exactly that: not as passing.
 
 Refresh with the `gh pr list` command above when this looks stale.
 
-None.
+| PR | Branch | Base | Notes |
+|---|---|---|---|
+| [#75](https://github.com/thesawdawg/dev-setup-py/pull/75) `syncthing` tool + `configure syncthing` pairing wizard | `feat/syncthing` | `master` | Opened 2026-10-12. Not yet run: a real `devstuff install syncthing` (the CI canary is its first run) and the wizard against a live user service. |
 
 ### Closed as dropped
 
