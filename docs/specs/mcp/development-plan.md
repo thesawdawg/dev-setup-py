@@ -12,7 +12,7 @@ targeting `master` from a branch cut **after** this spec merges (never stacked o
 | M | Delivers | Needs |
 |---|---|---|
 | **M-1** ✅ 2026-10-12 | Measure what remains of F-6/F-11: does sudo's line survive `_run`'s capture (FR-13)? Then `agent/bridges.py` + `agent_tools.yaml`: `outdated` and `profile_diff`; FR-4 test; the FR-1a classification table and its forcing test | — |
-| **M-2** | `src/dev_setup/mcp/`: `core.py` (classification, dispatch, gating, probe lifecycle FR-8a, JSON-RPC handling — pure), `stdio.py` (FR-11/11a/12/19, incl. the detach + supervisor), `commands/mcp_cmd.py` (stdio only) | M-1 |
+| **M-2** ✅ 2026-10-12 | `src/dev_setup/mcp/`: `core.py` (classification, dispatch, gating, probe lifecycle FR-8a, JSON-RPC handling — pure), `stdio.py` (FR-11/11a/12/19, incl. the detach + supervisor), `commands/mcp_cmd.py` (stdio only) | M-1 |
 | **M-3** | `mcp/http.py`: `POST /mcp`, token/Host/Origin (FR-20, 24–28); then REST + OpenAPI (FR-21–23) | M-2 |
 | **M-4** | **G-1:** conformance tests (real SDK client; real `claude mcp list`); `--print-config` (FR-31). **G-2:** OpenAPI validity, both-direction coverage and the document-driven client (FR-22a–c). One live `tools/call` through Claude Code, with consent. README, CLAUDE.md section, specs index, roadmap | M-3 |
 
@@ -95,7 +95,7 @@ FR-13's message. Anything not run live is listed as not run.
 | Risk | Mitigation |
 |---|---|
 | Protocol drift: clients move to `2026-07-28` and beyond | Conformance test against the current SDK; FR-16 means a newer client falls back rather than failing; revisit when the fallback stops being offered |
-| The detach (FR-11a) changes process identity: Ctrl-C no longer reaches the server, and the fork path leaves a supervisor | The supervisor forwards `SIGINT`/`SIGTERM` and mirrors the exit status; tested under a pty. Built and measured in M-2 — until then the fork path is a design, not a measurement (F-11) |
+| The detach (FR-11a) changes process identity: Ctrl-C no longer reaches the server, and the fork path leaves a supervisor | The supervisor forwards `SIGINT`/`SIGTERM` and mirrors the exit status; tested under a pty. Built and measured in M-2 under a pty (F-14); a closing terminal's `SIGHUP` is forwarded as `SIGTERM` so it cannot orphan the server |
 | `dup2` is process-wide and POSIX-only | `devstuff` targets Linux (README); the module refuses to start on a platform without `os.dup2`, with a message, rather than starting unprotected |
 | Claude changes its handshake again (it already moved from `initialize` to `server/discover`-first) | The `claude mcp list` test runs against whatever `claude` is installed, so a release that stops connecting fails the suite on the next run; FR-16 means an unknown method degrades rather than errors |
 | Claude Desktop can't be run here | The `claude-desktop` snippet is checked for shape only and the report says so; stdio is the transport it uses, and that path is covered by the Claude Code and SDK tests |

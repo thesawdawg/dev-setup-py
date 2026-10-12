@@ -10,6 +10,12 @@ from dev_setup.agent.config import AgentConfig
 from dev_setup.agent.sandbox import SandboxError, Workspace
 
 
+class InstallFailed(SandboxError):
+    """An installer ran and failed. A subclass so the local agent handles it as it always did;
+    the MCP server tells it apart from "unknown tool" to add the FR-13 hint (it cannot answer a
+    password prompt, so the client has to be told where to run the install instead)."""
+
+
 def _tool_line(tool) -> str:
     state = "installed" if tool.is_installed() else "available"
     return f"{tool.key}  [{state}]  {tool.description}"
@@ -141,7 +147,7 @@ def install_tool(ws: Workspace, config: AgentConfig, args: dict[str, Any]) -> st
     try:
         version = tool.install()
     except (subprocess.CalledProcessError, RuntimeError) as exc:
-        raise SandboxError(f"installing {tool.key} failed: {exc}") from exc
+        raise InstallFailed(f"installing {tool.key} failed: {exc}") from exc
 
     return f"Installed {tool.name}" + (f" ({version})" if version else "")
 

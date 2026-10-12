@@ -688,6 +688,23 @@ and the tool cannot disagree. A parameter of `type: array` is always a list of s
 `devstuff mcp` server (spec in `docs/specs/mcp/`) gates tools by `mcp.core.classify` — `(impl, target)`, never
 the `mutating` label or the key — and a test fails when a bridge is added to `_BRIDGES` without a gate row.
 
+**The MCP server** (`mcp/`, `commands/mcp_cmd.py`, spec in `docs/specs/mcp/`) — things that are load-bearing:
+- **`core.py` is pure; the transports are not.** Gating, binding, JSON-RPC and the probe lifecycle are tested with
+  hand-built frames and a fake runner. Listing and calling read **one** `Toolbox`, so a tool that is off is absent
+  from `tools/list` *and* refused by `tools/call` — a list-only check passes when dispatch is wide open.
+- **A request's `id` is echoed with its type, and a notification is the *absence* of the key**, never a falsy
+  value: Claude Code sends an integer `0` for `initialize`. Unknown methods are `-32601`, not `{}` — the real
+  client opens with `server/discover` and falls back to `initialize` only when told it is unknown.
+- **The protocol channel is moved at the descriptor level** (`stdio.isolate_stdio`): private non-inheritable
+  `dup`s, then fd 1 → stderr and fd 0 → `/dev/null`. Anything that prints, however it does it, lands on stderr.
+  The test leaks through five routes and has a control showing the same leaks corrupt an un-isolated stream.
+- **The server detaches from its terminal first** (`process.detach`): `/dev/null` stdin does *not* stop `sudo`
+  prompting on `/dev/tty`. `setsid`, else fork + supervisor (`EPERM` from a shell), then verify and fail closed.
+  The supervisor forwards `SIGHUP` as `SIGTERM` or a closed terminal orphans the server.
+- **Reads are never blocked by an install; they are kept honest.** `generic._once` memos live as long as the
+  process, so `Dispatcher` clears them when a burst of reads starts and after every mutation (in `finally`), and
+  re-runs a read a mutation straddled. The advisory note is a *separate* content item so JSON stays parseable.
+
 **Security invariants — do not weaken these without deliberate thought:**
 - `Workspace.resolve()` in `agent/sandbox.py` is the *only* thing standing between the model and
   the filesystem. It resolves symlinks and `..` **before** the containment check; reordering that
