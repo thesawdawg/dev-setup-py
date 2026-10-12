@@ -1,3 +1,9 @@
+## v2.16.0 (2026-10-12)
+
+### Features
+
+- **mcp**: M-2 — devstuff mcp over stdio, with the detach and supervisor
+
 ## v2.15.0 (2026-10-12)
 
 ### Features
