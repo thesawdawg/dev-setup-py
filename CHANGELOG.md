@@ -1,3 +1,9 @@
+## v2.15.0 (2026-10-12)
+
+### Features
+
+- **mcp**: M-1 — outdated and profile_diff bridges, tool classification, sudo measurement
+
 ## v2.14.0 (2026-10-11)
 
 ### Features
