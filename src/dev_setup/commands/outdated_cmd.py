@@ -9,7 +9,7 @@ from rich.markup import escape
 
 from dev_setup import registry, ui, verbose
 from dev_setup.base import Tool
-from dev_setup.updates import Row, State, collect_candidates, make_row, sort_rows, summarize
+from dev_setup.updates import Row, State, build_rows, summarize
 
 # One glyph + wording per state. `unknown` and `unsupported` deliberately share nothing
 # with `current`: "could not check" must never read as "up to date" (spec FR-7).
@@ -71,14 +71,8 @@ def outdated_cmd(packages: tuple[str, ...], updates_only: bool, show_all: bool, 
         verbose.step("Checking installed packages for updates...") if interactive else nullcontext()
     )
     with progress:
-        candidates = collect_candidates(named)
+        result = build_rows(named)
 
-    result = [make_row(tool, status) for tool, status in candidates]
-    if named is not None:
-        found = {tool.key for tool, _ in candidates}
-        result += [make_row(t, None, installed=False) for t in named if t.key not in found]
-
-    result = sort_rows(result)
     shown = [r for r in result if r.state is State.OUTDATED] if updates_only else result
 
     if as_json:

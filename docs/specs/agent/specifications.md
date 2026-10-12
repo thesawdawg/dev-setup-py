@@ -92,7 +92,7 @@ mutating step. It stays local: no API keys, no network egress of source code, us
 - **`AgentTool`** — `key`, `name`, `description`, `impl` (`primitive`|`catalog`|`function`),
   `mutating: bool`, `params: [AgentParam]`, `target` (for `catalog`/`function` bridges).
   Serialises to an Ollama `tools[]` JSON-Schema entry via `to_schema()`.
-- **`AgentParam`** — `name`, `type` (`string`|`integer`|`boolean`), `description`, `required`,
+- **`AgentParam`** — `name`, `type` (`string`|`integer`|`boolean`; `number` and `array` since 2026-10-12 — an array is always of strings, see `mcp/` F-12), `description`, `required`,
   `default`, `enum`.
 - **`Workspace`** — `root: Path` (immutable), `cwd: Path` (mutable, always under `root`);
   owns `resolve(path) -> Path` which raises `SandboxError` on escape.

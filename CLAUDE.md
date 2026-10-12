@@ -681,6 +681,13 @@ strategy-dispatch pattern as `_INSTALLERS` in `generic.py`.
 `target`. Only a genuinely new mechanism needs a new `impl: primitive` callable registered in
 `_PRIMITIVES`. `type: script` functions are auto-exposed as `fn_<key>` tools with no edit at all.
 
+`outdated` and `profile_diff` are bridges that return the *same JSON* as `devstuff outdated --json` /
+`profile diff --json`, built by the same functions (`updates.build_rows`, `profile.compare`) so the command
+and the tool cannot disagree. A parameter of `type: array` is always a list of strings, and
+`AgentTool.bind()` checks names, never types — the bridge is the type check (`_string_list`). The
+`devstuff mcp` server (spec in `docs/specs/mcp/`) gates tools by `mcp.core.classify` — `(impl, target)`, never
+the `mutating` label or the key — and a test fails when a bridge is added to `_BRIDGES` without a gate row.
+
 **Security invariants — do not weaken these without deliberate thought:**
 - `Workspace.resolve()` in `agent/sandbox.py` is the *only* thing standing between the model and
   the filesystem. It resolves symlinks and `..` **before** the containment check; reordering that

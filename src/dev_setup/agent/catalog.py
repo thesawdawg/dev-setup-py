@@ -17,7 +17,7 @@ VERSION = 1
 VALID_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 
 IMPLS = {"primitive", "catalog", "function"}
-PARAM_TYPES = {"string", "integer", "number", "boolean"}
+PARAM_TYPES = {"string", "integer", "number", "boolean", "array"}
 
 SUPPORTED_TOP_FIELDS = {"version", "expose_functions", "exclude_functions", "tools"}
 SUPPORTED_FIELDS = {"name", "description", "impl", "target", "mutating", "params"}

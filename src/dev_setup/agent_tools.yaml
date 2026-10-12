@@ -129,6 +129,43 @@ tools:
         description: Catalog key, e.g. "uv" or "nvm".
         required: true
 
+  outdated:
+    name: Devstuff Outdated
+    description: >-
+      Report which installed devstuff tools have a newer version available. Returns a
+      JSON array with one row per tool: state is "outdated", "current", "unknown" (a
+      check exists but could not answer, e.g. offline), "unsupported" (this install
+      type has no way to check) or "not-installed". Only "current" means up to date --
+      never read "unknown" or "unsupported" as current. Changes nothing.
+    impl: catalog
+    target: outdated
+    mutating: false
+    params:
+      - name: packages
+        type: array
+        description: Catalog keys to check, e.g. ["uv", "nvm"]. Omit to check every installed tool.
+        required: false
+      - name: updates_only
+        type: boolean
+        description: Return only the tools that have an update available.
+        required: false
+        default: false
+
+  profile_diff:
+    name: Devstuff Profile Diff
+    description: >-
+      Compare this machine to a profile that ships with devstuff and return a JSON array,
+      one row per tool: "ok", "missing", "drift", "unverifiable", "unpinnable",
+      "unknown-key" or "extra". Only "ok" means it matches. Changes nothing.
+    impl: catalog
+    target: profile_diff
+    mutating: false
+    params:
+      - name: profile
+        type: string
+        description: Name of a bundled profile, with the leading @, e.g. "@devops" or "@python".
+        required: true
+
   install_tool:
     name: Install Devstuff Tool
     description: >-

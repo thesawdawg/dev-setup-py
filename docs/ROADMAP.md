@@ -142,7 +142,9 @@ checks. Per `CLAUDE.md` this is mostly a YAML edit (`impl: catalog` / `impl: pri
 `agent_tools.yaml`); `agent_tools.schema.json` must be updated in the same change if any field is
 added.
 
-- `outdated` is read-only and safe to expose unconditionally.
+- `outdated` is read-only and safe to expose unconditionally. **Done 2026-10-12** (built under M6's M-1, along
+  with `profile_diff`): `agent_tools.yaml` gains `outdated` and `profile_diff`, and the catalog an `array`
+  parameter type. `doctor` is still open.
 - `doctor --fix` mutates the machine, so the agent gets the **check-only** form. A model
   deciding to apply fixes is a separate question for the spec, not a default.
 
