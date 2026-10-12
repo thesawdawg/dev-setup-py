@@ -88,6 +88,12 @@ CONFIGURATORS: dict[str, Configurator] = {
         description="Prompt style, colour palette, and which sections appear",
         module="dev_setup.configure.starship.wizard",
     ),
+    "syncthing": Configurator(
+        key="syncthing",
+        label="Syncthing",
+        description="Pair with a server device and share a folder through the local API",
+        module="dev_setup.configure.syncthing.wizard",
+    ),
 }
 
 

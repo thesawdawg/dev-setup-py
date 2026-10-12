@@ -84,6 +84,7 @@ jobs:
           - reptyr
           - saml2aws
           - starship
+          - syncthing   # official apt repo (v2); no systemd user session in CI
           - uv
           - yq
 

@@ -554,6 +554,7 @@ devstuff configure starship --output /tmp/try.toml   # write elsewhere, leave th
 | `lazygit` | Icons, diff pager, panels and git behaviour |
 | `pre-commit` | Which git hooks run, when they run, and what they're allowed to rewrite |
 | `starship` | Prompt style, colour palette, which sections appear, and layout |
+| `syncthing` | Pair this machine with a server device and share one folder, via the local API |
 
 The reptyr wizard verifies the live kernel setting after applying it. Other wizards check
 their result against the real tool before saving. What that check can prove
@@ -566,6 +567,7 @@ varies a lot, and the wizards say so rather than implying more than they know:
 | `docker` | key typos, malformed CIDRs, numeric log options | **five configs `dockerd --validate` accepts that stop every container from starting** |
 | `lazygit` | wrong types (refuses to start) | **unknown keys and invalid enum values** — both silently ignored |
 | `pre-commit` | the file's shape | **hook ids** — `validate-config` never opens a repository |
+| `syncthing` | malformed IDs and payloads (HTTP 400) | **whether the config actually stored what was sent** — the API returns 200 while dropping a folder's unknown device or coercing an unknown folder type |
 
 #### Commitizen wizard
 
@@ -1641,6 +1643,7 @@ links:
 | `pre-commit` | pre-commit | Git hook manager for automated code quality checks (`devstuff configure pre-commit`) | `pre-commit --help` |
 | `saml2aws` | saml2aws | SAML → AWS STS credentials CLI (Versent) | `saml2aws --help` |
 | `starship` | Starship | Fast, cross-shell customizable prompt (`devstuff configure starship`) | `starship --help` |
+| `syncthing` | Syncthing | Peer-to-peer file sync daemon (`devstuff configure syncthing` to pair devices) | `syncthing --help` |
 | `yq` | yq | Portable command-line YAML/JSON/XML processor | `yq --help` |
 
 ### Languages

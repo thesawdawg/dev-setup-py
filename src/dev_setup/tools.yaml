@@ -859,6 +859,37 @@ tools:
       PY
       fi
 
+  syncthing:
+    name: Syncthing
+    description: Peer-to-peer file sync daemon (`devstuff configure syncthing` to pair devices)
+    category: tools
+    type: bash
+    check_cmd: syncthing
+    help_cmd: syncthing --help
+    docs_url: https://docs.syncthing.net/
+    install_script: |
+      set -euo pipefail
+      # The official apt repo (v2), not the Ubuntu archive (which ships 1.29).
+      sudo install -d -m 0755 /etc/apt/keyrings
+      sudo curl -fsSL -o /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
+      echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list >/dev/null
+      sudo apt-get update -q
+      sudo apt-get install -y syncthing
+      # The packaged unit is a systemd *user* service. A CI container has no user
+      # session to enable it in, and that is not a failure of the install.
+      if systemctl --user show-environment >/dev/null 2>&1; then
+        systemctl --user enable --now syncthing.service
+      else
+        echo "No systemd user session here; start it later with: systemctl --user enable --now syncthing.service"
+      fi
+    remove_script: |
+      set -euo pipefail
+      systemctl --user disable --now syncthing.service 2>/dev/null || true
+      sudo apt-get remove -y syncthing
+      echo "Config and keys in ~/.local/state/syncthing were left in place."
+      echo "The apt source and keyring were left in place — they may predate this install."
+      echo "Linger (loginctl enable-linger), if it was enabled, was left unchanged."
+
   uv:
     name: uv
     description: Astral Python package and project manager

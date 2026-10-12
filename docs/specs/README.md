@@ -46,6 +46,7 @@ They are most useful when they capture:
 | [`bat-config/`](bat-config/) — `devstuff configure bat`, the theme and decoration wizard | Complete (v1) |
 | [`ansible-config/`](ansible-config/) — `devstuff configure ansible`, the ansible.cfg wizard | Complete (v1) |
 | [`lazygit-config/`](lazygit-config/) — `devstuff configure lazygit`, the icons/pager/panels wizard | Complete (v1) |
+| [`syncthing-config/`](syncthing-config/) — the `syncthing` tool plus `devstuff configure syncthing`, device pairing over the local API | Complete (v1; first real install and live wizard run pending) |
 | [`verbose-mode/`](verbose-mode/) — `-v`/`-vv`, the process-wide verbosity level | Complete (v1) |
 | [`outdated/`](outdated/) — `devstuff outdated`, the read-only installed-vs-latest report | Complete (v1) |
 | [`profile/`](profile/) — `devstuff profile snapshot` / `diff`, a portable description of a machine's tools | Complete (v1: snapshot, diff; apply is its own spec) |

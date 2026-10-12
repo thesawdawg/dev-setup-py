@@ -375,15 +375,18 @@ ones tools already have.
 ## Configurators (`configure/`) — tool-specific wizards, deliberately *not* catalog-driven
 
 `src/dev_setup/configure/` holds per-tool setup wizards (`devstuff configure <tool>`), registered
-in a `CONFIGURATORS` dict keyed by catalog tool key. There are seven:
+in a `CONFIGURATORS` dict keyed by catalog tool key. There are nine:
 `configure/starship/{model,render,preview,fonts,wizard}.py`,
 `configure/commitizen/{model,render,detect,validate,wizard}.py`,
 `configure/precommit/{model,render,detect,validate,wizard}.py` (the package can't be named
 `pre-commit`, so the hyphenated catalog key maps to the `precommit` package in `CONFIGURATORS`),
 `configure/docker/{model,render,detect,validate,wizard}.py`,
 `configure/bat/{model,render,detect,preview,wizard}.py`,
-`configure/ansible/{model,render,detect,validate,wizard}.py` and
-`configure/lazygit/{model,render,detect,validate,wizard}.py`.
+`configure/ansible/{model,render,detect,validate,wizard}.py`,
+`configure/lazygit/{model,render,detect,validate,wizard}.py`,
+`configure/reptyr/wizard.py` and
+`configure/syncthing/{model,api,detect,wizard}.py` (the only one that configures a *running
+service* through its REST API rather than writing a file — `--output` is refused).
 
 **The pattern they all share, and the one thing that matters most when adding another:**
 *measure the tool, don't recall it.* Every configurator's `model.py` was built by interrogating
@@ -646,10 +649,41 @@ Full reasoning in `docs/specs/lazygit-config/`.
 - **Icons reuse `configure/starship/fonts.detect()`**, including its `None` — "cannot tell" is
   not "no", and inverting that would nag every user without fontconfig.
 
+**Within the syncthing configurator, a 200 from the REST API is not evidence the config
+changed.** Everything below was measured against syncthing v2.1.6; full reasoning in
+`docs/specs/syncthing-config/`.
+
+**Things learned from the real binary — don't "simplify" these away:**
+- **Writes go to the collection endpoints with POST, never `PUT …/<id>`.** The collection
+  POSTs upsert and carry any id in the body — a folder id containing `/` 404s the
+  `PUT /rest/config/folders/<id>` route even percent-encoded, and POSTs fine.
+- **The device must be written before the folder that lists it.** A folder `devices` entry
+  naming a device absent from `config.devices` is *silently dropped* with a 200 — that is why
+  `wizard.apply` posts in that order and `model.verify` re-reads the config afterwards.
+- **An unknown folder `type` is stored as `sendreceive`**, not rejected — so the mode comes
+  from a picker, and `verify()` compares the stored type to what was asked for.
+- **Syncthing accepts nested/overlapping folder paths without complaint** — the overlap check
+  is `model.paths_overlap`, ours alone, and it compares resolved paths (`/a/sync` vs
+  `/a/sync2` must not match).
+- **The wizard always sends an absolute, resolved folder path** — syncthing accepts relative
+  and `~/` paths and resolves them against the daemon's working directory, which is not
+  necessarily the user's home.
+- **The API key is never printed, logged or put on a command line** — it lives in the
+  `X-API-Key` header, `Endpoint.__repr__` redacts it, and error paths escape outside text
+  through `rich.markup.escape` before Rich sees it.
+- **Linger is asked about in the wizard, never set by the install** — `loginctl
+  enable-linger` needs sudo and changes a system-wide property; a `None` from
+  `detect.linger_enabled()` means "cannot tell" and stays quiet.
+- The tool's install uses the **official apt repo (stable-v2)**, not the Ubuntu archive
+  (1.29), and its remove deliberately leaves the apt source, keyring, config and linger in
+  place.
+
 Not yet built: configurators for anything other than starship, commitizen, pre-commit, docker,
-bat, ansible and lazygit; `repo: local` pre-commit hook authoring and hooks outside the curated
+bat, ansible, lazygit, reptyr and syncthing; `repo: local` pre-commit hook authoring and hooks outside the curated
 catalog; lazygit keybindings and `customCommands` authoring (both preserved, never edited);
-ansible fact-caching backends; and — for pre-commit and commitizen only — round-tripping an
+ansible fact-caching backends; the syncthing `sendonly`/`receiveencrypted` folder modes,
+sharing more than one folder per run, and automating the server-side approval (still a manual
+step, printed at the end); and — for pre-commit and commitizen only — round-tripping an
 existing hand-edited config back into wizard state. The four newer configurators *do* round-trip,
 because JSON, INI, bat's flag list and lazygit's YAML are all flat enough to preserve faithfully;
 pre-commit's is not, and that asymmetry is deliberate (see each spec's stack-decisions).
