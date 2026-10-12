@@ -14,7 +14,7 @@ targeting `master` from a branch cut **after** this spec merges (never stacked o
 | **M-1** ✅ 2026-10-12 | Measure what remains of F-6/F-11: does sudo's line survive `_run`'s capture (FR-13)? Then `agent/bridges.py` + `agent_tools.yaml`: `outdated` and `profile_diff`; FR-4 test; the FR-1a classification table and its forcing test | — |
 | **M-2** ✅ 2026-10-12 | `src/dev_setup/mcp/`: `core.py` (classification, dispatch, gating, probe lifecycle FR-8a, JSON-RPC handling — pure), `stdio.py` (FR-11/11a/12/19, incl. the detach + supervisor), `commands/mcp_cmd.py` (stdio only) | M-1 |
 | **M-3** ✅ 2026-10-12 | `mcp/http.py`: `POST /mcp`, token/Host/Origin (FR-20, 24–28); then REST + OpenAPI (FR-21–23); `mcp/token.py`, `mcp/openapi.py`, the `--http` flags | M-2 |
-| **M-4** | **G-1:** conformance tests (real SDK client; real `claude mcp list`); `--print-config` (FR-31). **G-2:** OpenAPI validity, both-direction coverage and the document-driven client (FR-22a–c). One live `tools/call` through Claude Code, with consent. README, CLAUDE.md section, specs index, roadmap | M-3 |
+| **M-4** ✅ 2026-10-12 (live `tools/call` pending consent) | **G-1:** conformance tests (real SDK client; real `claude mcp list`); `--print-config` (FR-31). **G-2:** OpenAPI validity, both-direction coverage and the document-driven client (FR-22a–c). One live `tools/call` through Claude Code, with consent. README, CLAUDE.md section, specs index, roadmap | M-3 |
 
 ## Layout
 
@@ -65,7 +65,9 @@ status the server never sends, send one it never documents.
 **SDK conformance (`tests/integration/test_mcp_conformance.py`, skipped when `mcp` is not importable):** the
 real SDK client — `mcp` in the **dev** dependency group — against `devstuff mcp` over stdio and over HTTP:
 `initialize`, `tools/list`, `tools/call` of a read-only tool, and a gated tool absent without the flag and
-present with it. This is the test that would have caught F-2.
+present with it. It uses the high-level `mcp.Client`, the one that opens with `server/discover`, so the
+fallback is exercised on every connect; the lower-level `ClientSession` never sends it, so it cannot (F-16).
+Neither client *fails* on a wrong answer to `server/discover`, so those wire details are held by raw frames.
 
 **Review-driven tests (spec §5a), each with the mutation that must break it:**
 - *Classification (FR-1a):* the exact F-10a user file under all four flag combinations; a forcing test over

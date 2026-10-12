@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import ipaddress
+import os
 import re
 import sys
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 import click
 
 from dev_setup.catalog import CatalogError
-from dev_setup.mcp import http, process, stdio, token
+from dev_setup.mcp import http, printconfig, process, stdio, token
 from dev_setup.mcp.core import Dispatcher, Toolbox
 
 DEFAULT_HOST = "127.0.0.1"
@@ -97,6 +98,12 @@ def _is_loopback(host: str) -> bool:
     "--list-tools", "list_tools", is_flag=True,
     help="Print the tools these flags would expose, and which gate each sits behind. Starts nothing.",
 )
+@click.option(
+    "--print-config", "print_config", type=click.Choice(printconfig.TARGETS), default=None, metavar="TARGET",
+    help="Print a snippet to paste into a client, for the other flags given, and exit: claude-code (the "
+    "`claude mcp add` command), claude-desktop (the mcpServers JSON) or openapi (URLs and header). "
+    "Starts nothing, and never contains the token.",
+)
 def mcp_cmd(
     use_http: bool,
     host: str | None,
@@ -108,6 +115,7 @@ def mcp_cmd(
     allow_install: bool,
     allow_functions: bool,
     list_tools: bool,
+    print_config: str | None,
 ) -> None:
     """Serve devstuff's tools to an MCP client (stdio) or over HTTP, MCP and OpenAPI.
 
@@ -140,6 +148,14 @@ def mcp_cmd(
                 f"--allow-origin takes an origin like http://localhost:3000, not {origin!r}."
             )
 
+    if print_config and list_tools:
+        raise click.UsageError("--print-config and --list-tools each print and exit; pass one.")
+    if print_config:
+        _print_config(
+            print_config, use_http, host or DEFAULT_HOST, DEFAULT_PORT if port is None else port,
+            token_file, allow_install, allow_functions,
+        )
+        return
     if list_tools:
         _print_tools(_load(allow_install, allow_functions))
         return
@@ -161,6 +177,27 @@ def mcp_cmd(
         box, Dispatcher(box), host or DEFAULT_HOST, DEFAULT_PORT if port is None else port,
         token_file, rotate_token, allow_origins, allow_hosts, _enabled(allow_install, allow_functions),
     )
+
+
+def _print_config(
+    target: str, use_http: bool, host: str, port: int, token_file: Path | None,
+    allow_install: bool, allow_functions: bool,
+) -> None:
+    path = Path(os.path.abspath(token_file or token.default_path()))
+    spec = printconfig.Spec(
+        launcher=printconfig.launcher(sys.argv[0], sys.executable), http=use_http, host=host, port=port,
+        token_file=path, allow_install=allow_install, allow_functions=allow_functions,
+    )
+    try:
+        rendered = printconfig.render(target, spec)
+    except printconfig.ConfigError as exc:
+        raise click.UsageError(str(exc)) from exc
+    click.echo(rendered.text, nl=False)
+    # Notes go to stderr so `--print-config … > file` is the snippet and nothing else.
+    for note in rendered.notes:
+        _warn(note)
+    if use_http and target != "claude-desktop" and not path.exists():
+        _warn(f"{path} does not exist yet: the server creates it the first time it starts.")
 
 
 def _serve_http(

@@ -7,7 +7,9 @@ the 2026-10-11 PR review are folded in (§5a). **M-1 built 2026-10-12** (the `ou
 bridges, FR-1a's classification in `mcp/core.py`, the FR-4 test, F-12/F-13). **M-2 built 2026-10-12**: the
 stdio server (`devstuff mcp`, FR-1–19, FR-29/30 for stdio) with the detach and supervisor measured (F-14); HTTP,
 REST and OpenAPI (M-3) and `--print-config` (M-4) are not. **M-3 built 2026-10-12**: `--http`, the token file,
-`POST /mcp`, REST and `/openapi.json` (F-15); `--print-config` and the formal conformance suite (M-4) are not.
+`POST /mcp`, REST and `/openapi.json` (F-15). **M-4 built 2026-10-12**: `--print-config`, the SDK and
+`claude mcp list` conformance suites (F-16). Not yet run: the one live `tools/call` through Claude Code (§6, G-1.3),
+which makes a model turn and waits for the user's consent.
 **Authors:** Sawyer + Claude
 **Roadmap:** new (overlaps [M4](../../ROADMAP.md): the `outdated` agent tool is built once and serves both)
 **Builds on:** [`agent/`](../agent/) (the tool registry, `AgentTool.to_schema()` / `bind()` and the
@@ -196,8 +198,10 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   `capabilities: {"tools": {}}` and nothing else.
 - **FR-16** **Method not found is a JSON-RPC `-32601` error, not an empty result.** The current official
   client's first request is `server/discover` under protocol `2026-07-28`, and it falls back to
-  `initialize` only when told the method is unknown (F-2). `resources/*`, `prompts/*` and any other
-  method get `-32601` too.
+  `initialize` (F-2). `resources/*`, `prompts/*` and any other method get `-32601` too. This is protocol
+  correctness, *not* something either real client enforces: both also fall back on `{}`, and the SDK
+  waits about five seconds and falls back when the request is never answered (F-16). The raw-frame
+  tests are therefore the only ones that can fail on it.
 - **FR-16a** **A request's `id` is echoed back unchanged, type included.** Claude Code sends a *string* id
   (`"server-discover-probe-1"`) and an integer **`0`** for `initialize` (F-8). A request is a notification
   only if the key `id` is *absent* — never because its value is falsy — or the first real reply is
@@ -476,6 +480,36 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   to use the same local port (`-L 8765:127.0.0.1:8765`) and a Docker port mapping to a different host port needs
   that port to be the bound one; (9) `serve_forever` polls every 0.1 s instead of 0.5 s, which is how long a
   shutdown would otherwise take to be noticed.
+- **F-16 — M-4: what the real clients do and do not enforce (2026-10-12; `mcp` 2.3.0, Claude Code 2.1.296).**
+  *Neither client fails on a wrong answer to `server/discover`.* With `{}` as the answer both fall back to
+  `initialize` and connect; with **no answer at all** Claude Code still connects at once and the SDK waits about
+  five seconds per connection and then falls back. So `-32601` (FR-16) is protocol correctness that only raw-frame
+  tests can hold — a mutation answering `{}` survived every real-client test and was killed by the raw-frame ones.
+  *Two SDK clients, one honest test.* The lower-level `ClientSession` never sends `server/discover`; the
+  high-level `mcp.Client` does, then `initialize`. A first draft of the conformance suite used `ClientSession` and
+  therefore never exercised the fallback at all, which is why the suite uses `Client` and keeps one `ClientSession`
+  case for the initialize-first path.
+  *`claude mcp list` needs no terminal:* run with stdin `/dev/null` and piped output under an isolated `HOME`, it
+  prints one `name: target - <health>` line per server — `✔ Connected`, or `✘ Failed to connect — …` carrying the
+  reason (`Server rejected the configured Authorization header (HTTP 401)…` for a wrong token, `ENOENT … posix_spawn`
+  for a missing command). Both failures are tested as controls, so `✔ Connected` is shown to be able to be absent.
+  *The printed snippets run as printed:* the `--print-config claude-code` stdio command, with and without the gate
+  flags, and the HTTP command with its `$(cat <token file>)` header, were each pasted through `bash -c` into a fresh
+  `HOME` and then listed `✔ Connected`.
+  *Decisions the spec did not make (FR-31):* (1) the launcher is the console script's own absolute path when
+  `argv[0]` is a real, executable `devstuff` (a symlink keeps its path: the venv behind it is rebuilt, the link is
+  not), otherwise `<this interpreter> -m dev_setup` — never a bare `devstuff` and never a `which` that could name a
+  different install; (2) `claude-desktop` with `--http` and `openapi` without `--http` are usage errors, since
+  Desktop launches a command over stdio and the OpenAPI document exists only on the HTTP server; (3) `--port 0`
+  cannot be printed (nobody knows the port yet); (4) a wildcard `--host` (`0.0.0.0`, `::`) prints `127.0.0.1` and
+  says so on stderr; an IPv6 literal is bracketed; (5) the gate flags appear in stdio snippets only — for HTTP they
+  are the *server's* launch flags, which a client cannot set, so they are named in a stderr note giving the line
+  that starts that server; (6) the snippet is the only thing on stdout and notes go to stderr, so
+  `--print-config … > file` is clean; (7) nothing is started, no token file is created or read, and the path is
+  printed absolute — a missing file gets a stderr note that the server creates it on first start; (8)
+  `--print-config` with `--list-tools` is a usage error, since each prints and exits.
+  *Not measured:* Claude Desktop (not installed here, so its snippet is checked for shape only), and the
+  expectation that a GUI app does not inherit the shell's `PATH` (it is why the path is absolute, not a finding).
 - **F-12 — the agent catalog had no list-typed parameter (found building M-1).** `outdated`'s `packages`
   (FR-9) is a list of keys, and `agent/catalog.py`'s `PARAM_TYPES` was `string`, `integer`, `number`,
   `boolean`. Decision: add `array` — always an array of strings, advertised as

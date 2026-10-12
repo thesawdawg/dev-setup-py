@@ -46,6 +46,7 @@ packages = ["src/dev_setup"]
 [dependency-groups]
 dev = [
     "commitizen>=3.0",
+    "mcp>=2.3.0",
     "openapi-spec-validator>=0.9.0",
     "pytest>=8.0",
     "ruff>=0.8",

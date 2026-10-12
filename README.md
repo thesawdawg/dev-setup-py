@@ -1185,6 +1185,24 @@ run**, so a client's configuration survives a restart. `devstuff` prints the fil
 | `--allow-origin ORIGIN` | Accept requests from this browser origin. Default none: a request carrying an `Origin` is refused, so a web page cannot drive the server |
 | `--token-file PATH` | Keep the token elsewhere |
 
+### Configuring a client
+
+`--print-config TARGET` prints a snippet for the other flags you give, then exits — it starts nothing, creates no
+token file and **never contains the token** (the HTTP command reads it from the file when you run it). Commands use
+the absolute path of the `devstuff` that is running, since a GUI application usually does not inherit your shell's
+`PATH`.
+
+```bash
+devstuff mcp --allow-install --print-config claude-code     # claude mcp add devstuff -- /…/devstuff mcp --allow-install
+devstuff mcp --print-config claude-desktop                  # the mcpServers JSON for claude_desktop_config.json
+devstuff mcp --http --print-config claude-code              # the --transport http … --header "…$(cat <token file>)" form
+devstuff mcp --http --port 9000 --print-config openapi      # base URL, /openapi.json URL and the header to send
+```
+
+The snippet alone is on stdout (notes go to stderr), so `… --print-config claude-desktop > snippet.json` is clean.
+`claude-desktop` has no HTTP form, `openapi` needs `--http`, and `--port 0` cannot be printed. Claude Code's
+`claude mcp list` is the quickest check that a configuration works. Claude Desktop is untested here.
+
 A non-loopback `--host` is allowed and **warned about**: there is no TLS, so the token crosses the network in the
 clear, and anyone holding it can use every enabled tool. To reach a loopback server from another machine, tunnel
 instead, with the *same* local port (the `Host` header must carry the bound port):

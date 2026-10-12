@@ -694,7 +694,8 @@ the `mutating` label or the key — and a test fails when a bridge is added to `
   from `tools/list` *and* refused by `tools/call` — a list-only check passes when dispatch is wide open.
 - **A request's `id` is echoed with its type, and a notification is the *absence* of the key**, never a falsy
   value: Claude Code sends an integer `0` for `initialize`. Unknown methods are `-32601`, not `{}` — the real
-  client opens with `server/discover` and falls back to `initialize` only when told it is unknown.
+  client opens with `server/discover` and falls back to `initialize`. Measured: both the SDK and Claude Code
+  fall back on `{}` too, so no real-client test can catch that regression; the raw-frame tests are what pin it.
 - **The protocol channel is moved at the descriptor level** (`stdio.isolate_stdio`): private non-inheritable
   `dup`s, then fd 1 → stderr and fd 0 → `/dev/null`. Anything that prints, however it does it, lands on stderr.
   The test leaks through five routes and has a control showing the same leaks corrupt an un-isolated stream.
@@ -715,6 +716,14 @@ the `mutating` label or the key — and a test fails when a bridge is added to `
 - **Shutdown must not wait for idle keep-alive connections** (`McpHTTPServer.server_close` wakes them) — only for
   running calls. `ThreadingMixIn.server_close` joins every request thread, so one forgotten connection made
   SIGTERM hang forever until a test caught it.
+- **Real-client tests prove "connects", not "correct on the wire".** `tests/integration/test_mcp_claude.py` (real
+  `claude mcp list`, skipped without `claude`) and `test_mcp_conformance.py` (the SDK, skipped without `mcp`) cannot
+  fail on a wrong or missing answer to `server/discover` — measured, both clients fall back anyway — so the raw-frame
+  tests are what pin `-32601` and id echo. The suite uses `mcp.Client`, which sends `server/discover`; the lower-level
+  `ClientSession` does not, and a suite built on it never reaches the fallback.
+- **`--print-config` is pure and never contains the token** (`mcp/printconfig.py`). The launcher is the console
+  script's absolute path or `<interpreter> -m dev_setup`, never a bare name; HTTP snippets read the token with
+  `$(cat <file>)` at paste time. A test pastes each printed command through `bash -c` into a fresh `HOME`.
 - **Reads are never blocked by an install; they are kept honest.** `generic._once` memos live as long as the
   process, so `Dispatcher` clears them when a burst of reads starts and after every mutation (in `finally`), and
   re-runs a read a mutation straddled. The advisory note is a *separate* content item so JSON stays parseable.

@@ -22,7 +22,7 @@ M5 is independent polish that can be slotted in anywhere.
 | M3 | `devstuff profile apply` + bundled bundles | Medium–high | M2 | `profile-apply/` |
 | M4 | Agent tools for `doctor` / `outdated` | Low | M1 | `agent/` (amend) |
 | M5 | Shell completion | Low | — | `completion/` |
-| M6 | `devstuff mcp`: MCP (stdio + HTTP) and OpenAPI tool server | Medium | M1; builds `outdated` / `profile_diff` agent tools (overlaps M4) | `mcp/` (approved) |
+| M6 | `devstuff mcp`: MCP (stdio + HTTP) and OpenAPI tool server | Medium | M1; builds `outdated` / `profile_diff` agent tools (overlaps M4) | `mcp/` (built; live check pending) |
 | — | git / tmux configurator | Medium | — | `git-config/` (unscheduled) |
 | — | `devstuff sandbox <tool>` | Medium | — | `sandbox/` (unscheduled) |
 
@@ -165,7 +165,7 @@ Serve devstuff's catalog-aware tools to any MCP or OpenAPI client, so an AI clie
 or inspect a tool instead of guessing at `apt` and `npm` itself.
 
 **Spec:** [`specs/mcp/`](specs/mcp/) — **approved**, 2026-10-11 (findings measured; two goals: Claude compatibility, OpenAPI coverage).
-**Progress:** M-1 (bridges, classification), M-2 (the stdio server) and M-3 (`--http`: MCP at `POST /mcp`, REST, `/openapi.json`, the token file) built 2026-10-12; M-4 (conformance suite, `--print-config`, docs) remains.
+**Progress:** M-1 (bridges, classification), M-2 (the stdio server) and M-3 (`--http`: MCP at `POST /mcp`, REST, `/openapi.json`, the token file) and M-4 (`--print-config`, the SDK and `claude mcp list` conformance suites, docs) built 2026-10-12. Remaining: one live `tools/call` through Claude Code, run by hand with consent.
 
 - Three framings, one dispatcher: MCP over stdio, MCP over HTTP, and OpenAPI/REST (`/openapi.json`, `/tools`).
 - Read-only tools by default (`list_tools`, `search_catalog`, `tool_info`, `outdated`, `profile_diff`);
