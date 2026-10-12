@@ -86,7 +86,7 @@
           "description": "Parameter name. Passed to the implementation as a dict key."
         },
         "type": {
-          "enum": ["string", "integer", "number", "boolean"],
+          "enum": ["string", "integer", "number", "boolean", "array"],
           "default": "string",
           "description": "JSON Schema type advertised to the model."
         },

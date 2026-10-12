@@ -3,7 +3,8 @@
 **Date:** 2026-10-11
 **Status:** Approved 2026-10-11 with OQ-1/2/3/6 resolved as recommended (§5), plus two goals that outrank the
 rest (G-1, G-2 below). Findings F-1…F-11 were measured on 2026-10-11 (F-6 closed by F-11); the five points of
-the 2026-10-11 PR review are folded in (§5a); nothing is implemented.
+the 2026-10-11 PR review are folded in (§5a). **M-1 built 2026-10-12** (the `outdated` / `profile_diff`
+bridges, FR-1a's classification in `mcp/core.py`, the FR-4 test, F-12/F-13); the server itself is not.
 **Authors:** Sawyer + Claude
 **Roadmap:** new (overlaps [M4](../../ROADMAP.md): the `outdated` agent tool is built once and serves both)
 **Builds on:** [`agent/`](../agent/) (the tool registry, `AgentTool.to_schema()` / `bind()` and the
@@ -142,7 +143,7 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
      note `an install is in progress; this may change`.
   A read is **never** blocked by a mutation: an install takes minutes, and a frozen `list_tools` is worse
   than an annotated one. Rejected alternatives are in SD-11.
-- **FR-9** `outdated` takes an optional `packages` (list of keys), `updates_only` (bool). It is read-only
+- **FR-9** `outdated` takes an optional `packages` (an `array` of keys, F-12), `updates_only` (bool). It is read-only
   and keeps `outdated`'s honesty rule: an `unknown` or `unsupported` row is returned as such and never
   as `current`.
 - **FR-10** `profile_diff` takes `profile` (a bundle `@name`; **not** an arbitrary path) and returns the
@@ -176,10 +177,12 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   routes measured in F-1 and asserts stdout carries exactly the frames.
 - **FR-13** An installer that needs a password cannot be answered (FR-11a: no controlling terminal, fd 0 is
   `/dev/null`). It fails fast — measured: `sudo` exits `1` with `sudo: A terminal is required to
-  authenticate` (F-11) — and the result is `is_error` with the tail of the installer's own output **plus one
-  sentence telling the client to run `devstuff install <key>` in a terminal**. It never hangs and never
-  writes to a terminal. Not yet measured: that the sudo line survives `_run`'s capture into the result;
-  M-1 does that through the real `_run` and a pty before the wording is fixed.
+  authenticate` (F-11) — and the result is `is_error` with the installer's own error text **plus one
+  sentence telling the client that if this needs a password it cannot be answered here, and to run
+  `devstuff install <key>` in a terminal**. It never hangs and never writes to a terminal. Measured (F-13):
+  sudo's line survives into the error at the default verbosity but **not under `-v`** (the error is then only
+  `exit code 1`, the line having gone to stderr), so the sentence is appended to *every* `install_tool`
+  failure rather than keyed on that text.
 - **FR-14** Log lines — startup, per request at `-v`, tracebacks — go to stderr only, through the existing
   `verbose` logger. `-v` therefore also streams installer output, to stderr.
 
@@ -364,9 +367,9 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
 - **F-5 — the bridges are already workspace-free.** `grep` finds no use of `ws` or `config` in
   `agent/bridges.py`; all four catalog bridges and `run_function` take them and ignore them. *Consequence:*
   FR-4 — a test, so this stays true.
-- **F-6 — what a `sudo`-requiring installer does with stdin on `/dev/null`: closed by F-11.** It does *not*
-  fail fast unless the process also has no controlling terminal. Still unmeasured: whether sudo's line
-  survives `_run`'s capture into the tool result (M-1, through the real `_run`).
+- **F-6 — what a `sudo`-requiring installer does with stdin on `/dev/null`: closed by F-11, and the last
+  part measured in M-1 (F-13).** It does *not* fail fast unless the process also has no controlling
+  terminal.
 - **F-7 — reusable library entry points.** `outdated` and `profile diff` build their rows with plain
   functions (`updates.collect_candidates`, `make_row`, `sort_rows`; `profile.compare`,
   `snapshot.machine_facts`, `sort_diff_rows`), each row with `.to_json()`. The Click commands are not
@@ -418,6 +421,22 @@ When a requirement below conflicts with either, the goal wins. Each has a measur
   *Consequence:* FR-11a and FR-13. Not measured: an interactive Claude Code session (only `mcp list`);
   a client launched from a desktop with no terminal at all (there `/dev/tty` is absent anyway); the fork
   supervisor itself — it is a design, to be built and measured in M-2.
+- **F-12 — the agent catalog had no list-typed parameter (found building M-1).** `outdated`'s `packages`
+  (FR-9) is a list of keys, and `agent/catalog.py`'s `PARAM_TYPES` was `string`, `integer`, `number`,
+  `boolean`. Decision: add `array` — always an array of strings, advertised as
+  `{"type": "array", "items": {"type": "string"}}` (a bare `{"type": "array"}` validates but says nothing
+  about the elements, and OpenAPI 3.1 tooling expects `items`). `AgentTool.bind()` checks parameter
+  *names*, never types, so the **bridge** is the type check: a bare string is refused rather than iterated
+  into one-letter keys (`_string_list` in `agent/bridges.py`). Rejected: a space-separated string (lossy,
+  and a schema-driven client would not know the separator). *Consequence:* `agent_tools.schema.json` and
+  `agent/catalog.py` change with the bridges, in the same PR; the local agent gains the type too.
+- **F-13 — sudo's line through the real `_run` (M-1, `setsid`, stdin `/dev/null`, no controlling terminal,
+  `sudo -k` first).** *Quiet* (the default): `_run` raises `RuntimeError('sudo: A terminal is required to
+  authenticate')` — the line survives into the exception, because `_run` captures stderr and uses it as the
+  message. *`-v`*: the exception is just **`'exit code 1'`**; sudo's line went to the server's own stderr
+  and is not in the result. *Consequence:* FR-13's sentence cannot depend on seeing sudo's line; it is added
+  to **every** `install_tool` failure (and the line is included when it is there). `sudo -n true` fails
+  differently (`interactive authentication is required`), which is why the wording is not matched on.
 
 ---
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Callable
 from typing import Any
@@ -56,6 +57,69 @@ def tool_info(ws: Workspace, config: AgentConfig, args: dict[str, Any]) -> str:
     if tool.docs_url:
         lines.append(f"docs: {tool.docs_url}")
     return "\n".join(lines)
+
+
+def _string_list(args: dict[str, Any], name: str) -> list[str]:
+    """A list-of-strings argument. `bind()` checks names, not types, so this is the type check."""
+    value = args.get(name, [])
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        # A bare string must be refused, not iterated: "eslint" would read as six one-letter keys.
+        raise SandboxError(f"'{name}' must be a list of strings, e.g. [\"uv\", \"nvm\"]")
+    return value
+
+
+def outdated(ws: Workspace, config: AgentConfig, args: dict[str, Any]) -> str:
+    """`devstuff outdated --json`: the same rows, built by the same function (spec FR-9).
+
+    `unknown` and `unsupported` rows are returned as such and never as `current` -- that honesty
+    is the point of the command, and it is decided in `updates.classify`, not here.
+    """
+    from dev_setup.updates import State, build_rows
+
+    updates_only = args.get("updates_only", False)
+    if not isinstance(updates_only, bool):
+        raise SandboxError("'updates_only' must be true or false")
+
+    keys = _string_list(args, "packages")
+    tool_registry.init()
+    named = None
+    if keys:
+        named = []
+        for key in keys:
+            tool = tool_registry.get(key)
+            if tool is None:
+                raise SandboxError(f"unknown catalog tool '{key}'; try search_catalog first")
+            named.append(tool)
+
+    rows = build_rows(named)
+    if updates_only:
+        rows = [r for r in rows if r.state is State.OUTDATED]
+    return json.dumps([r.to_json() for r in rows], indent=2)
+
+
+def profile_diff(ws: Workspace, config: AgentConfig, args: dict[str, Any]) -> str:
+    """`devstuff profile diff @name --json`, for a bundle that ships with devstuff (spec FR-10).
+
+    Only a bundle name is accepted. A path would let a caller read any YAML file the user can read,
+    and `bundles.resolve` matches the name against a directory listing rather than building a path
+    from it, so there is nothing to traverse.
+    """
+    from dev_setup import bundles, profile, snapshot
+
+    name = args["profile"]
+    if not isinstance(name, str) or not bundles.is_bundle(name):
+        raise SandboxError(
+            f"'profile' must be a bundle name such as @devops, not a file path. "
+            f"Bundles: {', '.join(f'@{n}' for n in bundles.names())}"
+        )
+    try:
+        wanted = bundles.resolve(name)
+    except profile.ProfileError as exc:
+        raise SandboxError(str(exc)) from exc
+
+    tool_registry.init()
+    rows = profile.sort_diff_rows(profile.compare(wanted, snapshot.machine_facts(wanted)))
+    return json.dumps([r.to_json() for r in rows], indent=2)
 
 
 def install_tool(ws: Workspace, config: AgentConfig, args: dict[str, Any]) -> str:
@@ -117,6 +181,8 @@ _BRIDGES: dict[str, Bridge] = {
     "list_tools": list_tools,
     "search_catalog": search_catalog,
     "tool_info": tool_info,
+    "outdated": outdated,
+    "profile_diff": profile_diff,
     "install_tool": install_tool,
 }
 

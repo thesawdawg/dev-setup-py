@@ -140,6 +140,21 @@ def sort_rows(rows: Iterable[Row]) -> list[Row]:
     return sorted(rows, key=lambda r: (_ORDER[r.state], r.key))
 
 
+def build_rows(named: Sequence[Tool] | None = None) -> list[Row]:
+    """Every row `outdated` reports, in display order — the one place that decides what they are.
+
+    `named` limits the check to those tools; one that is not installed gets a `not-installed` row
+    rather than vanishing, because the caller asked about it by name. Shared by the command and
+    the `outdated` agent/MCP bridge so the two cannot disagree about an answer.
+    """
+    candidates = collect_candidates(named)
+    rows = [make_row(tool, status) for tool, status in candidates]
+    if named is not None:
+        found = {tool.key for tool, _ in candidates}
+        rows += [make_row(t, None, installed=False) for t in named if t.key not in found]
+    return sort_rows(rows)
+
+
 def summarize(rows: Iterable[Row]) -> dict[State, int]:
     """Count rows per state. Every state is present, so the counts always sum to the rows."""
     counts = dict.fromkeys(State, 0)

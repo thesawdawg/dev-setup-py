@@ -1233,6 +1233,8 @@ deny_patterns: []                # extra regexes refused on top of the built-in 
 | `list_tools` | | List the devstuff catalog with install state |
 | `search_catalog` | | Find a catalog tool by name or description |
 | `tool_info` | | Details for one catalog tool |
+| `outdated` | | Which installed tools have a newer version (the rows `devstuff outdated --json` prints) |
+| `profile_diff` | | Compare this machine to a bundled profile such as `@devops` (the rows `profile diff --json` prints) |
 | `install_tool` | ! | Install a catalog tool (handles sudo itself) |
 | `fn_<key>` | ! | Every `type: script` entry in `functions.yaml`, exposed automatically |
 

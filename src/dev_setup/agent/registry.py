@@ -17,6 +17,10 @@ class AgentParam:
 
     def to_schema(self) -> dict[str, Any]:
         schema: dict[str, Any] = {"type": self.type}
+        if self.type == "array":
+            # JSON Schema wants `items`, and a bare array tells a model nothing about what goes
+            # in it. Every array parameter is a list of strings: none needs another element type.
+            schema["items"] = {"type": "string"}
         if self.description:
             schema["description"] = self.description
         if self.enum:
