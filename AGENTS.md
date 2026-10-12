@@ -71,10 +71,12 @@ None.
 ### Closed as dropped
 
 Closed unmerged on 2026-10-11 because they had gone stale: both were green but unreviewed, and 36 and
-43 commits behind `master`. Their branches are **kept**, so the work can be revived if it is wanted;
-start from a fresh branch off `origin/master` and replay the commits rather than merging `master` in.
+43 commits behind `master`. Their branches were **deleted on 2026-10-12** at the owner's request; the tips
+below are the only record. A commit stays fetchable from GitHub by hash until it is garbage-collected, and
+the PRs' pages keep the diffs. To revive one, start from a fresh branch off `origin/master` and replay the
+commits rather than merging `master` in.
 
-| Was | Branch | Tip |
+| Was | Branch (deleted) | Tip |
 |---|---|---|
 | [#51](https://github.com/thesawdawg/dev-setup-py/pull/51) proxmox `pve-*` functions and connection wizard | `claude/proxmox-management-tools-smmiwc` | `03907de` |
 | [#43](https://github.com/thesawdawg/dev-setup-py/pull/43) host compatibility layer, with Termux support | `claude/termux-compatibility-layer-m9xiww` | `282c551` |
