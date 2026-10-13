@@ -79,6 +79,12 @@ links:
     category: shell
     url: https://github.com/tmux/tmux/wiki
 
+  explainshell:
+    name: explainshell
+    description: Paste a shell command to see what each part and flag does
+    category: shell
+    url: https://explainshell.com/
+
   conventional-commits:
     name: Conventional Commits
     description: The commit message specification used by commitizen
@@ -109,6 +115,18 @@ links:
     category: reference
     url: https://devhints.io/
 
+  devdocs:
+    name: DevDocs
+    description: API documentation for hundreds of languages and libraries in one searchable, offline-capable site
+    category: reference
+    url: https://devdocs.io/
+
+  archwiki:
+    name: ArchWiki
+    description: In-depth Linux reference for system configuration and tools, useful well beyond Arch
+    category: reference
+    url: https://wiki.archlinux.org/
+
   awesome-open-source:
     name: Awesome Open Source
     description: Curated open source projects browsable by topic and language
@@ -120,6 +138,12 @@ links:
     description: Curated list of free developer tools, editors, hosting, and resources
     category: discovery
     url: https://fmhy.net/developer-tools
+
+  awesome-selfhosted:
+    name: Awesome Selfhosted
+    description: Curated index of free self-hostable software
+    category: discovery
+    url: https://awesome-selfhosted.net/
 
   crontab-guru:
     name: crontab guru
@@ -210,3 +234,9 @@ links:
     description: Free and open platform for network and host visibility, honeypots, and log and case management, with a Pro edition
     category: security
     url: https://securityonionsolutions.com/software
+
+  deps-dev:
+    name: deps.dev
+    description: Open-source package explorer — versions, dependency graphs, advisories and supply-chain signals
+    category: security
+    url: https://deps.dev/

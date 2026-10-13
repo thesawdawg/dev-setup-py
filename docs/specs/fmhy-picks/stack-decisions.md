@@ -42,6 +42,10 @@ block, with a remove script that strips it. Same pattern as `starship` and `home
 **Cost, accepted:** a `bash` entry has no update checker, so `devstuff outdated` reports fzf as
 `unsupported`, `devstuff update fzf` is a full reinstall, and fzf cannot be pinned in a profile.
 
+**Cost, accepted (owner, 2026-10-13):** the check requires the marker in `~/.bashrc` (FR-4d),
+so a user whose own fzf setup already binds the keys sees fzf as *not installed* — and
+`devstuff remove fzf` would apt-remove an fzf they may have installed themselves.
+
 **Rejected:** extending the `apt` type to run `install_script` after `apt-get install`. It would
 keep fzf's update check, but is an engine change. **Finding while deciding:** today an `apt` entry
 honours `remove_script` but silently ignores `install_script`, and `validate_catalog` does not

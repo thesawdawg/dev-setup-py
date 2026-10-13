@@ -418,3 +418,128 @@ def test_real_lazygit_ignores_an_unknown_key():
     assert result is not None
     started, _ = result
     assert started
+
+
+# -- the delta install offer ---------------------------------------------------
+#
+# The gate offers `devstuff install delta` once per run when a delta pager is
+# chosen on a machine without delta, the same way the starship wizard offers a
+# Nerd Font. The pager itself is never changed by the gate.
+
+
+class _UiStub:
+    """Records what the wizard says and answers its confirms."""
+
+    def __init__(self, monkeypatch, *, confirm_answer=True):
+        self.warns: list[str] = []
+        self.dims: list[str] = []
+        self.confirms: list[str] = []
+        self.confirm_answer = confirm_answer
+        monkeypatch.setattr(wizard.ui, "warn", self.warns.append)
+        monkeypatch.setattr(wizard.ui, "dim", self.dims.append)
+        monkeypatch.setattr(wizard.ui.console, "print", lambda *a, **k: None)
+        monkeypatch.setattr(wizard.ui, "confirm", self._confirm)
+
+    def _confirm(self, prompt: str, default: bool = False) -> bool:
+        self.confirms.append(prompt)
+        return self.confirm_answer
+
+
+def _delta_cfg() -> LazygitConfig:
+    return LazygitConfig(pager="delta --dark --paging=never")
+
+
+def _stub_install(monkeypatch, result=True) -> list:
+    import dev_setup.commands.install_cmd as install_cmd
+
+    calls = []
+    def fake(key, *, yes=False):
+        calls.append((key, yes))
+        return result
+    monkeypatch.setattr(install_cmd, "install_by_key", fake)
+    return calls
+
+
+def test_delta_missing_and_accepted_installs_it(monkeypatch):
+    ui = _UiStub(monkeypatch, confirm_answer=True)
+    present = [False]
+    installs = []
+    def accepting(key, *, yes=False):
+        installs.append((key, yes))
+        present[0] = True  # the install put it on PATH
+        return True
+    import dev_setup.commands.install_cmd as install_cmd
+    monkeypatch.setattr(install_cmd, "install_by_key", accepting)
+    monkeypatch.setattr(wizard.shutil, "which", lambda _n: "/usr/bin/delta" if present[0] else None)
+
+    wizard._DeltaGate().check(_delta_cfg())
+    assert installs == [("delta", True)]
+    assert ui.confirms == ["Install delta now?"]
+    assert not any("still is not" in w for w in ui.warns)
+
+
+def test_delta_missing_and_declined_keeps_pager_and_hints(monkeypatch):
+    ui = _UiStub(monkeypatch, confirm_answer=False)
+    installs = _stub_install(monkeypatch)
+    monkeypatch.setattr(wizard.shutil, "which", lambda _n: None)
+    cfg = _delta_cfg()
+    wizard._DeltaGate().check(cfg)
+    assert installs == []
+    assert cfg.pager == "delta --dark --paging=never"
+    assert any("devstuff install delta" in d for d in ui.dims)
+
+
+def test_delta_install_failure_warns_that_it_is_still_missing(monkeypatch):
+    ui = _UiStub(monkeypatch, confirm_answer=True)
+    _stub_install(monkeypatch, result=False)
+    monkeypatch.setattr(wizard.shutil, "which", lambda _n: None)
+    wizard._DeltaGate().check(_delta_cfg())
+    assert any("still is not on your PATH" in w for w in ui.warns)
+    assert any("devstuff install delta" in d for d in ui.dims)
+
+
+def test_a_declined_offer_is_not_repeated_in_the_same_run(monkeypatch):
+    ui = _UiStub(monkeypatch, confirm_answer=False)
+    monkeypatch.setattr(wizard.shutil, "which", lambda _n: None)
+    gate = wizard._DeltaGate()
+    cfg = _delta_cfg()
+    gate.check(cfg)
+    gate.check(cfg)
+    assert ui.confirms == ["Install delta now?"]  # asked once, not twice
+    assert len([w for w in ui.warns if "not on your PATH" in w]) == 2
+    assert any("devstuff install delta" in d for d in ui.dims)
+
+
+def test_a_non_delta_pager_missing_gets_no_offer_but_still_warns(monkeypatch):
+    ui = _UiStub(monkeypatch)
+    installs = _stub_install(monkeypatch)
+    monkeypatch.setattr(wizard.shutil, "which", lambda _n: None)
+    monkeypatch.setattr(wizard.ui, "select", lambda *a, **k: "diff-so-fancy")
+
+    wizard._DeltaGate().check(LazygitConfig(pager="diff-so-fancy"))
+    assert ui.confirms == [] and installs == []
+
+    cfg = LazygitConfig()
+    wizard._ask_pager(cfg)  # the generic warning still fires for other pagers
+    assert any("diff-so-fancy is not on your PATH" in w for w in ui.warns)
+
+
+def test_delta_present_makes_no_offer(monkeypatch):
+    ui = _UiStub(monkeypatch)
+    installs = _stub_install(monkeypatch)
+    monkeypatch.setattr(wizard.shutil, "which", lambda _n: "/usr/bin/delta")
+    wizard._DeltaGate().check(_delta_cfg())
+    assert ui.confirms == [] and ui.warns == [] and installs == []
+
+
+def test_the_delta_preset_reaches_the_offer(monkeypatch):
+    """Drive run(): the preset sets the pager without _ask_pager, so only the
+    gate's own check can make the offer."""
+    ui = _UiStub(monkeypatch, confirm_answer=False)
+    _stub_install(monkeypatch)
+    monkeypatch.setattr(wizard.detect, "inspect", lambda: detect.Lazygit())
+    monkeypatch.setattr(wizard.shutil, "which", lambda _n: None)
+    answers = {"Start from:": "delta", "Nerd Font icons:": "", "Looks good?": "cancel"}
+    monkeypatch.setattr(wizard.ui, "select", lambda prompt, *a, **k: answers[prompt])
+    assert wizard.run() is None
+    assert "Install delta now?" in ui.confirms

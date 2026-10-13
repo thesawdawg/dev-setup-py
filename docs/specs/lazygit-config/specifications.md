@@ -45,7 +45,9 @@ effect.
 - `customCommands`. Same reasoning: preserved, never authored.
 - Themes beyond the icon settings. `gui.theme` is fifteen colour-role lists; the starship
   configurator is where this repo does colour work.
-- Installing delta or a Nerd Font. The wizard points at `devstuff install`.
+- Installing a Nerd Font. The wizard points at `devstuff install`. (Delta is now a
+  catalog tool and the wizard offers to install it when a delta pager is chosen
+  — Open Question 4, resolved; see `docs/specs/fmhy-picks/`.)
 
 ---
 
@@ -138,7 +140,7 @@ effect.
 | 1 | Should keybindings be configurable? | **Resolved 2026-08-02 — no.** A remapping UI over ~150 bindings is its own wizard. The existing tree is preserved. |
 | 2 | Should `gui.theme` colours be offered? | **Resolved 2026-08-02 — not in v1.** Fifteen colour-role lists; the starship configurator is where this repo does colour, and lifting its palette model here is a larger change than it looks. |
 | 3 | Should the type probe run at wizard time rather than authoring time? | **Resolved 2026-08-02 — no.** Each probe is a pty launch of ~2.5 seconds; probing 27 settings would take a minute and would need lazygit installed. Verified once, at authoring time, with the method recorded. |
-| 4 | Should the wizard offer to install delta when it is selected but missing? | **Open.** `delta` is not currently in `tools.yaml`; adding it would make the same `install_cmd.install_by_key` offer the starship wizard makes for `nerd-font` possible. |
+| 4 | Should the wizard offer to install delta when it is selected but missing? | **Resolved 2026-10-13:** yes — `delta` is now a catalog tool and the wizard offers to install it through `install_by_key` (see `docs/specs/fmhy-picks/`). |
 | 5 | Should `default_drift` fail a save or only warn? | **Open — currently a failed check, which asks.** It fires when lazygit changes a default, which is a real signal the model is stale, but it is not a problem with the user's config. |
 
 ---

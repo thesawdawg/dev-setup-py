@@ -38,6 +38,41 @@ def _select(prompt: str, choices: list, current: object) -> str:
     return ui.select(prompt, choices, default=default) or str(current)
 
 
+class _DeltaGate:
+    """At most one install offer per wizard run (same reasoning as starship's _FontGate).
+
+    The pager question and the presets can be revisited from the review menu; a
+    declined offer should not come back every time, and a second look at a missing
+    delta gets the install hint without the prompt.
+    """
+
+    def __init__(self) -> None:
+        self._offered = False
+
+    def check(self, cfg: LazygitConfig) -> None:
+        if not cfg.pager or cfg.pager.split()[0] != "delta" or shutil.which("delta"):
+            return
+        ui.console.print()
+        ui.warn("delta is not on your PATH — diffs would fail to render until it is.")
+        if self._offered:
+            ui.dim("  Install it with:  devstuff install delta")
+            return
+        self._offered = True
+
+        from dev_setup import registry
+        from dev_setup.commands.install_cmd import install_by_key
+
+        if registry.get("delta") is None:  # pragma: no cover — the key is built in
+            ui.dim("  Install it with:  devstuff install delta")
+            return
+        if not ui.confirm("Install delta now?", default=True):
+            ui.dim("  You can install it later:  devstuff install delta")
+            return
+        if not install_by_key("delta", yes=True) or shutil.which("delta") is None:
+            ui.warn("delta still is not on your PATH.")
+            ui.dim("  You can install it later:  devstuff install delta")
+
+
 def _ask_preset(cfg: LazygitConfig, found: detect.Lazygit) -> None:
     choices = [
         questionary.Choice(title=preset.label, value=preset.key, description=preset.description)
@@ -83,8 +118,8 @@ def _ask_icons(cfg: LazygitConfig, found: detect.Lazygit) -> None:
 
 def _ask_pager(cfg: LazygitConfig) -> None:
     ui.console.print()
-    ui.dim("  An external pager renders diffs. delta is the usual choice; it must be")
-    ui.dim("  installed separately and needs --paging=never so it does not open its own.")
+    ui.dim("  An external pager renders diffs. delta is the usual choice (the wizard offers")
+    ui.dim("  to install it if it is missing) and needs --paging=never so it does not open its own.")
     choices = [
         questionary.Choice(title=label, value=command) for command, label in PAGERS.items()
     ]
@@ -94,7 +129,7 @@ def _ask_pager(cfg: LazygitConfig) -> None:
     cfg.pager = chosen
     if cfg.pager:
         tool = cfg.pager.split()[0]
-        if shutil.which(tool) is None:
+        if tool != "delta" and shutil.which(tool) is None:
             ui.warn(f"{tool} is not on your PATH — diffs would fail to render until it is.")
         cfg.color_arg = "always"
 
@@ -347,8 +382,10 @@ def run(*, target: Path | None = None) -> LazygitConfig | None:
     _report(found)
 
     ui.console.print()
+    delta = _DeltaGate()
     _ask_preset(cfg, found)
     _ask_icons(cfg, found)
+    delta.check(cfg)
 
     while True:
         _show_preview(cfg, found)
@@ -374,10 +411,12 @@ def run(*, target: Path | None = None) -> LazygitConfig | None:
         if action == "preset":
             _ask_preset(cfg, found)
             _ask_icons(cfg, found)
+            delta.check(cfg)
         elif action == "icons":
             _ask_icons(cfg, found)
         elif action == "pager":
             _ask_pager(cfg)
+            delta.check(cfg)
         elif action == "appearance":
             _ask_appearance(cfg)
         elif action == "git":

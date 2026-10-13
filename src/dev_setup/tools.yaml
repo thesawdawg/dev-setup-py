@@ -207,6 +207,16 @@ tools:
     requires:
       - uv
 
+  delta:
+    name: delta
+    description: Syntax-highlighting pager for git diffs
+    category: tools
+    type: apt
+    apt_packages: git-delta
+    check_cmd: delta
+    help_cmd: delta --help
+    docs_url: https://dandavison.github.io/delta/
+
   devin:
     name: Devin CLI
     description: Cognition's AI software engineer, in the terminal
@@ -284,6 +294,59 @@ tools:
       sudo apt-get remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras 2>/dev/null \
         || sudo yum remove -y docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>/dev/null \
         || true
+
+  fzf:
+    name: fzf
+    description: Command-line fuzzy finder, with Ctrl-R/Ctrl-T/Alt-C key bindings in bash
+    category: tools
+    type: bash
+    # The block is half of what this entry installs: an fzf that arrived by other
+    # means (apt, a manual build) must not count as installed, or install_cmd
+    # would early-return and the key bindings would never reach ~/.bashrc.
+    check_cmd: command -v fzf >/dev/null 2>&1 && grep -Fxq '# fzf key bindings' "$HOME/.bashrc" 2>/dev/null
+    version_cmd: fzf
+    help_cmd: fzf --help
+    docs_url: https://junegunn.github.io/fzf/
+    install_script: |
+      set -euo pipefail
+      sudo apt-get update -q
+      sudo apt-get install -y fzf
+      marker="# fzf key bindings"
+      # `fzf --bash` only exists on fzf >= 0.48; Ubuntu 24.04 ships 0.44, whose
+      # package carries the bindings as an example file instead. Try the new
+      # flag first, fall back to the file, and never let either failure reach
+      # the interactive shell that sources this block.
+      block='if command -v fzf >/dev/null 2>&1; then
+        if _fzf_init="$(fzf --bash 2>/dev/null)"; then eval "$_fzf_init"
+        elif [ -r /usr/share/doc/fzf/examples/key-bindings.bash ]; then . /usr/share/doc/fzf/examples/key-bindings.bash
+        fi
+        unset _fzf_init
+      fi'
+      touch "$HOME/.bashrc"
+      if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
+        printf '\n%s\n%s\n' "$marker" "$block" >> "$HOME/.bashrc"
+      fi
+    remove_script: |
+      set -euo pipefail
+      if [ -f "$HOME/.bashrc" ]; then
+        python3 - "$HOME/.bashrc" <<'PY'
+      import sys
+      path = sys.argv[1]
+      lines = open(path).read().splitlines()
+      out = []
+      skip = 0
+      for line in lines:
+          if skip:
+              skip -= 1
+              continue
+          if line == "# fzf key bindings":
+              skip = 6
+              continue
+          out.append(line)
+      open(path, "w").write("\n".join(out) + ("\n" if out else ""))
+      PY
+      fi
+      sudo apt-get remove -y fzf
 
   gh:
     name: GitHub CLI
@@ -687,6 +750,18 @@ tools:
       sudo systemctl daemon-reload 2>/dev/null || true
       echo "Downloaded models in ~/.ollama were left intact."
 
+  opencode:
+    name: OpenCode
+    description: Open-source AI coding agent for the terminal
+    category: ai-tools
+    type: npm
+    npm_name: opencode-ai
+    check_cmd: opencode
+    help_cmd: opencode --help
+    docs_url: https://opencode.ai/docs
+    requires:
+      - nvm
+
   php:
     name: PHP 8.4
     description: PHP 8.4 + common extensions via ondrej/php PPA
@@ -784,6 +859,16 @@ tools:
     requires:
       - nvm
 
+  ripgrep:
+    name: ripgrep
+    description: Fast recursive code search (rg)
+    category: tools
+    type: apt
+    apt_packages: ripgrep
+    check_cmd: rg
+    help_cmd: rg --help
+    docs_url: https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md
+
   ruby:
     name: Ruby (rbenv)
     description: Ruby via rbenv version manager + ruby-build
@@ -866,6 +951,16 @@ tools:
     remove_script: |
       set -euo pipefail
       sudo rm -f /usr/local/bin/saml2aws
+
+  shellcheck:
+    name: ShellCheck
+    description: Static analysis and linting for shell scripts
+    category: tools
+    type: apt
+    apt_packages: shellcheck
+    check_cmd: shellcheck
+    help_cmd: shellcheck --help
+    docs_url: https://www.shellcheck.net/wiki/Home
 
   starship:
     name: Starship
