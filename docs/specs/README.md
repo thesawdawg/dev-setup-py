@@ -47,6 +47,7 @@ They are most useful when they capture:
 | [`ansible-config/`](ansible-config/) — `devstuff configure ansible`, the ansible.cfg wizard | Complete (v1) |
 | [`lazygit-config/`](lazygit-config/) — `devstuff configure lazygit`, the icons/pager/panels wizard | Complete (v1) |
 | [`syncthing-config/`](syncthing-config/) — the `syncthing` tool plus `devstuff configure syncthing`, device pairing over the local API | Complete (v1; first real install and live wizard run pending) |
+| [`fmhy-picks/`](fmhy-picks/) — five tools (delta, ripgrep, ShellCheck, fzf, OpenCode) and five links chosen from the FMHY wiki, plus the lazygit wizard's delta install offer | Selected 2026-10-13; implementation in progress |
 | [`verbose-mode/`](verbose-mode/) — `-v`/`-vv`, the process-wide verbosity level | Complete (v1) |
 | [`outdated/`](outdated/) — `devstuff outdated`, the read-only installed-vs-latest report | Complete (v1) |
 | [`profile/`](profile/) — `devstuff profile snapshot` / `diff`, a portable description of a machine's tools | Complete (v1: snapshot, diff; apply is its own spec) |
