@@ -66,7 +66,9 @@ didn't have, is stated as exactly that: not as passing.
 
 Refresh with the `gh pr list` command above when this looks stale.
 
-None.
+| PR | Branch → base | What |
+|---|---|---|
+| [#78](https://github.com/thesawdawg/dev-setup-py/pull/78) | `feat/managed-by` → `master` | Manager notes (uv/nvm, system copies) in `list` and the `install` picker; `managed_by` catalog field |
 
 ### Closed as dropped
 
