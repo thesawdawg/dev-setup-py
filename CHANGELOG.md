@@ -1,3 +1,9 @@
+## v2.24.0 (2026-10-13)
+
+### Features
+
+- **tools**: add delta, ripgrep, ShellCheck, fzf and OpenCode; add five FMHY links
+
 ## v2.23.0 (2026-10-13)
 
 ### Features
