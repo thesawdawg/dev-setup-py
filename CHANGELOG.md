@@ -1,3 +1,9 @@
+## v2.23.0 (2026-10-13)
+
+### Features
+
+- **tools**: add tmux, gum and bubblewrap; add Druid, Homepage, Server Box and tmux wiki links
+
 ## v2.22.0 (2026-10-12)
 
 ### Features
