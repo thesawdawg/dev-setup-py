@@ -60,7 +60,9 @@ jobs:
           - claude-code # npm tool, installs nvm first via `requires`
           - codex       # npm tool, installs nvm first via `requires`
           - commitizen  # uvx tool, requires uv
+          - delta       # apt: git-delta
           - devin       # curl|bash installer, ~/.local/bin
+          - fzf         # apt + ~/.bashrc key bindings
           - gh
           - ghgrab      # uvx tool, requires uv
           - git-lfs
@@ -78,13 +80,16 @@ jobs:
           - mkcert
           - nerd-font
           - nvm
+          - opencode    # npm: opencode-ai, requires nvm
           - php
           - pi          # installs nvm first via its declared `requires`
           - pre-commit  # uvx tool, requires uv
           - python      # uv-managed CPython, requires uv
           - ruby        # compiles from source — this job takes ~15 minutes
           - reptyr
+          - ripgrep
           - saml2aws
+          - shellcheck
           - starship
           - syncthing   # official apt repo (v2); no systemd user session in CI
           - tmux

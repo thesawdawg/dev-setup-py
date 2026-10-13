@@ -78,5 +78,6 @@ wizard's own launch check uses one internally too):
 - Keybinding remapping (Open Question 1) and `gui.theme` colours (Open Question 2).
 - `customCommands` authoring — preserved, never edited.
 - Running the type probe at wizard time (Open Question 3).
-- Offering to install delta when it is chosen but missing (Open Question 4) — `delta` is not
-  in `tools.yaml` yet, which is what that would need first.
+- ~~Offering to install delta when it is chosen but missing (Open Question 4)~~ — resolved
+  2026-10-13: `delta` is a catalog tool and the wizard offers to install it through
+  `install_by_key` when a delta pager is chosen (see `docs/specs/fmhy-picks/`).

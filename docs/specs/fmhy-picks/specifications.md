@@ -60,6 +60,9 @@ Runners-up, not selected: Free for Developers, Can I Use, Compiler Explorer, Ter
   - **FR-4b** The block must never make a shell's startup fail or print an error, including when
     fzf has since been uninstalled by other means.
   - **FR-4c** Re-running install must not add a second block.
+  - **FR-4d** fzf counts as installed only when the `fzf` command exists and `~/.bashrc`
+    carries the marker line, so an fzf installed earlier by other means still gets the
+    block on `devstuff install fzf`.
 - **FR-5** `opencode`: `type: npm`, `npm_name: opencode-ai`, `check_cmd: opencode`, requires `nvm`
   (the npm type's default).
 - **FR-6** Every new tool has a CI install-matrix entry in `.github/workflows/test-installs.yml`

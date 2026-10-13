@@ -1621,6 +1621,8 @@ links:
 | `bat` | bat | cat replacement with syntax highlighting and git integration (`devstuff configure bat`) | `bat --help` |
 | `bubblewrap` | bubblewrap + socat | Unprivileged sandbox (bwrap) and network relay (socat) — what Claude Code's /sandbox needs on Linux | `bwrap --help` |
 | `commitizen` | Commitizen | Conventional-commit prompt, semantic version bumping, and changelog generation (`devstuff configure commitizen`) | `cz --help` |
+| `delta` | delta | Syntax-highlighting pager for git diffs — the `devstuff configure lazygit` wizard can install it for you | `delta --help` |
+| `fzf` | fzf | Command-line fuzzy finder — installs the apt package and adds Ctrl-R/Ctrl-T/Alt-C key bindings to `~/.bashrc` | `fzf --help` |
 | `gh` | GitHub CLI | GitHub's official CLI | `gh --help` |
 | `ghgrab` | ghgrab | TUI and CLI for downloading files, folders, and release assets from GitHub and other git forges without cloning | `ghgrab --help` |
 | `git-lfs` | Git LFS | Git extension for versioning large files | `git lfs --help` |
@@ -1630,6 +1632,7 @@ links:
 | `ipython` | IPython | Enhanced interactive Python shell with rich tab completion and magic commands | `ipython --help` |
 | `lazygit` | lazygit | TUI git client for fast, keyboard-driven git workflows (`devstuff configure lazygit`) | `lazygit --help` |
 | `reptyr` | reptyr | Move a running process to another terminal (`devstuff configure reptyr` for permissions) | `reptyr -h` |
+| `ripgrep` | ripgrep | Fast recursive code search (`rg`) | `rg --help` |
 | `llamactl` | llamactl | CLI for managing LlamaDeploy projects and deployments (LlamaIndex) | `llamactl --help` |
 | `llm-checker` | llm-checker | Check LLM compatibility with your hardware | `llm-checker --help` |
 | `lmstudio` | LM Studio | Run large language models locally with a GUI | `lms --help` |
@@ -1642,8 +1645,10 @@ links:
 | `codex` | Codex CLI | OpenAI coding agent for the terminal | `codex --help` |
 | `devin` | Devin CLI | Cognition's AI software engineer, in the terminal | `devin --help` |
 | `hey-dave` | hey-dave | Terminal coding-agent harness that runs D.A.V.E. natively | `dave --help` |
+| `opencode` | OpenCode | Open-source AI coding agent for the terminal | `opencode --help` |
 | `pre-commit` | pre-commit | Git hook manager for automated code quality checks (`devstuff configure pre-commit`) | `pre-commit --help` |
 | `saml2aws` | saml2aws | SAML → AWS STS credentials CLI (Versent) | `saml2aws --help` |
+| `shellcheck` | ShellCheck | Static analysis and linting for shell scripts | `shellcheck --help` |
 | `starship` | Starship | Fast, cross-shell customizable prompt (`devstuff configure starship`) | `starship --help` |
 | `syncthing` | Syncthing | Peer-to-peer file sync daemon (`devstuff configure syncthing` to pair devices) | `syncthing --help` |
 | `tmux` | tmux | Terminal multiplexer — persistent sessions, windows and panes | `tmux -h` |
