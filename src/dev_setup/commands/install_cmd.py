@@ -7,7 +7,7 @@ import click
 import questionary
 from rich.markup import escape
 
-from dev_setup import registry, ui
+from dev_setup import managers, registry, ui
 from dev_setup.base import Tool
 from dev_setup.commands._plan import plan_for, plan_summary
 
@@ -163,10 +163,16 @@ def _install_interactive(*, yes: bool) -> None:
     ui.print_banner()
     tools = registry.all_tools()
 
-    # Probe installed status concurrently — each check shells out.
+    # Probe installed status concurrently — each check shells out. The manager
+    # note rides along so its probes share this pass rather than a second one.
+    def _probe_one(t: Tool) -> tuple[bool, managers.ManagerNote | None]:
+        inst = t.is_installed()
+        return inst, managers.note_for(t, inst)
+
     with ui.spinner("Checking installed packages..."), ThreadPoolExecutor(max_workers=8) as pool:
-        statuses = pool.map(lambda t: t.is_installed(), tools)
-        installed = dict(zip((t.key for t in tools), statuses, strict=True))
+        probed = dict(zip((t.key for t in tools), pool.map(_probe_one, tools), strict=True))
+    installed = {k: v[0] for k, v in probed.items()}
+    notes = {k: v[1] for k, v in probed.items()}
 
     by_cat: dict[str, list[Tool]] = {}
     for t in tools:
@@ -186,11 +192,16 @@ def _install_interactive(*, yes: bool) -> None:
         for t in entries:
             is_inst = installed[t.key]
             missing = [] if is_inst else registry.missing_requires(t)
+            note = notes[t.key]
+            suffix, disabled_override = (
+                managers.picker_hint(note, t) if note is not None else ("", None)
+            )
             desc = t.description
-            if len(desc) > desc_width:
-                desc = desc[: desc_width - 1] + "…"
+            room = max(10, desc_width - len(suffix))
+            if len(desc) > room:
+                desc = desc[: room - 1] + "…"
             if is_inst:
-                disabled = "installed"
+                disabled = disabled_override or "installed"
             elif missing:
                 disabled = f"requires {', '.join(missing)}"
             else:
@@ -201,10 +212,10 @@ def _install_interactive(*, yes: bool) -> None:
             title: str | list[tuple[str, str]] = (
                 [
                     ("class:check", "● " if is_inst else "  "),
-                    ("class:text", f"{t.key:<{key_width}}{desc}"),
+                    ("class:text", f"{t.key:<{key_width}}{desc}{suffix}"),
                 ]
                 if disabled
-                else f"  {t.key:<{key_width}}{desc}"
+                else f"  {t.key:<{key_width}}{desc}{suffix}"
             )
             choices.append(questionary.Choice(
                 title=title,

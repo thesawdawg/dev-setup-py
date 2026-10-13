@@ -64,6 +64,7 @@ src/dev_setup/
 ├── links.yaml       # Bundled link catalog (+ links_catalog.py / links_registry.py / links.schema.json)
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
 ├── verbose.py      # Process-wide -v/-vv level + the stderr logger built on it
+├── managers.py      # Who manages a tool's installs (uv/nvm) — the notes `list` and the `install` picker show
 ├── updates.py      # Update probing + the five-state classifier, shared by `update` and `outdated`
 ├── profile.py      # Profile file format (strict load, deterministic dump) + the seven-state diff classifier — pure
 ├── snapshot.py     # Asks the machine: builds a Profile / the facts `profile.compare` needs
@@ -159,6 +160,22 @@ and `devstuff outdated` share one collector and one classifier. Things that are 
   is free text, so the renderer escapes it (Rich reads `[docs]` as markup).
 - **Exit status is "did the lookup run", not the answer** (the same rule as `run_cmd`), and `--json`
   writes only the array to stdout, even at `-vv`.
+
+**Manager notes** (`managers.py`, spec in `docs/specs/managed-by/`): `list` and the `install` picker
+annotate a tool with the catalog manager that owns its installs — derived from the install type
+(`uvx`/`pip` → uv, `npm` → nvm) or explicit via `managed_by` (python, pi). Things that are load-bearing:
+- **Two signals, both measured on the machine.** The *type signal* reuses `outdated`'s probes —
+  `uv tool list` membership for uvx/pip, `npm ls -g` inside a sourced nvm for npm — so `list` and
+  `outdated` never disagree. The *path signal* is for explicit `managed_by` on other types: resolve
+  the tool's `version_cmd`/`check_cmd` binary and test `Path.is_relative_to` against the manager's
+  own reported roots (`uv tool dir`, `uv python dir`, `$NVM_DIR`). Never `str.startswith` —
+  `uv/python-other` shares a textual prefix with `uv/python` and is not inside it.
+- **`outside` has no install remedy on purpose.** `install_cmd` returns early on `is_installed()`,
+  so "run devstuff install" advice on an installed-outside-uv row would be false. `system-copy` can
+  carry the remedy because the tool reads *not* installed — there, install actually runs.
+- **`unknown` is not `managed`.** A probe that cannot answer (failed `uv tool list`, unparseable
+  npm JSON, missing manager) renders "couldn't confirm", and a `managed_by` typo or absent key
+  yields no note at all rather than a wrong one.
 
 **Profiles** (`profile.py`, `snapshot.py`, `commands/profile_cmd.py`; spec in `docs/specs/profile/`):
 `devstuff profile snapshot` / `diff` describe and compare a machine; `apply` (below) changes one. Things that are
