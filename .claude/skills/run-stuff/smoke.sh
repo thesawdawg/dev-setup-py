@@ -35,7 +35,7 @@ echo "=== devstuff smoke tests ==="
 echo ""
 
 check "version" uv run devstuff version
-check_output "version number" "1\." uv run devstuff version
+check_output "version number" "devstuff [0-9]" uv run devstuff version
 check "list (all)" uv run devstuff list
 check "list core" uv run devstuff list core
 check "list tools" uv run devstuff list tools
