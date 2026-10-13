@@ -62,13 +62,11 @@ When you open or update a PR, say in its body what was **run** and what was **no
 exists but has not had its first real run, or that needs a sudo or Docker the author's machine
 didn't have, is stated as exactly that: not as passing.
 
-## Open PRs (snapshot, 2026-10-12)
+## Open PRs (snapshot, 2026-10-13)
 
 Refresh with the `gh pr list` command above when this looks stale.
 
-| PR | Branch | Base | Notes |
-|---|---|---|---|
-| [#76](https://github.com/thesawdawg/dev-setup-py/pull/76) `tmux`, `gum`, `bubblewrap` (+ `socat`) tools; Druid, Homepage, Server Box and tmux wiki links | `feat/tmux-gum-bubblewrap-links` | `master` | Opened 2026-10-12. Also carries the AGENTS.md #75 follow-up commit. Not yet run: a real install of any of the three (no Docker on the dev host); the CI canary is their first run. |
+None.
 
 ### Closed as dropped
 
@@ -90,3 +88,4 @@ commits rather than merging `master` in.
 | [#60](https://github.com/thesawdawg/dev-setup-py/pull/60) `profile apply`, bundles, docs (merged 2026-10-11, released as 2.13.0) | The first run of `make run-apply-tests` (in `dev/`) in the CI image. The test is written, and its `uv` + pinned-`commitizen` half was run against the real installers in an isolated `HOME`; the `yq` half and the container run have not happened. Tick the last box under M3 in `docs/ROADMAP.md` when it passes. |
 | [#62](https://github.com/thesawdawg/dev-setup-py/pull/62) plan preview, live progress view and the guided `add` wizard (merged 2026-10-11, released as 2.14.0) | (1) About ten older sites still put error text into `ui.error`/`ui.dim` unescaped, which raises `MarkupError` on a `[/…]`-shaped string: `configure_cmd`, `doctor_cmd`, `run_cmd`, `skills_cmd`, the commitizen and reptyr wizards, `add_cmd`. Escape with `rich.markup.escape` when touching one (see `docs/specs/plan-and-progress/`, F-1). (2) Not run live: `update` and its picker, the `install`/`remove` pickers, and the `npm`, `apt` and `git` installers under the progress view; unit-tested only. (3) Open design points, deliberately unchanged: a missing requirement asks three questions, and the `add` step counter reads `1/7` then `2/8`. |
 | [#75](https://github.com/thesawdawg/dev-setup-py/pull/75) `syncthing` tool and `configure syncthing` pairing wizard (merged 2026-10-12, released as 2.22.0) | (1) The first real `devstuff install syncthing`: the weekly `test-installs.yml` canary is its first run, where the no-user-session branch is the expected path. (2) The interactive wizard against a live user service, and `sudo loginctl enable-linger` itself. Both are unit-tested only, with a fake API client; the real-binary tests drive two throwaway daemons, not the wizard. When either happens, update "What was run and what was not" in `docs/specs/syncthing-config/development-plan.md` and the status row in `docs/specs/README.md`. |
+| [#76](https://github.com/thesawdawg/dev-setup-py/pull/76) `tmux`, `gum`, `bubblewrap` (+ `socat`) tools; Druid, Homepage, Server Box and tmux wiki links (merged 2026-10-13, released as 2.23.0) | The first real install of `tmux`, `gum` and `bubblewrap`: the dev host has no Docker, so the weekly `test-installs.yml` canary is their first run. The bubblewrap remove refusal and both-binaries check are tested with fake `apt-get`/`sudo` only. |
