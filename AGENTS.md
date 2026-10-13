@@ -66,7 +66,9 @@ didn't have, is stated as exactly that: not as passing.
 
 Refresh with the `gh pr list` command above when this looks stale.
 
-None.
+| PR | Branch | Base | Notes |
+|---|---|---|---|
+| [#77](https://github.com/thesawdawg/dev-setup-py/pull/77) `delta`, `ripgrep`, `shellcheck`, `fzf`, `opencode` tools; lazygit wizard's delta install offer; five FMHY links | `feat/fmhy-picks` | `master` | Opened 2026-10-13. Also carries the AGENTS.md #76 follow-up commit. Not yet run: a real install of any of the five (no Docker on the dev host), so the CI canary is their first run; the lazygit wizard under a pty. |
 
 ### Closed as dropped
 
