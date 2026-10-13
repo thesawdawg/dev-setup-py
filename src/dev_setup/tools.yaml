@@ -802,6 +802,11 @@ tools:
     docs_url: https://docs.astral.sh/uv/guides/install-python/
     requires:
       - uv
+    managed_by: uv
+    # The check is a shell expression and the managed executable is python3, not
+    # the key — version_cmd gives get_version (and managers' path signal) a real
+    # binary to resolve.
+    version_cmd: python3
     install_script: |
       set -euo pipefail
       uv python install --default
@@ -858,6 +863,8 @@ tools:
       npm uninstall -g @earendil-works/pi-coding-agent
     requires:
       - nvm
+    managed_by: nvm
+    version_cmd: pi
 
   ripgrep:
     name: ripgrep

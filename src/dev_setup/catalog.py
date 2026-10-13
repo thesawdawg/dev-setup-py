@@ -40,6 +40,7 @@ SUPPORTED_FIELDS = {
     "sha256",
     "install_script",
     "remove_script",
+    "managed_by",
 }
 
 
@@ -121,6 +122,13 @@ def validate_catalog(raw: Any, *, source: Path | str = "<catalog>") -> dict[str,
                 item["requires"] = []
         elif not isinstance(requires, list) or not all(isinstance(v, str) for v in requires):
             raise CatalogError(f"{source}: tool {key!r} requires must be a list of strings")
+
+        managed_by = item.get("managed_by")
+        if managed_by is not None:
+            if not isinstance(managed_by, str) or not VALID_KEY.match(managed_by):
+                raise CatalogError(f"{source}: tool {key!r} managed_by must be a tool key")
+            if managed_by == key:
+                raise CatalogError(f"{source}: tool {key!r} cannot be managed_by itself")
 
         validated[key] = item
 

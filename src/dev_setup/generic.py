@@ -156,6 +156,9 @@ class GenericTool(Tool):
     remove_script: str = ""
     help_cmd: str = ""
     docs_url: str = ""
+    # Catalog key of the tool that manages this one's installs (uv, nvm, …) when
+    # the install type doesn't imply one — see managers.py for what it drives.
+    managed_by: str = ""
     requires: list | None = None
     builtin: bool = False
 

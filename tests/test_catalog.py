@@ -236,6 +236,64 @@ def test_unset_uv_fields_are_not_persisted():
     assert "uv_python" not in d
 
 
+# -- managed_by -----------------------------------------------------------------
+
+
+def _mb_catalog(**extra):
+    return {
+        "version": 1,
+        "tools": {"t": {"name": "T", "type": "bash", "install_script": "true", **extra}},
+    }
+
+
+def test_managed_by_accepted_and_round_trips():
+    data = {"name": "T", "type": "bash", "install_script": "true", "managed_by": "uv"}
+
+    tool = GenericTool.from_dict(data, "t")
+
+    assert tool.managed_by == "uv"
+    assert tool.to_dict()["managed_by"] == "uv"
+
+
+def test_managed_by_omitted_when_unset():
+    tool = GenericTool.from_dict({"name": "T", "type": "bash", "install_script": "x"}, "t")
+
+    assert tool.managed_by == ""
+    assert "managed_by" not in tool.to_dict()
+
+
+@pytest.mark.parametrize(
+    "value,match",
+    [
+        (5, "managed_by must be a tool key"),
+        (["uv"], "managed_by must be a tool key"),
+        ("Not A Key!", "managed_by must be a tool key"),
+        ("t", "cannot be managed_by itself"),
+    ],
+)
+def test_managed_by_rejects_bad_values(value, match):
+    with pytest.raises(CatalogError, match=match):
+        catalog.validate_catalog(_mb_catalog(managed_by=value))
+
+
+def test_managed_by_may_name_a_key_not_in_the_same_catalog():
+    """A user catalog can point at bundled keys — cross-file existence is not checked."""
+    tools = catalog.validate_catalog(_mb_catalog(managed_by="some-manager"))
+
+    assert tools["t"]["managed_by"] == "some-manager"
+
+
+def test_bundled_managed_by_keys_exist_and_match_the_spec(isolated_catalog):
+    registry.init()
+    bundled = {t.key: t for t in registry.all_tools()}
+
+    for tool in bundled.values():
+        assert tool.managed_by == "" or tool.managed_by in bundled
+    assert bundled["python"].managed_by == "uv"
+    assert bundled["pi"].managed_by == "nvm"
+    assert bundled["python"].version_cmd == "python3"
+
+
 # -- CI matrix / catalog drift ---------------------------------------------------
 
 

@@ -211,6 +211,7 @@ devstuff list --available        # only packages not yet installed
 ```
 
 Output columns: status (✔/✘), package key, description, install type, version (if installed), help command.
+Tools another catalog tool manages or could manage get a second line — `✓ managed by uv`, `installed outside nvm`, `uv can manage this`, or a warning that a system copy (e.g. `/usr/bin/python3`) exists outside the manager — probed against the machine, not inferred from the catalog.
 
 ---
 
@@ -1702,6 +1703,7 @@ tools:
 | `help_cmd` | no | Command shown in `list` under the package entry |
 | `docs_url` | no | URL opened by `devstuff docs <key>` |
 | `requires` | no | List of package keys that must already be installed |
+| `managed_by` | no | Catalog key of the tool that manages this one's installs (e.g. `uv`, `nvm`). Implied for `npm` → `nvm` and `pip`/`uvx` → `uv`; set it only when the type doesn't imply one |
 | `npm_name` | npm | npm package name |
 | `pip_name` | pip | PyPI package name. Extras work as-is: `pip_name: "ansible-lint[lock]"` |
 | `uv_with` | no (pip/uvx) | Extra packages installed into the tool's environment (`uv tool install --with`) |
