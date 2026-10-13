@@ -1,3 +1,9 @@
+## v2.25.0 (2026-10-13)
+
+### Features
+
+- **list**: note which catalog tool manages, or could manage, each tool
+
 ## v2.24.0 (2026-10-13)
 
 ### Features
