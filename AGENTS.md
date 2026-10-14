@@ -66,7 +66,9 @@ didn't have, is stated as exactly that: not as passing.
 
 Refresh with the `gh pr list` command above when this looks stale.
 
-None.
+| PR | Branch → base | What |
+|---|---|---|
+| [#79](https://github.com/thesawdawg/dev-setup-py/pull/79) | `fix/install-ci-transitive-requires` → `master` | Install canary installs the whole `requires` closure (fixes #74, `ansible-vault` needing uv) |
 
 ### Closed as dropped
 
