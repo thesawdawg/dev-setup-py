@@ -12,7 +12,7 @@ import shutil
 
 import pytest
 
-from dev_setup import registry
+from dev_setup import generic, registry
 
 # Extra executables a tool must put on PATH beyond its own check_cmd.
 #
@@ -41,11 +41,18 @@ def _builtin_tools():
     return [t for t in registry.all_tools() if t.builtin and t.key not in _SKIP]
 
 
-def _ensure_installed(key: str) -> None:
-    """Install a dependency tool if it is not already present."""
-    tool = registry.get(key)
-    if tool and not tool.is_installed():
-        tool.install()
+def _install_requires(tool) -> None:
+    """Install the tool's whole requires closure, deepest first.
+
+    Direct requires aren't enough: ansible-vault needs ansible, which needs uv.
+    """
+    for key in registry.missing_requires(tool):
+        dep = registry.get(key)
+        if dep is None:
+            pytest.fail(f"{tool.key} requires {key!r}, which is not in the catalog")
+        if not dep.is_installed():  # an earlier dep may have brought it in
+            dep.install()
+            generic.forget_probes()
 
 
 @pytest.mark.integration
@@ -53,8 +60,7 @@ def _ensure_installed(key: str) -> None:
 def test_install(tool):
     """Each builtin tool must install and report is_installed() == True afterwards."""
     # Satisfy declared inter-tool dependencies before attempting the install
-    for dep_key in tool.requires:
-        _ensure_installed(dep_key)
+    _install_requires(tool)
 
     if tool.is_installed():
         pytest.skip(f"{tool.key} is already present in this environment")
