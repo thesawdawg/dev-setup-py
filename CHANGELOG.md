@@ -1,3 +1,14 @@
+## v2.26.0 (2026-10-19)
+
+### Features
+
+- **tools**: add btop and the 'devstuff configure btop' wizard
+
+### Bug Fixes
+
+- **btop**: don't escape questionary prompts
+- **btop**: escape check details at display, getcap parsing, rewrite detection
+
 ## v2.25.0 (2026-10-13)
 
 ### Features
