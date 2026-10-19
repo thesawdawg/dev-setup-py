@@ -60,7 +60,7 @@ def _report(found: detect.Btop) -> None:
             else "key set unknown — every setting is offered"
         )
         ui.dim(f"btop {found.version or '?'} · {keys} · {len(found.themes)} themes")
-    ui.dim(f"Config: {found.path}")
+    ui.dim(f"Config: {escape(str(found.path))}")
 
     if found.has():
         ui.dim("Existing config — values btop would reject are shown as their defaults.")
@@ -130,7 +130,11 @@ def _show_checks(report: validate.Report, *, quiet_when_ok: bool = False) -> boo
     ui.console.print()
     for check in report.checks:
         mark = "[green]✔[/]" if check.ok else "[red]✖[/]"
-        ui.console.print(f"  {mark} {check.name}  [dim]{check.detail}[/]")
+        # Details carry outside text (config values, log lines, output tails) —
+        # escape here at display, once, so `[/x]` can't reach Rich as markup.
+        ui.console.print(
+            f"  {mark} {escape(check.name)}  [dim]{escape(check.detail)}[/]"
+        )
     ui.console.print()
     return report.ok
 
@@ -332,13 +336,13 @@ def _capability(found: detect.Btop) -> None:
     why = capability.refusal(path)
     if why is not None:
         ui.dim(f"cap_perfmon is not offered: {escape(why)}")
-        ui.dim(f"  to grant it yourself:  {grant_cmd}")
+        ui.dim(f"  to grant it yourself:  {escape(grant_cmd)}")
         return
 
     has = capability.has_perfmon(path)
     if has is None:
         ui.dim("Could not tell whether cap_perfmon is set on the btop binary.")
-        ui.dim(f"  grant it yourself with:  {grant_cmd}")
+        ui.dim(f"  grant it yourself with:  {escape(grant_cmd)}")
         return
     if has:
         ui.dim("cap_perfmon is already set — CPU watts and Intel GPU stats can be read.")
@@ -357,7 +361,7 @@ def _capability(found: detect.Btop) -> None:
     ui.dim("user who runs this binary, and an apt upgrade replaces the binary and drops")
     ui.dim("it — re-run this wizard then. The grant is verified with getcap; whether")
     ui.dim("watts then appear is not (containers and VMs often hide power counters).")
-    if not ui.confirm(f"Run `{grant_cmd}`?", default=False):
+    if not ui.confirm(f"Run `{escape(grant_cmd)}`?", default=False):
         return
     try:
         capability.grant(path)
@@ -389,7 +393,7 @@ _MENU = {
 
 def run(*, target: Path | None = None) -> BtopConfig | None:
     """Walk the wizard. Returns the config, or None if the user cancelled."""
-    found = detect.inspect()
+    found = detect.inspect(on_slow=lambda msg: ui.dim(f"  {msg}"))
     cfg = detect.suggest(found)  # also fills found.invalid_existing
     if target is not None:
         cfg.target = target
@@ -463,16 +467,16 @@ def run(*, target: Path | None = None) -> BtopConfig | None:
             if lines:
                 ui.code_block("\n".join(lines), language="diff")
             ui.dim("  A timestamped backup is kept.")
-            if not ui.confirm(f"Overwrite {path}?", default=False):
+            if not ui.confirm(f"Overwrite {escape(str(path))}?", default=False):
                 ui.dim("Cancelled — nothing was written.")
                 return None
 
     if do_write:
         written, saved_backup = save(cfg, found, path)
         ui.console.print()
-        ui.success(f"Saved {written}")
+        ui.success(f"Saved {escape(str(written))}")
         if saved_backup:
-            ui.dim(f"  Previous version backed up to {saved_backup.name}")
+            ui.dim(f"  Previous version backed up to {escape(saved_backup.name)}")
 
     _after_save(cfg, found, path, target)
     _capability_if(found, target)
@@ -496,12 +500,12 @@ def _after_save(cfg: BtopConfig, found: detect.Btop, written: Path, target) -> N
             "it before quitting overwrites this file."
         )
     if target is not None:
-        ui.dim(f"  Copy it to {found.path} to use it.")
+        ui.dim(f"  Copy it to {escape(str(found.path))} to use it.")
         if _version_tuple(found.version) >= (1, 4):
-            ui.dim(f"  Or try it directly:  btop -c {written}")
+            ui.dim(f"  Or try it directly:  btop -c {escape(str(written))}")
         # 1.3.0 has no -c flag, so no try-it hint is possible there.
     ui.console.print()
-    ui.dim(f"Re-run any time:  devstuff configure btop   ·   edit: {written}")
+    ui.dim(f"Re-run any time:  devstuff configure btop   ·   edit: {escape(str(written))}")
     ui.console.print()
 
 

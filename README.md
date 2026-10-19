@@ -566,7 +566,7 @@ varies a lot, and the wizards say so rather than implying more than they know:
 |------|-----------------------------|--------------------------------------|
 | `ansible` | unknown keys, unknown sections, wrong types | **whether ansible actually *read* each setting** (`ansible-config dump`) — a key in a retired section validates and does nothing |
 | `bat` | a bad `--style` component (hard error) | **theme names** — a bad theme is a stderr warning and exit 0, so a typo silently gives you the default forever |
-| `btop` | reset-table value types and ranges (rewrites the file) | **the values it *keeps* silently** — a bad enum or unknown theme is stored verbatim and falls back without a word, so a live launch can only see half the problem |
+| `btop` | wrong types, out-of-range `update_ms`, bad graph symbols — logged, reset to the default, and the file rewritten | **the values it *keeps* silently** — a bad enum or unknown theme is stored verbatim and falls back without a word, so a live launch can only see half the problem |
 | `docker` | key typos, malformed CIDRs, numeric log options | **five configs `dockerd --validate` accepts that stop every container from starting** |
 | `lazygit` | wrong types (refuses to start) | **unknown keys and invalid enum values** — both silently ignored |
 | `pre-commit` | the file's shape | **hook ids** — `validate-config` never opens a repository |
@@ -1036,9 +1036,10 @@ btop's config validation comes in three classes, two of them silent: a wrong typ
 is *reset* on load (and btop rewrites the whole file when it happens), an unknown
 `shown_boxes` token is reset *without* a log line, and a bad enum value or unknown theme is
 *kept verbatim* and silently fallen back from. The wizard checks all three: `verify` runs
-offline before every save, and an explicit "check" starts the real btop in a hidden
-terminal and diffs what it saved back — and says so, because a passing launch cannot prove
-an enum value or the theme, which btop keeps silently.
+offline before every save, and the "check" menu item — also run once at save time — starts
+the real btop in a hidden terminal and diffs what it saved back. It says what that proves,
+too: a passing launch cannot vouch for an enum value or the theme, which btop keeps
+silently.
 
 It also works around the file itself: btop rewrites `btop.conf` — every key and its own
 comments — whenever the header isn't this version's, a value was rejected, or you changed

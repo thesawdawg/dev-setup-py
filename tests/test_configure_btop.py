@@ -388,8 +388,19 @@ def test_rejections_reports_a_key_that_vanished_from_a_rewrite():
 
 
 def test_rejections_never_flags_a_key_from_a_file_btop_left_alone():
+    """A header-carrying candidate that comes back byte-identical is a file btop
+    left alone — "rewritten" is `after != candidate`, not the `#?` header, which
+    our own candidates carry too."""
     candidate = "#? Config file for btop v.1.4.7\nmy_own_key = 1\n"
     assert validate.rejections(candidate, candidate) == []
+
+
+def test_rejections_flags_a_vanished_key_without_a_header_signal():
+    """And the header itself is not the discriminator: a rewritten file lacking
+    a candidate key is a rejection whatever its first line says."""
+    candidate = f"{HEADER_146}\nnot_a_key = 1\n"
+    after = f"{HEADER_146}\nupdate_ms = 2000\n"
+    assert [r.key for r in validate.rejections(candidate, after)] == ["not_a_key"]
 
 
 def test_a_log_warning_alone_is_not_a_rejection():
@@ -408,21 +419,47 @@ def test_a_rejection_carries_the_matching_log_lines():
     assert rej.log == (log.strip(),)
 
 
-def test_live_report_escapes_the_output_tail():
-    """Outside text — a log line like `[/usr/bin/x]` is a Rich closing tag."""
+def _console_out(monkeypatch):
     import io
 
     from rich.console import Console
 
+    out = io.StringIO()
+    monkeypatch.setattr(
+        wizard.ui, "console", Console(file=out, force_terminal=False, width=120)
+    )
+    return out
+
+
+def test_check_details_with_markup_shaped_values_render(monkeypatch):
+    """Outside text — a value like `[/x]` is a Rich closing tag and would raise
+    MarkupError unescaped; `[bold]` would silently vanish. Escaping happens once,
+    at display in `_show_checks`."""
+    f = existing(f'{HEADER_146}\ncolor_theme = "[/x]"\nclock_format = "[bold]"\n')
+    config = detect.from_existing(f)
+    report = validate.verify(config, f)
+    assert not report.ok  # the theme check names the bad value
+    out = _console_out(monkeypatch)
+    assert not wizard._show_checks(report)
+    assert "[/x]" in out.getvalue()  # literal — escaped, not parsed as markup
+
+    # A detail carrying `[bold]` would render as nothing without the escape.
+    report = validate.Report(
+        "1.4.6", [validate.Check("x", False, "value [bold] here")]
+    )
+    out = _console_out(monkeypatch)
+    wizard._show_checks(report)
+    assert "[bold]" in out.getvalue()
+
+
+def test_a_markup_shaped_output_tail_renders(monkeypatch):
     result = validate.LiveResult(
         started=False, exit_code=1, output="oops [/usr/bin/x] blew up"
     )
     report = validate.live_report(result, found())
-    check = report.checks[0]
-    assert not check.ok and "\\[/usr/bin/x]" in check.detail
-    Console(file=io.StringIO(), force_terminal=False).print(
-        f"  [red]✖[/] {check.name}  [dim]{check.detail}[/]"
-    )  # must not raise MarkupError
+    out = _console_out(monkeypatch)
+    assert not wizard._show_checks(report)
+    assert "[/usr/bin/x]" in out.getvalue()
 
 
 # -- detect ----------------------------------------------------------------------
@@ -515,6 +552,24 @@ def test_defaults_failure_means_keys_unknown(monkeypatch):
     assert detect.defaults_text("/x/btop") == ""
 
 
+def test_on_slow_fires_only_on_the_first_run_fallback(monkeypatch):
+    fired = []
+    monkeypatch.setattr(
+        detect, "_run",
+        lambda cmd: subprocess.CompletedProcess(cmd, 0, stdout="#? hdr\n", stderr=""),
+    )
+    assert detect.defaults_text("/x/btop", on_slow=fired.append) == "#? hdr\n"
+    assert fired == []  # the fast path never warns about a pause it didn't take
+
+    monkeypatch.setattr(
+        detect, "_run",
+        lambda cmd: subprocess.CompletedProcess(cmd, 1, stdout="", stderr=""),
+    )
+    monkeypatch.setattr(detect, "_first_run_config", lambda binary: "text")
+    assert detect.defaults_text("/x/btop", on_slow=fired.append) == "text"
+    assert len(fired) == 1 and "hidden terminal" in fired[0]
+
+
 # -- capability ------------------------------------------------------------------
 
 
@@ -555,6 +610,31 @@ def test_has_perfmon_reads_getcap(monkeypatch):
     monkeypatch.setattr(
         capability.subprocess, "run",
         lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout="", stderr=""),
+    )
+    assert capability.has_perfmon("/usr/bin/btop") is False
+
+
+def test_has_perfmon_reads_combined_and_old_getcap_forms(monkeypatch):
+    """`cap_perfmon=` alone misses a combined capability set and the older
+    `= cap_perfmon+ep` getcap form."""
+    monkeypatch.setattr(capability, "tool", lambda name: "/usr/sbin/getcap")
+
+    def out(stdout):
+        return lambda *a, **k: subprocess.CompletedProcess(
+            a[0], 0, stdout=stdout, stderr=""
+        )
+
+    monkeypatch.setattr(
+        capability.subprocess, "run",
+        out("/usr/bin/btop cap_perfmon,cap_net_raw=ep\n"),
+    )
+    assert capability.has_perfmon("/usr/bin/btop") is True
+    monkeypatch.setattr(
+        capability.subprocess, "run", out("/usr/bin/btop = cap_perfmon+ep\n")
+    )
+    assert capability.has_perfmon("/usr/bin/btop") is True
+    monkeypatch.setattr(
+        capability.subprocess, "run", out("/usr/bin/btop cap_net_raw=ep\n")
     )
     assert capability.has_perfmon("/usr/bin/btop") is False
 
@@ -611,7 +691,7 @@ def test_wizard_run_with_output_saves_and_skips_capability(tmp_path, monkeypatch
     monkeypatch.setattr(wizard, "_capability", lambda f: calls.append(f))
     monkeypatch.setattr(
         wizard.detect, "inspect",
-        lambda: detect.Btop(installed=True, binary="/x/btop", version="1.4.6"),
+        lambda **kw: detect.Btop(installed=True, binary="/x/btop", version="1.4.6"),
     )
     monkeypatch.setattr(
         wizard.detect, "suggest",

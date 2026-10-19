@@ -29,8 +29,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from rich.markup import escape
-
 from dev_setup.configure.btop import detect, render
 from dev_setup.configure.btop.model import (
     BOXES,
@@ -184,12 +182,12 @@ def rejections(
       a rejected value), or
     - a key that vanished from a *rewritten* file — btop only writes keys it
       knows, so a vanished key is one it does not read. A file btop left alone
-      is byte-identical, so nothing can "vanish" from it; the `#?` header is how
-      a rewrite is told apart.
+      is byte-identical to the candidate, so "rewritten" is simply `after !=
+      candidate` — not the `#?` header, which our own candidates carry too.
     """
     before = {ln.key: ln for ln in render.parse(candidate_text) if ln.key is not None}
     after = {ln.key: ln for ln in render.parse(after_text) if ln.key is not None}
-    rewritten = after_text.startswith("#?")
+    rewritten = after_text != candidate_text
 
     out: list[Rejection] = []
     for key, line in before.items():
@@ -259,15 +257,13 @@ def live_report(result: LiveResult | None, found: detect.Btop) -> Report:
         "btop starts with this config",
         result.started,
         "started and ran" if result.started else
-        "btop did not start — " + escape(
-            (result.output.strip().splitlines() or ["no output"])[-1]
-        ),
+        "btop did not start — "
+        + (result.output.strip().splitlines() or ["no output"])[-1],
     ))
     if result.started:
         if result.rejections:
             detail = "; ".join(
-                f"{r.key} = {escape(r.wrote)} → btop kept "
-                f"{escape(r.kept) if r.kept else '(key gone)'}"
+                f"{r.key} = {r.wrote} → btop kept {r.kept or '(key gone)'}"
                 for r in result.rejections
             )
             checks.append(Check("btop kept what was written", False, detail))
