@@ -361,7 +361,8 @@ def _capability(found: detect.Btop) -> None:
     ui.dim("user who runs this binary, and an apt upgrade replaces the binary and drops")
     ui.dim("it — re-run this wizard then. The grant is verified with getcap; whether")
     ui.dim("watts then appear is not (containers and VMs often hide power counters).")
-    if not ui.confirm(f"Run `{escape(grant_cmd)}`?", default=False):
+    # questionary prompts are not Rich markup — escaping would print a literal `\[`.
+    if not ui.confirm(f"Run `{grant_cmd}`?", default=False):
         return
     try:
         capability.grant(path)
@@ -467,7 +468,7 @@ def run(*, target: Path | None = None) -> BtopConfig | None:
             if lines:
                 ui.code_block("\n".join(lines), language="diff")
             ui.dim("  A timestamped backup is kept.")
-            if not ui.confirm(f"Overwrite {escape(str(path))}?", default=False):
+            if not ui.confirm(f"Overwrite {path}?", default=False):
                 ui.dim("Cancelled — nothing was written.")
                 return None
 
