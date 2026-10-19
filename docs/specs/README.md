@@ -46,6 +46,7 @@ They are most useful when they capture:
 | [`bat-config/`](bat-config/) — `devstuff configure bat`, the theme and decoration wizard | Complete (v1) |
 | [`ansible-config/`](ansible-config/) — `devstuff configure ansible`, the ansible.cfg wizard | Complete (v1) |
 | [`lazygit-config/`](lazygit-config/) — `devstuff configure lazygit`, the icons/pager/panels wizard | Complete (v1) |
+| [`btop-config/`](btop-config/) — the `btop` tool plus `devstuff configure btop`, the btop.conf wizard and the `cap_perfmon` offer | Complete (v1; first real install is the CI canary, and grant/revoke are unit-tested only — no sudo on the dev host) |
 | [`syncthing-config/`](syncthing-config/) — the `syncthing` tool plus `devstuff configure syncthing`, device pairing over the local API | Complete (v1; first real install and live wizard run pending) |
 | [`fmhy-picks/`](fmhy-picks/) — five tools (delta, ripgrep, ShellCheck, fzf, OpenCode) and five links chosen from the FMHY wiki, plus the lazygit wizard's delta install offer | Implemented 2026-10-13 (first real installs pending: the CI canary is their first run) |
 | [`managed-by/`](managed-by/) — manager notes in `list` and the `install` picker (`managed_by` field + uv/nvm probes + system-copy flags) | Implemented 2026-10-13 |
