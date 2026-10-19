@@ -24,6 +24,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -129,10 +130,17 @@ def _first_run_config(binary_path: str) -> str:
         return ""
 
 
-def defaults_text(binary_path: str) -> str:
+def defaults_text(
+    binary_path: str, *, on_slow: Callable[[str], None] | None = None
+) -> str:
     result = _run([binary_path, "--default-config"])
     if result is not None and result.returncode == 0 and result.stdout.startswith("#?"):
         return result.stdout
+    if on_slow is not None:
+        on_slow(
+            "this btop has no --default-config — asking it for its defaults in "
+            "a hidden terminal (~3s)…"
+        )
     return _first_run_config(binary_path)
 
 
@@ -312,7 +320,9 @@ def suggest(found: Btop) -> BtopConfig:
 # ---------------------------------------------------------------------------
 
 
-def inspect() -> Btop:
+def inspect(*, on_slow: Callable[[str], None] | None = None) -> Btop:
+    """Read the machine. `on_slow` is called once if the ~3s first-run probe is
+    about to run, so the caller can say why the wizard paused."""
     found = Btop()
     found.binary = binary() or ""
     found.installed = bool(found.binary)
@@ -320,7 +330,7 @@ def inspect() -> Btop:
 
     if found.installed:
         found.version = version(found.binary)
-        text = defaults_text(found.binary)
+        text = defaults_text(found.binary, on_slow=on_slow)
         if text:
             found.header, found.keys, found.defaults = _parse_defaults(text)
         found.themes = themes(found)

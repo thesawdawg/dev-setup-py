@@ -21,6 +21,7 @@ Three things bound what this module does:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -62,8 +63,13 @@ def has_perfmon(path: str) -> bool | None:
         return None
     if result.returncode != 0:
         return None
-    # getcap prints e.g. `/usr/bin/btop cap_perfmon=ep`; nothing when unset.
-    return f"{CAP}=" in result.stdout
+    # getcap prints e.g. `/usr/bin/btop cap_perfmon=ep` — or a combined set like
+    # `cap_perfmon,cap_net_raw=ep`, or `= cap_perfmon+ep` on older versions; and
+    # nothing when unset. Match the name, not `cap_perfmon=` glued to the flags.
+    for line in result.stdout.splitlines():
+        if line.startswith(path):
+            return bool(re.search(rf"\b{CAP}\b", line[len(path):]))
+    return False
 
 
 def refusal(path: str) -> str | None:
