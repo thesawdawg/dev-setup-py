@@ -57,6 +57,12 @@ CONFIGURATORS: dict[str, Configurator] = {
         description="Theme, decorations, paging and the man-page/cat shell integration",
         module="dev_setup.configure.bat.wizard",
     ),
+    "btop": Configurator(
+        key="btop",
+        label="btop",
+        description="Theme, boxes, graph glyphs, update rate and the process list in btop.conf",
+        module="dev_setup.configure.btop.wizard",
+    ),
     "commitizen": Configurator(
         key="commitizen",
         label="Commitizen",

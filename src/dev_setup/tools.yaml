@@ -145,6 +145,16 @@ tools:
       set -euo pipefail
       sudo rm -f /usr/local/bin/bat
 
+  btop:
+    name: btop
+    description: Resource monitor - CPU, memory, disks, network, processes and GPUs
+    category: tools
+    type: apt
+    apt_packages: btop
+    check_cmd: btop
+    help_cmd: btop --help
+    docs_url: https://github.com/aristocratos/btop
+
   bubblewrap:
     name: bubblewrap + socat
     description: Unprivileged sandbox (bwrap) and its network relay (socat) - what Claude Code's /sandbox needs on Linux

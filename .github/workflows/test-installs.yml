@@ -56,6 +56,7 @@ jobs:
           - arcane-cli  # release binary into /usr/local/bin
           - aws
           - bat
+          - btop        # apt
           - bubblewrap  # apt: bubblewrap + socat for Claude Code /sandbox
           - claude-code # npm tool, installs nvm first via `requires`
           - codex       # npm tool, installs nvm first via `requires`
