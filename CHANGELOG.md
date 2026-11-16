@@ -1,3 +1,14 @@
+## v2.27.0 (2026-11-16)
+
+### Features
+
+- **list**: tag tools as sudo-required vs user-level installs
+
+### Bug Fixes
+
+- **install**: dedupe apt refreshes, fix catalog install/update defects
+- **install**: harden installs against hangs, add subprocess logging
+
 ## v2.26.0 (2026-10-19)
 
 ### Features
