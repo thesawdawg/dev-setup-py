@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import click
 
-from dev_setup import managers, registry, ui
+from dev_setup import generic, managers, registry, ui
 from dev_setup.base import Tool
 
 _MAX_WORKERS = 8
@@ -75,7 +75,11 @@ def list_cmd(show_filter: str, category: str) -> None:
                 line = managers.list_line(note, tool)
                 if line:
                     desc += f"\n{line}"
-            tbl.add_row(icon, tool.key, desc, tool.install_type, version)
+            sudo_tag = "sudo" if generic.needs_sudo(tool) else "user"
+            tbl.add_row(
+                icon, tool.key, desc,
+                f"{tool.install_type} [{ui.GRAY}]· {sudo_tag}[/]", version,
+            )
 
         ui.console.print(tbl)
         ui.console.print()

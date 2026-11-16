@@ -130,9 +130,10 @@ def _remove_interactive(*, yes: bool) -> None:
     for t in sorted(installed, key=lambda t: t.key):
         deps = registry.dependents(t.key)
         annotation = f"  ⚠ required by: {', '.join(deps)}" if deps else ""
+        sudo_tag = " · sudo" if generic.needs_sudo(t, "remove") else " · user"
         # Plain-string title: a token list would render verbatim and never pick
         # up the `highlighted` style, leaving the cursor invisible.
-        title = f"{t.key:<{key_width}}{t.description}{annotation}"
+        title = f"{t.key:<{key_width}}{t.description}{annotation}{sudo_tag}"
         choices.append(questionary.Choice(title=title, value=t.key, checked=False))
 
     selected = ui.checkbox(
