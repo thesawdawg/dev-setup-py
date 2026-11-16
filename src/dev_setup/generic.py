@@ -477,8 +477,24 @@ class GenericTool(Tool):
             self.check_cmd if _is_simple_command(self.check_cmd or "") else ""
         ) or _type_cmd(self)
 
+        # A version_cmd with arguments is the whole probe, run verbatim
+        # (`version_cmd: /usr/local/go/bin/go version` — go's version printer
+        # is a subcommand).
+        if cmd and not _is_simple_command(cmd):
+            try:
+                r = _probe(shlex.split(cmd), capture_output=True, text=True, timeout=5)
+                if r.returncode == 0 and r.stdout.strip():
+                    return r.stdout.strip().splitlines()[0]
+            except Exception:
+                pass
+            return "installed"
+
         if cmd and shutil.which(cmd):
-            for flag in ["--version", "-v", "version"]:
+            # No bare `version` positional here: a binary that treats it as
+            # input has side effects — `mkcert version` parses it as a
+            # hostname and generates cert files in the CWD. Subcommand-style
+            # version printers must use an argumented version_cmd instead.
+            for flag in ["--version", "-v"]:
                 try:
                     r = _probe([cmd, flag], capture_output=True, text=True, timeout=5)
                     if r.returncode == 0 and r.stdout.strip():
@@ -770,8 +786,11 @@ def forget_probes() -> None:
     """Drop every memoised probe, so the next read of the machine is a fresh one.
 
     Call it after anything that installs, updates or removes a tool and before reading state
-    that the change could have affected.
+    that the change could have affected. Also drops the apt-lists freshness memo — a script
+    may have added a repo, which the next apt install can only see after a real update.
     """
+    global _apt_refreshed_at
+    _apt_refreshed_at = 0.0
     for memo in _MEMOS:
         memo.cache_clear()  # type: ignore[attr-defined]
 
@@ -1254,22 +1273,40 @@ def _npm_global_installed(pkg: str) -> bool:
         return False
 
 
+# Last successful `apt-get update` this process. Batch installs used to refresh
+# the lists once per apt tool — N packages cost N updates at 5-30s each. Lists
+# younger than this are fresh enough for anything the same command run installs.
+_APT_REFRESH_MIN_S = 600.0
+_apt_refreshed_at: float = 0.0
+
+
 def _run_apt_update() -> None:
     """Refresh apt's package lists. Deliberately non-fatal: a failing mirror shouldn't
-    stop an install of a package that may already be cached."""
+    stop an install of a package that may already be cached. Skipped if the lists
+    were refreshed within this process in the last few minutes."""
+    global _apt_refreshed_at
     from dev_setup import ui
+    if time.monotonic() - _apt_refreshed_at < _APT_REFRESH_MIN_S:
+        verbose.log("apt-get update skipped — lists refreshed moments ago")
+        view = ui.current_view()
+        if view is not None:
+            view.feed("package lists already fresh — skipping update")
+        return
     if ui.current_view() is not None:
         try:
             _run(["sudo", "apt-get", "update", "-q"])
+            _apt_refreshed_at = time.monotonic()
         except RuntimeError:
             pass
     else:
         try:
-            _probe(
+            r = _probe(
                 ["sudo", "apt-get", "update", "-q"],
                 log_at=verbose.VERBOSE,
                 timeout=180,
             )
+            if r.returncode == 0:
+                _apt_refreshed_at = time.monotonic()
         except Exception:
             pass
 
@@ -1344,7 +1381,9 @@ def _is_simple_command(cmd: str) -> bool:
 
 
 def _bash_version(key: str) -> str:
-    for flag in ["--version", "-v", "version"]:
+    # See get_version: no bare `version` positional — `mkcert version` would
+    # generate cert files.
+    for flag in ["--version", "-v"]:
         try:
             r = _probe(
                 [
