@@ -63,7 +63,7 @@ tools:
       esac
       tmpdir="$(mktemp -d)"
       trap 'rm -rf "$tmpdir"' EXIT
-      curl -fsSL -o "$tmpdir/arcane-cli.tar.gz" "https://github.com/getarcaneapp/arcane/releases/latest/download/arcane-cli_linux_${arch}.tar.gz"
+      curl --connect-timeout 15 --max-time 300 -fsSL -o "$tmpdir/arcane-cli.tar.gz" "https://github.com/getarcaneapp/arcane/releases/latest/download/arcane-cli_linux_${arch}.tar.gz"
       tar -C "$tmpdir" -xzf "$tmpdir/arcane-cli.tar.gz" arcane-cli
       sudo mv "$tmpdir/arcane-cli" /usr/local/bin/arcane-cli
       sudo chmod +x /usr/local/bin/arcane-cli
@@ -81,15 +81,14 @@ tools:
     docs_url: https://docs.aws.amazon.com/cli/latest/userguide/
     install_script: |
       set -euo pipefail
-      arch="$(uname -m)"
-      if [ "$arch" = "aarch64" ]; then
-        aws_arch="aarch64"
-      else
-        aws_arch="x86_64"
-      fi
+      case "$(uname -m)" in
+        x86_64)  aws_arch="x86_64" ;;
+        aarch64) aws_arch="aarch64" ;;
+        *) echo "aws: no release build for $(uname -m)" >&2; exit 1 ;;
+      esac
       tmpdir="$(mktemp -d)"
       trap 'rm -rf "$tmpdir"' EXIT
-      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "$tmpdir/awscliv2.zip"
+      curl --connect-timeout 15 --max-time 300 -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "$tmpdir/awscliv2.zip"
       python3 - "$tmpdir/awscliv2.zip" "$tmpdir" <<'PY'
       import os
       import stat
@@ -116,6 +115,7 @@ tools:
       set -euo pipefail
       sudo rm -rf /usr/local/aws-cli
       sudo rm -f /usr/local/bin/aws /usr/local/bin/aws_completer
+      echo "Config and credentials under ~/.aws were left in place."
 
   bat:
     name: bat
@@ -127,17 +127,16 @@ tools:
     docs_url: https://github.com/sharkdp/bat
     install_script: |
       set -euo pipefail
-      version="$(curl -fsSL https://api.github.com/repos/sharkdp/bat/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 0.24.0)"
-      machine="$(uname -m)"
-      if [ "$machine" = "aarch64" ]; then
-        arch="aarch64"
-      else
-        arch="x86_64"
-      fi
+      version="$(curl --connect-timeout 15 --max-time 300 -fsSL https://api.github.com/repos/sharkdp/bat/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 0.26.1)"
+      case "$(uname -m)" in
+        x86_64)  arch="x86_64" ;;
+        aarch64) arch="aarch64" ;;
+        *) echo "bat: no release binary for $(uname -m)" >&2; exit 1 ;;
+      esac
       filename="bat-v${version}-${arch}-unknown-linux-gnu.tar.gz"
       tmpdir="$(mktemp -d)"
       trap 'rm -rf "$tmpdir"' EXIT
-      curl -fsSL -o "$tmpdir/$filename" "https://github.com/sharkdp/bat/releases/download/v${version}/${filename}"
+      curl --connect-timeout 15 --max-time 300 -fsSL -o "$tmpdir/$filename" "https://github.com/sharkdp/bat/releases/download/v${version}/${filename}"
       tar -C "$tmpdir" -xzf "$tmpdir/$filename"
       sudo mv "$tmpdir/bat-v${version}-${arch}-unknown-linux-gnu/bat" /usr/local/bin/bat
       sudo chmod +x /usr/local/bin/bat
@@ -239,7 +238,7 @@ tools:
       set -euo pipefail
       tmp="$(mktemp --suffix=.sh)"
       trap 'rm -f "$tmp"' EXIT
-      curl -fsSL https://cli.devin.ai/install.sh -o "$tmp"
+      curl --connect-timeout 15 --max-time 300 -fsSL https://cli.devin.ai/install.sh -o "$tmp"
       # The installer's last step runs `devin setup`, an interactive auth/MCP
       # wizard with no flag to skip it. Strip the line (best-effort — if
       # upstream renames it, stdin is /dev/null anyway so the wizard reads EOF
@@ -275,14 +274,17 @@ tools:
     description: Container runtime + docker compose plugin
     category: tools
     type: bash
-    check_cmd: docker
+    # The entry also promises the compose plugin (installed below), so a docker
+    # without it must read as not-installed — same reasoning as bubblewrap's
+    # both-binaries check.
+    check_cmd: command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
     help_cmd: docker --help
     docs_url: https://docs.docker.com
     install_script: |
       set -euo pipefail
       tmp="$(mktemp --suffix=.sh)"
       trap 'rm -f "$tmp"' EXIT
-      curl -fsSL https://get.docker.com -o "$tmp"
+      curl --connect-timeout 15 --max-time 300 -fsSL https://get.docker.com -o "$tmp"
       sudo sh "$tmp"
       user="${USER:-}"
       if [ -n "$user" ] && groups "$user" | grep -qv '\bdocker\b'; then
@@ -304,6 +306,7 @@ tools:
       sudo apt-get remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras 2>/dev/null \
         || sudo yum remove -y docker-ce docker-ce-cli containerd.io docker-compose-plugin 2>/dev/null \
         || true
+      echo "The apt/yum source, keyring, and your docker group membership were left in place."
 
   fzf:
     name: fzf
@@ -338,6 +341,9 @@ tools:
       fi
     remove_script: |
       set -euo pipefail
+      # Remove the package first: if apt fails, the marker must stay or
+      # check_cmd would claim not-installed while fzf is still present.
+      sudo apt-get remove -y fzf
       if [ -f "$HOME/.bashrc" ]; then
         python3 - "$HOME/.bashrc" <<'PY'
       import sys
@@ -356,7 +362,6 @@ tools:
       open(path, "w").write("\n".join(out) + ("\n" if out else ""))
       PY
       fi
-      sudo apt-get remove -y fzf
 
   gh:
     name: GitHub CLI
@@ -368,7 +373,7 @@ tools:
     docs_url: https://cli.github.com/manual/
     install_script: |
       set -euo pipefail
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      curl --connect-timeout 15 --max-time 300 -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
         | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
       sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
       echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
@@ -378,6 +383,7 @@ tools:
     remove_script: |
       set -euo pipefail
       sudo apt-get remove -y gh
+      echo "The apt source and keyring were left in place — they may predate this install."
 
   ghgrab:
     name: ghgrab
@@ -399,17 +405,16 @@ tools:
     docs_url: https://git-lfs.com/
     install_script: |
       set -euo pipefail
-      version="$(curl -fsSL https://api.github.com/repos/git-lfs/git-lfs/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 3.5.1)"
-      machine="$(uname -m)"
-      if [ "$machine" = "aarch64" ]; then
-        arch="arm64"
-      else
-        arch="amd64"
-      fi
+      version="$(curl --connect-timeout 15 --max-time 300 -fsSL https://api.github.com/repos/git-lfs/git-lfs/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 3.8.1)"
+      case "$(uname -m)" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *) echo "git-lfs: no release binary for $(uname -m)" >&2; exit 1 ;;
+      esac
       filename="git-lfs-linux-${arch}-v${version}.tar.gz"
       tmpdir="$(mktemp -d)"
       trap 'rm -rf "$tmpdir"' EXIT
-      curl -fsSL -o "$tmpdir/$filename" "https://github.com/git-lfs/git-lfs/releases/download/v${version}/${filename}"
+      curl --connect-timeout 15 --max-time 300 -fsSL -o "$tmpdir/$filename" "https://github.com/git-lfs/git-lfs/releases/download/v${version}/${filename}"
       tar -C "$tmpdir" -xzf "$tmpdir/$filename"
       sudo bash "$tmpdir/git-lfs-${version}/install.sh"
       git lfs install
@@ -427,28 +432,32 @@ tools:
     category: languages
     type: bash
     check_cmd: command -v go >/dev/null 2>&1 || test -x /usr/local/go/bin/go
+    # go's version printer is a subcommand, not a flag — version_cmd carries it
+    # verbatim (get_version never appends a bare `version` on its own: mkcert
+    # would treat it as a hostname and write cert files).
+    version_cmd: /usr/local/go/bin/go version
     help_cmd: go help
     docs_url: https://go.dev/doc/
     install_script: |
       set -euo pipefail
-      version="$(curl -fsSL https://go.dev/dl/?mode=json | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((r["version"].removeprefix("go") for r in data if r.get("stable")), "1.23.4"))' 2>/dev/null || echo 1.23.4)"
-      machine="$(uname -m)"
-      if [ "$machine" = "aarch64" ]; then
-        arch="arm64"
-      else
-        arch="amd64"
-      fi
+      version="$(curl --connect-timeout 15 --max-time 300 -fsSL https://go.dev/dl/?mode=json | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next((r["version"].removeprefix("go") for r in data if r.get("stable")), "1.27.4"))' 2>/dev/null || echo 1.27.4)"
+      case "$(uname -m)" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *) echo "go: no release tarball for $(uname -m)" >&2; exit 1 ;;
+      esac
       filename="go${version}.linux-${arch}.tar.gz"
       tmpdir="$(mktemp -d)"
       trap 'rm -rf "$tmpdir"' EXIT
-      curl -fsSL -o "$tmpdir/$filename" "https://go.dev/dl/$filename"
+      curl --connect-timeout 15 --max-time 300 -fsSL -o "$tmpdir/$filename" "https://go.dev/dl/$filename"
       sudo rm -rf /usr/local/go
       sudo tar -C /usr/local -xzf "$tmpdir/$filename"
       marker="# Go"
-      line='export PATH=$PATH:/usr/local/go/bin'
+      block='export PATH=$PATH:/usr/local/go/bin
+      export PATH="$HOME/go/bin:$PATH"'
       touch "$HOME/.bashrc"
       if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
-        printf '\n%s\n%s\n' "$marker" "$line" >> "$HOME/.bashrc"
+        printf '\n%s\n%s\n' "$marker" "$block" >> "$HOME/.bashrc"
       fi
     remove_script: |
       set -euo pipefail
@@ -465,7 +474,7 @@ tools:
               skip -= 1
               continue
           if line == "# Go":
-              skip = 1
+              skip = 2
               continue
           out.append(line)
       open(path, "w").write("\n".join(out) + ("\n" if out else ""))
@@ -485,7 +494,7 @@ tools:
       # Charm's apt repo, not the Ubuntu archive: the archive ships gum 0.17, upstream is 2.x.
       # The key is ASCII-armoured and apt reads it as-is from a .asc path, so no gpg is needed.
       sudo install -d -m 0755 /etc/apt/keyrings
-      sudo curl -fsSL -o /etc/apt/keyrings/charm.asc https://repo.charm.sh/apt/gpg.key
+      sudo curl --connect-timeout 15 --max-time 300 -fsSL -o /etc/apt/keyrings/charm.asc https://repo.charm.sh/apt/gpg.key
       echo "deb [signed-by=/etc/apt/keyrings/charm.asc] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list >/dev/null
       sudo apt-get update -q
       sudo apt-get install -y gum
@@ -500,13 +509,21 @@ tools:
     category: tools
     type: bash
     check_cmd: command -v brew >/dev/null 2>&1 || test -x /home/linuxbrew/.linuxbrew/bin/brew
+    version_cmd: brew
     help_cmd: brew --help
     docs_url: https://docs.brew.sh/Homebrew-on-Linux
     install_script: |
       set -euo pipefail
       sudo apt-get update -q
-      sudo apt-get install -y build-essential bubblewrap
-      NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      # build-essential procps curl file git are brew's documented Linux
+      # requirements; bubblewrap is deliberate here (Claude's /sandbox).
+      sudo apt-get install -y build-essential procps curl file git bubblewrap
+      tmp="$(mktemp --suffix=.sh)"
+      trap 'rm -f "$tmp"' EXIT
+      # Download to a file, not "$(curl …)" — a failed download inside $()
+      # substitutes empty text and `bash -c ""` exits 0, a phantom success.
+      curl --connect-timeout 15 --max-time 300 -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$tmp"
+      NONINTERACTIVE=1 /bin/bash "$tmp"
       marker="# Homebrew"
       line='eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
       touch "$HOME/.bashrc"
@@ -515,7 +532,10 @@ tools:
       fi
     remove_script: |
       set -euo pipefail
-      NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)"
+      tmp="$(mktemp --suffix=.sh)"
+      trap 'rm -f "$tmp"' EXIT
+      curl --connect-timeout 15 --max-time 300 -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh -o "$tmp"
+      NONINTERACTIVE=1 /bin/bash "$tmp"
       if [ -f "$HOME/.bashrc" ]; then
         python3 - "$HOME/.bashrc" <<'PY'
       import sys
@@ -558,7 +578,7 @@ tools:
     category: tools
     type: bash
     check_cmd: htop
-    help_cmd: man htop
+    help_cmd: htop --help
     docs_url: https://htop.dev/
     install_script: |
       set -euo pipefail
@@ -596,7 +616,8 @@ tools:
     remove_script: |
       set -euo pipefail
       sudo apt-get remove -y openjdk-21-jdk openjdk-21-jre
-      sudo apt-get autoremove -y
+      # No `apt-get autoremove -y`: it purges every orphan on the system, not
+      # just Java's deps. Left dependencies are harmless.
 
   lazygit:
     name: lazygit
@@ -608,17 +629,16 @@ tools:
     docs_url: https://github.com/jesseduffield/lazygit
     install_script: |
       set -euo pipefail
-      version="$(curl -fsSL https://api.github.com/repos/jesseduffield/lazygit/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 0.44.1)"
-      machine="$(uname -m)"
-      if [ "$machine" = "aarch64" ]; then
-        arch="arm64"
-      else
-        arch="x86_64"
-      fi
+      version="$(curl --connect-timeout 15 --max-time 300 -fsSL https://api.github.com/repos/jesseduffield/lazygit/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 0.66.3)"
+      case "$(uname -m)" in
+        x86_64)  arch="x86_64" ;;
+        aarch64) arch="arm64" ;;
+        *) echo "lazygit: no release binary for $(uname -m)" >&2; exit 1 ;;
+      esac
       filename="lazygit_${version}_Linux_${arch}.tar.gz"
       tmpdir="$(mktemp -d)"
       trap 'rm -rf "$tmpdir"' EXIT
-      curl -fsSL -o "$tmpdir/$filename" "https://github.com/jesseduffield/lazygit/releases/download/v${version}/${filename}"
+      curl --connect-timeout 15 --max-time 300 -fsSL -o "$tmpdir/$filename" "https://github.com/jesseduffield/lazygit/releases/download/v${version}/${filename}"
       tar -C "$tmpdir" -xzf "$tmpdir/$filename" lazygit
       sudo mv "$tmpdir/lazygit" /usr/local/bin/lazygit
       sudo chmod +x /usr/local/bin/lazygit
@@ -636,18 +656,24 @@ tools:
     docs_url: https://github.com/FiloSottile/mkcert
     install_script: |
       set -euo pipefail
-      version="$(curl -fsSL https://api.github.com/repos/FiloSottile/mkcert/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 1.4.4)"
-      machine="$(uname -m)"
-      if [ "$machine" = "aarch64" ]; then
-        arch="arm64"
-      else
-        arch="amd64"
-      fi
-      sudo curl -fsSL -o /usr/local/bin/mkcert "https://github.com/FiloSottile/mkcert/releases/download/v${version}/mkcert-v${version}-linux-${arch}"
+      version="$(curl --connect-timeout 15 --max-time 300 -fsSL https://api.github.com/repos/FiloSottile/mkcert/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 1.4.4)"
+      case "$(uname -m)" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *) echo "mkcert: no release binary for $(uname -m)" >&2; exit 1 ;;
+      esac
+      sudo curl --connect-timeout 15 --max-time 300 -fsSL -o /usr/local/bin/mkcert "https://github.com/FiloSottile/mkcert/releases/download/v${version}/mkcert-v${version}-linux-${arch}"
       sudo chmod +x /usr/local/bin/mkcert
+      # Without -install no CA is trusted, so every cert mkcert generates is
+      # untrusted — the binary alone is only half the tool. libnss3-tools
+      # provides certutil for the Firefox/Chrome NSS stores; non-fatal since
+      # the system trust store works without it.
+      sudo apt-get install -y libnss3-tools 2>/dev/null || true
+      mkcert -install 2>/dev/null || echo "CA trust setup skipped — run 'mkcert -install' when ready."
     remove_script: |
       set -euo pipefail
       sudo rm -f /usr/local/bin/mkcert
+      echo "The local CA under $(mkcert -CAROOT 2>/dev/null || echo '~/.local/share/mkcert') and any system trust additions were left in place."
 
   nerd-font:
     name: JetBrainsMono Nerd Font
@@ -664,7 +690,7 @@ tools:
       dest="$HOME/.local/share/fonts/JetBrainsMonoNerdFont"
       tmpdir="$(mktemp -d)"
       trap 'rm -rf "$tmpdir"' EXIT
-      curl -fsSL -o "$tmpdir/font.zip" \
+      curl --connect-timeout 15 --max-time 300 -fsSL -o "$tmpdir/font.zip" \
         "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
       mkdir -p "$dest"
       # python3 rather than unzip: it is already a hard requirement of this repo, and
@@ -707,8 +733,8 @@ tools:
     docs_url: https://github.com/nvm-sh/nvm
     install_script: |
       set -euo pipefail
-      tag="$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || echo v0.40.3)"
-      curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${tag}/install.sh" | bash
+      tag="$(curl --connect-timeout 15 --max-time 300 -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || echo v0.40.3)"
+      curl --connect-timeout 15 --max-time 300 -fsSL -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${tag}/install.sh" | bash
       marker="# nvm"
       block='export NVM_DIR="$HOME/.nvm"
       [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
@@ -751,7 +777,12 @@ tools:
     docs_url: https://ollama.com/docs
     install_script: |
       set -euo pipefail
-      curl -fsSL https://ollama.com/install.sh | sh
+      # Upstream's installer elevates internally (sudo to /usr/local, systemd
+      # unit, ollama user) — the sudo -v below exists so _may_need_sudo sees
+      # the token and primes credentials before the live view opens. Without
+      # it the prompt lands on /dev/tty behind the view and reads as a hang.
+      sudo -v
+      curl --connect-timeout 15 --max-time 300 -fsSL https://ollama.com/install.sh | sh
     remove_script: |
       set -euo pipefail
       sudo systemctl stop ollama 2>/dev/null || true
@@ -759,6 +790,7 @@ tools:
       sudo rm -f /usr/local/bin/ollama /etc/systemd/system/ollama.service
       sudo systemctl daemon-reload 2>/dev/null || true
       echo "Downloaded models in ~/.ollama were left intact."
+      echo "The 'ollama' system user/group and /usr/share/ollama were left in place."
 
   opencode:
     name: OpenCode
@@ -792,7 +824,9 @@ tools:
     remove_script: |
       set -euo pipefail
       sudo apt-get remove -y 'php8.4*'
-      sudo apt-get autoremove -y
+      # No `apt-get autoremove -y`: it purges every orphan on the system, not
+      # just PHP's deps. The PPA and software-properties-common are left too.
+      echo "The ppa:ondrej/php apt source was left in place."
 
   python:
     name: Python (uv-managed)
@@ -892,6 +926,10 @@ tools:
     category: languages
     type: bash
     check_cmd: test -x "$HOME/.rbenv/bin/rbenv"
+    # check_cmd is a shell expression, so without this get_version falls back to
+    # probing `ruby --version` in a non-login shell where the rbenv PATH block
+    # never ran. `which` sees the user's interactive-shell PATH instead.
+    version_cmd: ruby
     help_cmd: ruby --version
     docs_url: https://www.ruby-lang.org/en/documentation/
     install_script: |
@@ -915,7 +953,7 @@ tools:
       if ! grep -Fxq "$marker" "$HOME/.bashrc"; then
         printf '\n%s\n%s\n' "$marker" "$block" >> "$HOME/.bashrc"
       fi
-      latest="$("$HOME/.rbenv/bin/rbenv" install -l | awk '/^[[:space:]]*[0-9]/ && $1 !~ /-/ { v=$1 } END { print v ? v : "3.3.6" }')"
+      latest="$("$HOME/.rbenv/bin/rbenv" install -l | awk '/^[[:space:]]*[0-9]/ && $1 !~ /-/ { v=$1 } END { print v ? v : "3.4.7" }')"
       "$HOME/.rbenv/bin/rbenv" install -s "$latest"
       "$HOME/.rbenv/bin/rbenv" global "$latest"
     remove_script: |
@@ -950,17 +988,16 @@ tools:
     docs_url: https://github.com/Versent/saml2aws
     install_script: |
       set -euo pipefail
-      version="$(curl -fsSL https://api.github.com/repos/Versent/saml2aws/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 2.36.6)"
-      machine="$(uname -m)"
-      if [ "$machine" = "aarch64" ]; then
-        arch="arm64"
-      else
-        arch="amd64"
-      fi
+      version="$(curl --connect-timeout 15 --max-time 300 -fsSL https://api.github.com/repos/Versent/saml2aws/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))' 2>/dev/null || echo 2.36.19)"
+      case "$(uname -m)" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *) echo "saml2aws: no release binary for $(uname -m)" >&2; exit 1 ;;
+      esac
       filename="saml2aws_${version}_linux_${arch}.tar.gz"
       tmpdir="$(mktemp -d)"
       trap 'rm -rf "$tmpdir"' EXIT
-      curl -fsSL -o "$tmpdir/$filename" "https://github.com/Versent/saml2aws/releases/download/v${version}/${filename}"
+      curl --connect-timeout 15 --max-time 300 -fsSL -o "$tmpdir/$filename" "https://github.com/Versent/saml2aws/releases/download/v${version}/${filename}"
       tar -C "$tmpdir" -xzf "$tmpdir/$filename"
       test -f "$tmpdir/saml2aws"
       sudo mv "$tmpdir/saml2aws" /usr/local/bin/saml2aws
@@ -989,7 +1026,12 @@ tools:
     docs_url: https://starship.rs/guide/
     install_script: |
       set -euo pipefail
-      curl -fsSL https://starship.rs/install.sh | sh -s -- --yes
+      # Upstream's installer elevates internally (sudo install to
+      # /usr/local/bin) — the sudo -v below exists so _may_need_sudo sees the
+      # token and primes credentials before the live view opens. Without it
+      # the prompt lands on /dev/tty behind the view and reads as a hang.
+      sudo -v
+      curl --connect-timeout 15 --max-time 300 -fsSL https://starship.rs/install.sh | sh -s -- --yes
       marker="# Starship prompt"
       line='eval "$(starship init bash)"'
       touch "$HOME/.bashrc"
@@ -1031,7 +1073,7 @@ tools:
       set -euo pipefail
       # The official apt repo (v2), not the Ubuntu archive (which ships 1.29).
       sudo install -d -m 0755 /etc/apt/keyrings
-      sudo curl -fsSL -o /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
+      sudo curl --connect-timeout 15 --max-time 300 -fsSL -o /etc/apt/keyrings/syncthing-archive-keyring.gpg https://syncthing.net/release-key.gpg
       echo "deb [signed-by=/etc/apt/keyrings/syncthing-archive-keyring.gpg] https://apt.syncthing.net/ syncthing stable-v2" | sudo tee /etc/apt/sources.list.d/syncthing.list >/dev/null
       sudo apt-get update -q
       sudo apt-get install -y syncthing
@@ -1057,7 +1099,7 @@ tools:
     type: apt
     apt_packages: tmux
     check_cmd: tmux
-    help_cmd: tmux -h
+    help_cmd: man tmux
     docs_url: https://github.com/tmux/tmux/wiki
 
   uv:
@@ -1065,12 +1107,12 @@ tools:
     description: Astral Python package and project manager
     category: core
     type: bash
-    check_cmd: command -v uv >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1 || { test -x "$HOME/.local/bin/uv" && test -x "$HOME/.local/bin/uvx"; }
+    check_cmd: command -v uv >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1 || { test -x "$HOME/.local/bin/uv" && test -x "$HOME/.local/bin/uvx"; } || { test -x "$HOME/.cargo/bin/uv" && test -x "$HOME/.cargo/bin/uvx"; }
     help_cmd: uv --help
     docs_url: https://docs.astral.sh/uv/
     install_script: |
       set -euo pipefail
-      curl -LsSf https://astral.sh/uv/install.sh | sh
+      curl --connect-timeout 15 --max-time 300 -LsSf https://astral.sh/uv/install.sh | sh
       marker="# uv (and other ~/.local/bin tools)"
       line='export PATH="$HOME/.local/bin:$PATH"'
       touch "$HOME/.bashrc"
@@ -1079,7 +1121,31 @@ tools:
       fi
     remove_script: |
       set -euo pipefail
+      tools_dir="$HOME/.local/share/uv/tools"
       rm -f "$HOME/.local/bin/uv" "$HOME/.local/bin/uvx" "$HOME/.cargo/bin/uv" "$HOME/.cargo/bin/uvx"
+      if [ -d "$tools_dir" ] && [ -n "$(ls -A "$tools_dir" 2>/dev/null)" ]; then
+        echo "uv tool envs remain in $tools_dir — uvx tools still run, but can no"
+        echo "longer be updated or removed through devstuff until uv is reinstalled."
+      fi
+      echo "~/.local/share/uv (tool envs + managed Pythons) and ~/.cache/uv were left in place."
+      if [ -f "$HOME/.bashrc" ]; then
+        python3 - "$HOME/.bashrc" <<'PY'
+      import sys
+      path = sys.argv[1]
+      lines = open(path).read().splitlines()
+      out = []
+      skip = 0
+      for line in lines:
+          if skip:
+              skip -= 1
+              continue
+          if line == "# uv (and other ~/.local/bin tools)":
+              skip = 1
+              continue
+          out.append(line)
+      open(path, "w").write("\n".join(out) + ("\n" if out else ""))
+      PY
+      fi
 
   llamactl:
     name: llamactl
@@ -1089,7 +1155,7 @@ tools:
     pip_name: llamactl
     check_cmd: llamactl
     help_cmd: llamactl --help
-    docs_url: https://github.com/run-llama/llama_deploy
+    docs_url: https://github.com/run-llama/llama-agents
     requires:
       - uv
 
@@ -1111,7 +1177,7 @@ tools:
 
   lmstudio:
     name: LM Studio
-    description: Run large language models locally with a GUI
+    description: Run large language models locally (headless llmster daemon + lms CLI)
     category: ai-tools
     type: bash
     check_cmd: command -v lms >/dev/null 2>&1 || test -x "$HOME/.lmstudio/bin/lms"
@@ -1127,7 +1193,7 @@ tools:
         sudo apt-get update -q
         sudo apt-get install -y libatomic1
       fi
-      curl -fsSL https://lmstudio.ai/install.sh | bash
+      curl --connect-timeout 15 --max-time 300 -fsSL https://lmstudio.ai/install.sh | bash
     remove_script: |
       set -euo pipefail
       rm -rf "$HOME/.lmstudio"
@@ -1145,15 +1211,16 @@ tools:
     docs_url: https://mikefarah.gitbook.io/yq
     install_script: |
       set -euo pipefail
-      version="$(curl -fsSL https://api.github.com/repos/mikefarah/yq/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || echo v4.44.3)"
-      machine="$(uname -m)"
-      if [ "$machine" = "aarch64" ]; then
-        arch="arm64"
-      else
-        arch="amd64"
-      fi
-      curl -fsSL -o /tmp/yq "https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_${arch}"
-      sudo mv /tmp/yq /usr/local/bin/yq
+      version="$(curl --connect-timeout 15 --max-time 300 -fsSL https://api.github.com/repos/mikefarah/yq/releases/latest | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || echo v4.54.3)"
+      case "$(uname -m)" in
+        x86_64)  arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *) echo "yq: no release binary for $(uname -m)" >&2; exit 1 ;;
+      esac
+      tmpdir="$(mktemp -d)"
+      trap 'rm -rf "$tmpdir"' EXIT
+      curl --connect-timeout 15 --max-time 300 -fsSL -o "$tmpdir/yq" "https://github.com/mikefarah/yq/releases/download/${version}/yq_linux_${arch}"
+      sudo mv "$tmpdir/yq" /usr/local/bin/yq
       sudo chmod +x /usr/local/bin/yq
     remove_script: |
       set -euo pipefail

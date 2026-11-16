@@ -115,6 +115,8 @@ def _update_one(
         ui.error(f"Failed to update {tool.name}: {escape(str(exc))}")
         ui.dim(f"    full output: {generic.run_log_path()}")
         return "fail", str(exc).splitlines()[-1][:120]
+    finally:
+        generic.forget_probes()
 
 
 def _confirm_plan(tool: Tool, version: str | None) -> bool:

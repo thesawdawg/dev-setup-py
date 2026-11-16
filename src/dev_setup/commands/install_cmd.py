@@ -112,6 +112,13 @@ def _install_one(
                 status, detail = _install_one(dep, yes=yes) if dep else ("fail", "")
                 if status == "fail":
                     return "fail", f"required tool {dep_key} failed"
+            # A required tool's install can already provide this tool
+            # (ansible-vault is bundled with ansible) — re-check before doing
+            # the work a second time.
+            if tool.is_installed():
+                version = tool.get_version()
+                ui.success(f"{tool.name} is already installed: {version}")
+                return "skip", f"already installed{': ' + version if version else ''}"
         else:
             ui.error(f"Cannot install {tool.name} — missing: {', '.join(missing)}")
             return "fail", "declined required tools"
@@ -130,6 +137,10 @@ def _install_one(
         ui.error(f"Failed to install {tool.name}: {escape(str(exc))}")
         ui.dim(f"    full output: {generic.run_log_path()}")
         return "fail", str(exc).splitlines()[-1][:120]
+    finally:
+        # An installer — even a failed one — may have changed the machine (added
+        # an apt repo, dropped a binary); the next tool's probes must re-read it.
+        generic.forget_probes()
 
     # A freshly installed tool with a setup wizard is the moment to mention it.
     from dev_setup.commands.configure_cmd import offer_after_install

@@ -438,3 +438,35 @@ def test_sudo_session_ignores_tools_that_do_not_sudo(monkeypatch):
     )
     with generic._sudo_session(make_tool(install_type="uvx", pip_name="x"), "install"):
         pass
+
+
+def test_apt_update_runs_once_per_fresh_window(monkeypatch):
+    """A batch install refreshes apt's lists once, not once per apt tool."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        generic,
+        "_probe",
+        lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0),
+    )
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.setattr(generic, "_apt_refreshed_at", 0.0)
+    generic._run_apt_update()
+    generic._run_apt_update()
+    assert calls == [["sudo", "apt-get", "update", "-q"]]
+
+
+def test_forget_probes_resets_apt_freshness(monkeypatch):
+    """After any mutation the next apt install refreshes again — the previous
+    installer may have added an apt source."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        generic,
+        "_probe",
+        lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0),
+    )
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.setattr(generic, "_apt_refreshed_at", 0.0)
+    generic._run_apt_update()
+    generic.forget_probes()
+    generic._run_apt_update()
+    assert calls == [["sudo", "apt-get", "update", "-q"]] * 2
