@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import subprocess
+import time
+
 import pytest
 
 from dev_setup import generic, registry, ui
@@ -138,7 +141,7 @@ class _FakeView:
     def __init__(self):
         self.lines: list[str] = []
 
-    def feed(self, line: str) -> None:
+    def feed(self, line: str, *, partial: bool = False) -> None:
         self.lines.append(line)
 
     def error_output(self) -> str:
@@ -163,6 +166,46 @@ def test_run_without_view_uses_capture(monkeypatch):
     monkeypatch.setattr(ui, "current_view", lambda: None)
     with pytest.raises(RuntimeError, match="oops"):
         generic._run(["bash", "-c", "echo oops >&2; exit 3"])
+
+
+def test_run_returns_when_detached_grandchild_holds_pipe(monkeypatch):
+    """An installer that leaves a background child holding stdout must not hang
+    _run: the pipe never reaches EOF, but the main process is gone. The old
+    `read1` loop waited out the sleep; the drained deadline must not."""
+    view = _FakeView()
+    monkeypatch.setattr(ui, "current_view", lambda: view)
+    monkeypatch.setattr(generic, "_open_run_log", lambda *a, **k: None)
+    start = time.monotonic()
+    generic._run(["bash", "-c", "echo hi; sleep 60 &"])
+    assert time.monotonic() - start < 30
+    assert "hi" in view.lines
+
+
+def test_run_capture_gives_children_no_stdin(monkeypatch):
+    """Quiet mode has no way to surface a prompt — a child that reads stdin
+    gets EOF and fails fast instead of hanging on input nobody can see."""
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.setattr(generic, "_open_run_log", lambda *a, **k: None)
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    generic._run(["echo", "hi"])
+    assert seen["stdin"] is subprocess.DEVNULL
+    assert seen["env"]["DEBIAN_FRONTEND"] == "noninteractive"
+
+
+def test_run_appends_output_to_log(monkeypatch, tmp_path):
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    log_file = tmp_path / "install.log"
+    monkeypatch.setattr(generic, "run_log_path", lambda: log_file)
+    generic._run(["bash", "-c", "echo hi; echo oops >&2"])
+    text = log_file.read_text()
+    assert "hi" in text
+    assert "oops" in text
 
 
 # -- registry.dependents ---------------------------------------------------------------

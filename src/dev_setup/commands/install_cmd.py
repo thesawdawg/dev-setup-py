@@ -7,7 +7,7 @@ import click
 import questionary
 from rich.markup import escape
 
-from dev_setup import managers, registry, ui
+from dev_setup import generic, managers, registry, ui
 from dev_setup.base import Tool
 from dev_setup.commands._plan import plan_for, plan_summary
 
@@ -128,6 +128,7 @@ def _install_one(
         ui.success(msg)
     except Exception as exc:
         ui.error(f"Failed to install {tool.name}: {escape(str(exc))}")
+        ui.dim(f"    full output: {generic.run_log_path()}")
         return "fail", str(exc).splitlines()[-1][:120]
 
     # A freshly installed tool with a setup wizard is the moment to mention it.

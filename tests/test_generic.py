@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -354,3 +356,85 @@ def test_uvx_update_pinned_warns_about_the_pin(monkeypatch):
     # The stated escape route must be the one that actually works.
     assert "devstuff update demo" in warnings[0]
     assert "--version" in warnings[0]
+
+
+# -- sudo sessions ---------------------------------------------------------------
+
+
+def test_may_need_sudo_by_type_and_script():
+    assert generic._may_need_sudo(make_tool(install_type="apt"), "install")
+    assert generic._may_need_sudo(make_tool(install_type="apt"), "remove")
+    assert generic._may_need_sudo(
+        make_tool(install_type="bash", install_script="sudo apt-get install x"),
+        "install",
+    )
+    # A script_url body's contents are unknowable until the download runs.
+    assert generic._may_need_sudo(
+        make_tool(install_type="script", script_url="https://x/i.sh"), "install"
+    )
+    # ...but its remove runs the greppable remove_script.
+    assert not generic._may_need_sudo(
+        make_tool(
+            install_type="script",
+            script_url="https://x/i.sh",
+            remove_script="rm -rf /opt/x",
+        ),
+        "remove",
+    )
+    tool = make_tool(
+        install_type="bash", install_script="sudo x", remove_script="rm -f y"
+    )
+    assert not generic._may_need_sudo(tool, "remove")
+    assert not generic._may_need_sudo(
+        make_tool(install_type="npm", npm_name="x"), "install"
+    )
+    assert not generic._may_need_sudo(
+        make_tool(install_type="uvx", pip_name="x"), "install"
+    )
+
+
+def test_sudo_session_validates_interactively_when_uncached(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(generic.shutil, "which", lambda _c: "/usr/bin/sudo")
+    monkeypatch.setattr(
+        generic.sys, "stdin", SimpleNamespace(isatty=lambda: True)
+    )
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        # `sudo -n -v` reports uncached; the interactive `sudo -v` succeeds.
+        rc = 1 if cmd[:2] == ["sudo", "-n"] else 0
+        return subprocess.CompletedProcess(cmd, rc)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    tool = make_tool(install_type="apt", apt_packages="x")
+    with generic._sudo_session(tool, "install"):
+        pass
+    assert calls[0] == ["sudo", "-n", "-v"]
+    assert calls[1] == ["sudo", "-v"]
+
+
+def test_sudo_session_never_prompts_off_tty(monkeypatch):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(generic.shutil, "which", lambda _c: "/usr/bin/sudo")
+    monkeypatch.setattr(
+        generic.sys, "stdin", SimpleNamespace(isatty=lambda: False)
+    )
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 1)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    tool = make_tool(install_type="apt", apt_packages="x")
+    with generic._sudo_session(tool, "install"):
+        pass
+    assert calls == [["sudo", "-n", "-v"]]
+
+
+def test_sudo_session_ignores_tools_that_do_not_sudo(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: pytest.fail("subprocess invoked")
+    )
+    with generic._sudo_session(make_tool(install_type="uvx", pip_name="x"), "install"):
+        pass

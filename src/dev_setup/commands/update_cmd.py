@@ -6,7 +6,7 @@ import click
 import questionary
 from rich.markup import escape
 
-from dev_setup import registry, ui
+from dev_setup import generic, registry, ui
 from dev_setup.base import Tool
 from dev_setup.commands._plan import plan_for, plan_summary
 from dev_setup.updates import collect_candidates
@@ -113,6 +113,7 @@ def _update_one(
             return "ok", "updated"
     except Exception as exc:
         ui.error(f"Failed to update {tool.name}: {escape(str(exc))}")
+        ui.dim(f"    full output: {generic.run_log_path()}")
         return "fail", str(exc).splitlines()[-1][:120]
 
 

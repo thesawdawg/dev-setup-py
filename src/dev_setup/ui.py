@@ -296,6 +296,8 @@ class TaskView:
         self._errors: deque[str] = deque(maxlen=_ERROR_TAIL_LINES)
         self._partial = False  # last tail entry is an unfinished line
         self._live: Live | None = None
+        self._phase_started = time.monotonic()
+        self._last_feed = time.monotonic()
 
     # -- driving the view -----------------------------------------------------
 
@@ -305,6 +307,7 @@ class TaskView:
             if p[1] == "current":
                 p[1] = "done"
         self._phases.append([label, "current"])
+        self._phase_started = time.monotonic()
         self._repaint()
         try:
             yield
@@ -331,6 +334,7 @@ class TaskView:
         self._partial = partial
         if not partial and line.strip():
             self._errors.append(line)
+        self._last_feed = time.monotonic()
         self._repaint()
 
     def error_output(self) -> str:
@@ -352,7 +356,8 @@ class TaskView:
             complete_style=bar_style,
             finished_style=bar_style,
         )
-        frame = _PHASE_SPINNER[int(time.monotonic() * 6) % len(_PHASE_SPINNER)]
+        now = time.monotonic()
+        frame = _PHASE_SPINNER[int(now * 6) % len(_PHASE_SPINNER)]
 
         lines: list[RenderableType] = [
             Columns(
@@ -371,7 +376,18 @@ class TaskView:
             elif state == "failed":
                 lines.append(Text(f"  ✖  {label}", style=f"{RED} bold"))
             else:
-                lines.append(Text.assemble((f"  {frame}  ", PURPLE), (label, "")))
+                # Elapsed time on the live phase is the heartbeat: a long quiet
+                # phase (an apt download) visibly ticks instead of reading as
+                # hung, and the idle counter says when output last arrived.
+                elapsed = int(now - self._phase_started)
+                note = f"  ({elapsed // 60}m{elapsed % 60:02d}s"
+                idle = int(now - self._last_feed)
+                if idle >= 10:
+                    note += f", output idle {idle}s"
+                note += ")"
+                lines.append(
+                    Text.assemble((f"  {frame}  ", PURPLE), (f"{label}{note}", ""))
+                )
         remaining = self.total - len(self._phases)
         for _ in range(max(remaining, 0)):
             lines.append(Text("  ○", style=GRAY))
