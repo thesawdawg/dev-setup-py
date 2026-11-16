@@ -57,8 +57,17 @@ Each is covered by a test in `tests/test_lifecycle_cmds.py`, `tests/test_plan_an
 - **FR-12** The view degrades to the plain `verbose.step` line when `-v` is on or the console is not
   a terminal. `_run` then has three modes: feed the view; stream raw (verbose); capture and surface
   the output as the error message on failure.
-- **FR-13** A partial line (a `sudo` password prompt, a curl progress bar) is pushed to the tail while
-  the process still waits, so a prompt is visible rather than the terminal looking hung.
+- **FR-13** A partial line (a `read` prompt, a curl progress bar) is pushed to the tail while
+  the process still waits, so a prompt is visible rather than the terminal looking hung. A `sudo`
+  prompt is the exception — it goes to `/dev/tty`, not the pipe, so the tail can never show it;
+  `_sudo_session` validates credentials before the view opens instead (F-8).
+- **FR-13a** The piped read is `select`-polled, not EOF-bound: after the main process exits the pipe
+  gets a fixed ~2s drain window, then remaining writers are treated as detached grandchildren and
+  dropped. `read1`-to-EOF hangs whenever a script leaves a background process holding stdout.
+- **FR-13b** Everything `_run` runs appends to `~/.local/state/devstuff/install.log`; install,
+  remove and update print its path under a failure.
+- **FR-13c** `_run` children get `DEBIAN_FRONTEND=noninteractive` and, in the no-view capture mode,
+  `stdin=/dev/null` — a hidden prompt fails fast instead of hanging on input nobody can see.
 - **FR-14** Every install type has a `_PLANNERS` entry. Without one the plan is a generic note and
   the bar shows no phases.
 
@@ -98,6 +107,7 @@ has just asked about, and plain-string picker titles), and the four configurator
 | F-5 | **A missing requirement asks three questions.** `install pkg` with `dep` missing asks `Install Pkg?`, then `Pkg requires dep — install them first?`, then `Install Dep?` (the requirement's own plan). | Current behaviour, not pinned by a test. A candidate to tighten: the second answer already implies the third. |
 | F-6 | **The step counter changes once the type is known** (`step 1/7`, then `2/8`) because the type-specific steps only count after a type is chosen. | Cosmetic; left as is. |
 | F-7 | `profile apply`-style "stuck" prompts under a pty harness were the *harness*: `prompt_toolkit` asks the terminal for the cursor position (`ESC[6n`) and waits. Not a product defect. | Recorded because it cost a false alarm: a pty driver for these commands must answer it. |
+| F-8 | **Big installs froze with a live view showing.** Reported 2026-11-15 against docker. Three independent causes, all reproduced: (1) `sudo` prompts on `/dev/tty`, bypassing the pipe — invisible under the view and overwritten by repaints, and the timestamp could expire mid-download so a *later* sudo in the same script hung too; (2) `read1`-to-EOF waits on every pipe writer — a detached grandchild holding stdout (e.g. `daemon &`) keeps EOF open after the script exits; (3) `bash -lc` probes before the view ran `~/.profile` unbounded. | `_sudo_session` (pre-validate `sudo -v` on the plain terminal + 60s `sudo -n -v` keepalive), the `select` drain window, `DEBIAN_FRONTEND=noninteractive`, DEVNULL stdin off-tty, 15s probe timeouts, and `install.log`. FR-13/13a/13b/13c. |
 
 ## 5. Tests
 

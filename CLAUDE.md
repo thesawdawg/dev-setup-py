@@ -253,9 +253,18 @@ under a live checklist, and end a multi-package run in a summary. Things that ar
   message that really contains a closing-tag-shaped string, or it passes whatever the code does.
 - **`task_view` is inert unless it is a live terminal.** It degrades to `verbose.step` under `-v` or off a TTY, which
   is why `--json` and `profile apply` are unaffected. `_run` therefore has three output modes (feed the view, stream
-  raw, capture-and-surface-on-failure) — keep a new subprocess call going through it. A partial line (a `sudo`
+  raw, capture-and-surface-on-failure) — keep a new subprocess call going through it. A partial line (a `read`
   prompt, a curl bar) is fed to the tail while the process waits; line iteration would leave it in the pipe and the
-  terminal looking hung.
+  terminal looking hung. Everything under the view also goes to `~/.local/state/devstuff/install.log`, whose path
+  is printed under any failure.
+- **sudo prompts never appear mid-view — `_sudo_session` pre-validates them.** sudo writes its prompt to `/dev/tty`,
+  which bypasses the pipe entirely: under the live region it is invisible and repainted over, so a mid-install sudo
+  reads exactly like a hang (the docker freeze). `install`/`remove`/`update` wrap the view in `_sudo_session`: when
+  `_may_need_sudo` guesses the action elevates (apt, a greppable `sudo` in the script bodies, `script` type assumed),
+  `sudo -v` runs on the plain terminal first, then a thread refreshes `sudo -n -v` every 60s so the timestamp can't
+  expire mid-run. Two related hang guards inside `_run`: children get `DEBIAN_FRONTEND=noninteractive` (debconf
+  dialogs can't open on the tty either), and the piped read is `select`-polled with a fixed post-exit drain window —
+  a detached grandchild holding stdout can't keep EOF, and the install, open forever.
 - **Every install type needs a `_PLANNERS` entry** (`test_every_install_type_has_a_planner`): without one the plan is
   a generic note and the bar shows no phases.
 - **Picker titles are plain strings.** A questionary token-list title is emitted verbatim and never gets

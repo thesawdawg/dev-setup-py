@@ -7,7 +7,7 @@ import click
 import questionary
 from rich.markup import escape
 
-from dev_setup import registry, ui
+from dev_setup import generic, registry, ui
 from dev_setup.base import Tool
 from dev_setup.commands._plan import plan_for, plan_summary
 
@@ -87,6 +87,7 @@ def _remove_one(
         return "ok", "removed"
     except Exception as exc:
         ui.error(f"Failed to remove {tool.name}: {escape(str(exc))}")
+        ui.dim(f"    full output: {generic.run_log_path()}")
         return "fail", str(exc).splitlines()[-1][:120]
 
 
