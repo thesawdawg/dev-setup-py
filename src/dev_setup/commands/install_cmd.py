@@ -208,6 +208,8 @@ def _install_interactive(*, yes: bool) -> None:
             suffix, disabled_override = (
                 managers.picker_hint(note, t) if note is not None else ("", None)
             )
+            if not is_inst:
+                suffix += " · sudo" if generic.needs_sudo(t) else " · user"
             desc = t.description
             room = max(10, desc_width - len(suffix))
             if len(desc) > room:

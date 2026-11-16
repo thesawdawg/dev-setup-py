@@ -30,7 +30,7 @@ class Fake:
         fail=None, after=None,
     ):
         self.key, self.name, self.install_type = key, key.title(), install_type
-        self.description, self.category = f"the {key} tool", "tools"
+        self.description, self.category, self.help_cmd = f"the {key} tool", "tools", ""
         self.installed, self.version, self.requires = installed, version, tuple(requires)
         self.fail, self.after = fail, after
 
@@ -651,3 +651,12 @@ def test_every_lifecycle_command_takes_yes(module):
              [o for param in p.params for o in param.opts]}
 
     assert "-y" in names and "--yes" in names
+
+
+def test_list_tags_tools_as_sudo_or_user(world):
+    world(Fake("sys", install_type="apt"), Fake("local", install_type="uvx"))
+
+    result = run("list")
+
+    out = flat(result.output)
+    assert "apt · sudo" in out and "uvx · user" in out

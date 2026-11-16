@@ -247,13 +247,32 @@ def _may_need_sudo(tool: GenericTool, action: str) -> bool:
         return True
     if tool.install_type == "script" and action != "remove":
         return True
+    # getattr: needs_sudo is Tool-typed for callers; non-script Tool
+    # implementations have no script fields to grep.
     scripts = {
-        "install": (tool.install_script, tool.git_install_cmd),
-        "remove": (tool.remove_script, tool.git_remove_cmd),
+        "install": (
+            getattr(tool, "install_script", ""),
+            getattr(tool, "git_install_cmd", ""),
+        ),
+        "remove": (
+            getattr(tool, "remove_script", ""),
+            getattr(tool, "git_remove_cmd", ""),
+        ),
         # update for script/bash is a reinstall of the install path
-        "update": (tool.install_script, tool.git_install_cmd),
+        "update": (
+            getattr(tool, "install_script", ""),
+            getattr(tool, "git_install_cmd", ""),
+        ),
     }.get(action, ())
     return any("sudo" in s for s in scripts if s)
+
+
+def needs_sudo(tool: Tool, action: str = "install") -> bool:
+    """Public read of _may_need_sudo for UI tags (`list`, the install picker).
+
+    Same best-effort guess: it tags what installing *would* do, so a bash tool
+    whose script greps clean reads "user" even on a host that has sudo."""
+    return _may_need_sudo(tool, action)
 
 
 @contextmanager
