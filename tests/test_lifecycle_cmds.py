@@ -11,7 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, _NamedTextIOWrapper
 
 from dev_setup import registry, ui
 from dev_setup.cli import cli
@@ -74,7 +74,9 @@ def _clean():
 def world(monkeypatch):
     """Make these fakes the catalog. Returns a function to call with the tools."""
 
-    def install(*tools, answers=()):
+    def install(*tools, answers=(), interactive=True):
+        if interactive:
+            monkeypatch.setattr(configure_cmd, "can_prompt", lambda: True)
         by_key = {t.key: t for t in tools}
         monkeypatch.setattr(registry, "get", by_key.get)
         monkeypatch.setattr(registry, "exists", lambda k: k in by_key)
@@ -149,7 +151,7 @@ def test_install_yes_skips_the_plan_and_the_question(world):
     result = run("install", "a", "--yes")
 
     assert result.exit_code == 0 and verbs() == [("install", "a")]
-    assert PROMPTS == [] and "PLAN[" not in result.output
+    assert PROMPTS == [] and OFFERS == [] and "PLAN[" not in result.output
 
 
 def test_declining_the_plan_installs_nothing_and_says_aborted(world):
@@ -179,7 +181,7 @@ def test_several_packages_get_one_batch_plan_one_question_and_a_summary(world):
     assert verbs() == [("install", "a"), ("install", "b")]
     assert PROMPTS == [("Install 2 packages?", True)]
     assert "Install plan" in text and "PLAN[install a]" in text and "PLAN[install b]" in text
-    assert "Install 2 ok · 0 failed" in text
+    assert "Install | 2 done | 0 skipped | 0 failed" in text
 
 
 def test_a_single_package_gets_no_summary_table(world):
@@ -188,7 +190,7 @@ def test_a_single_package_gets_no_summary_table(world):
 
     result = run("install", "a", "-y")
 
-    assert result.exit_code == 0 and "ok · 0 failed" not in flat(result.output)
+    assert result.exit_code == 0 and "Install |" not in flat(result.output)
 
 
 def test_the_plan_covers_only_what_will_be_installed(world):
@@ -209,17 +211,17 @@ def test_one_failure_does_not_stop_the_rest_and_the_exit_is_1(world):
 
     assert verbs() == [("install", "a"), ("install", "b")]
     assert result.exit_code == 1
-    assert "Install 1 ok · 1 failed" in flat(result.output)
+    assert "Install | 1 done | 0 skipped | 1 failed" in flat(result.output)
 
 
 def test_a_missing_requirement_is_installed_first_under_yes(world):
-    world(Fake("dep"), Fake("pkg", requires=["dep"]))
+    world(Fake("dep"), Fake("pkg", requires=["dep"]), interactive=False)
 
     result = run("install", "pkg", "-y")
 
     assert result.exit_code == 0
     assert verbs() == [("install", "dep"), ("install", "pkg")]
-    assert PROMPTS == []
+    assert PROMPTS == [] and OFFERS == []
 
 
 def test_without_yes_a_missing_requirement_is_offered_not_assumed(world):
@@ -263,9 +265,30 @@ def test_a_requirement_that_fails_stops_its_dependent_from_being_attempted(world
 def test_the_setup_wizard_is_offered_after_a_successful_install_only(world):
     world(Fake("good"), Fake("bad", fail="nope"))
 
-    run("install", "good", "bad", "-y")
+    run("install", "good", "bad")
 
     assert OFFERS == ["good"]
+
+
+def test_ctrl_c_during_optional_setup_stops_the_install_batch(world, monkeypatch):
+    offer = configure_cmd.offer_after_install
+    world(Fake("a"), Fake("b"))
+    monkeypatch.setattr(configure_cmd, "offer_after_install", offer)
+
+    def interrupt():
+        raise KeyboardInterrupt
+
+    spec = SimpleNamespace(
+        key="a", label="A", description="Configure A",
+        load=lambda: SimpleNamespace(run=interrupt),
+    )
+    monkeypatch.setattr(configure_cmd.configure, "get", lambda key: spec)
+
+    result = run("install", "a", "b")
+
+    assert result.exit_code == 1 and verbs() == [("install", "a")]
+    assert "A installed" in result.output and "Aborted!" in result.stderr
+    assert PROMPTS[-1][0].startswith("Optional — not part of the install:")
 
 
 def test_install_by_key_reports_whether_the_tool_ends_up_installed(world):
@@ -395,7 +418,7 @@ def test_removing_several_asks_once_with_default_no_and_ends_in_a_summary(world)
 
     assert verbs() == [("remove", "a"), ("remove", "b")]
     assert PROMPTS == [("Remove 2 packages?", False)]
-    assert "Remove 2 ok · 0 failed" in flat(result.output)
+    assert "Remove | 2 done | 0 skipped | 0 failed" in flat(result.output)
 
 
 def test_the_remove_picker_lists_only_installed_tools_and_annotates_dependents(world, monkeypatch):
@@ -542,7 +565,7 @@ def test_updating_several_asks_once_and_ends_in_a_summary(world):
     result = run("update", "a", "b")
 
     assert PROMPTS == [("Update 2 packages?", True)]
-    assert "Update 2 ok · 0 failed" in flat(result.output)
+    assert "Update | 2 done | 0 skipped | 0 failed" in flat(result.output)
 
 
 def test_the_update_picker_prechecks_only_known_updates(world, monkeypatch):
@@ -643,6 +666,22 @@ def test_the_batch_plan_shows_a_command_exactly_as_it_will_run():
 
 
 # == the three agree ====================================================================================
+
+
+@pytest.mark.parametrize("command", ["install", "remove", "update"])
+def test_without_a_terminal_the_picker_and_required_confirmation_refuse_to_prompt(
+    world, monkeypatch, command,
+):
+    world(Fake("a", installed=command != "install"), interactive=False)
+    monkeypatch.setattr(_NamedTextIOWrapper, "isatty", lambda self: self.name == "<stdin>")
+    monkeypatch.setattr(ui, "checkbox", lambda *a, **kw: pytest.fail("picker opened"))
+
+    picker = run(command, "--yes")
+    confirmation = run(command, "a")
+
+    assert picker.exit_code == confirmation.exit_code == 2
+    assert "Pass package names" in picker.stderr and "add --yes" in confirmation.stderr
+    assert EVENTS == [] and PROMPTS == []
 
 
 @pytest.mark.parametrize("module", [install_cmd, remove_cmd, update_cmd])

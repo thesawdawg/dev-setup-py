@@ -5,6 +5,11 @@ review, so this records what was built and what was measured about it. `stack-de
 deliberately absent: the rejected alternatives were never written down by the author, and inventing
 reasons would be worse than having none. If you remember why a choice was made, add it there.
 
+**Follow-up:** the next round of this work — one managed-child lifecycle across all render
+modes, prompt/cancellation/diagnostics policy, real install verification, and the
+terminal-UX refresh — is specified in
+[`install-reliability-terminal-ux`](../install-reliability-terminal-ux/specifications.md).
+
 ## 1. Scope
 
 `install`, `remove` and `update` now show **what will run** before running it, ask once, run with a

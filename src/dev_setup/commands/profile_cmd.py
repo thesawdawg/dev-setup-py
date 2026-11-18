@@ -9,7 +9,8 @@ from pathlib import Path
 import click
 from rich.markup import escape
 
-from dev_setup import apply_exec, apply_plan, bundles, profile, registry, snapshot, ui, verbose
+from dev_setup import apply_exec, apply_plan, bundles, profile, registry, runner, snapshot, ui, verbose
+from dev_setup.commands.configure_cmd import can_prompt as _can_prompt
 from dev_setup.profile import DiffRow, DiffState
 
 _CUSTOM_NAMES_SHOWN = 6
@@ -212,11 +213,6 @@ def _render(rows: list[DiffRow], *, show_all: bool) -> None:
 _ERROR_CHARS = 160
 
 
-def _can_prompt() -> bool:
-    """Whether a confirmation could be answered. A seam for tests, which have no terminal."""
-    return sys.stdin.isatty()
-
-
 def _first_line(text: str) -> str:
     """An installer's error, cut to one line: uv and apt can write pages, the summary is a list."""
     line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
@@ -234,14 +230,13 @@ def _may_ask_for_sudo(tool: object, step: apply_plan.Step) -> bool:
 def _json_safe() -> Iterator[None]:
     """Keep stdout to the one JSON document while installers run (NFR-1).
 
-    Installers print through `ui` (stdout) and, under -v, stream a subprocess's output straight
-    to the inherited stdout, where no redirect can reach it. So: stdout is pointed at stderr for
-    anything that prints, and streaming is switched off — `-v` has no effect with --json.
+    Redirect Python output and quiet verbose reporting as before. Explicit machine mode also
+    disables terminal rendering and installer prompts, even if stderr points to a real TTY.
     """
     previous = verbose.level()
     verbose.set_level(verbose.QUIET)
     try:
-        with redirect_stdout(sys.stderr):
+        with redirect_stdout(sys.stderr), runner.machine_mode():
             yield
     finally:
         verbose.set_level(previous)
@@ -420,12 +415,10 @@ def apply_cmd(
     if not plan.nothing_to_do:
         if not yes:
             if not _can_prompt():
-                click.echo(
-                    "error: this changes the machine and there is no terminal to confirm on; "
-                    "add --yes to proceed, or --dry-run to only see the plan",
-                    err=True,
+                raise click.UsageError(
+                    "This changes the machine and there is no terminal to confirm on. "
+                    "Add --yes to proceed, or --dry-run to only see the plan."
                 )
-                sys.exit(2)
             n = len(plan.steps)
             if not ui.confirm(f"Apply {n} step{'' if n == 1 else 's'}?"):
                 ui.warn("Aborted — nothing was changed.")

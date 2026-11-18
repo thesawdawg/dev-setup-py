@@ -520,6 +520,12 @@ def test_picker_shows_manager_text_and_suffixes(monkeypatch):
         return []
 
     monkeypatch.setattr(ui, "checkbox", checkbox)
+    # The test mocks the interactive picker; `install` refuses non-TTY
+    # invocation outright, so the interactive seam is faked. Real non-TTY
+    # rejection is covered elsewhere.
+    monkeypatch.setattr(
+        "dev_setup.commands.configure_cmd.can_prompt", lambda: True
+    )
     from click.testing import CliRunner
 
     result = CliRunner().invoke(cli, ["install"])

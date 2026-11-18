@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import subprocess
-from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -393,66 +392,165 @@ def test_may_need_sudo_by_type_and_script():
     )
 
 
-def test_sudo_session_validates_interactively_when_uncached(monkeypatch):
-    calls: list[list[str]] = []
-    monkeypatch.setattr(generic.shutil, "which", lambda _c: "/usr/bin/sudo")
+def test_run_rewrites_top_level_sudo_for_managed_children(monkeypatch):
+    """A devstuff-owned `sudo` becomes `sudo -n` (no hidden prompt) and apt gets
+    the noninteractive frontend as a sudo env assignment."""
+    from dev_setup import runner
+
+    seen = {}
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+
+    def fake_run(argv, **kw):
+        seen["argv"] = argv
+        seen["kw"] = kw
+
+    monkeypatch.setattr(runner, "run", fake_run)
+    generic._run(["sudo", "apt-get", "install", "-y", "foo"])
+    assert seen["argv"] == [
+        "sudo", "-n", "DEBIAN_FRONTEND=noninteractive",
+        "apt-get", "install", "-y", "foo",
+    ]
+    assert seen["kw"]["privileged"] is True
+
+
+def test_run_leaves_unprivileged_argv_alone(monkeypatch):
+    from dev_setup import runner
+
+    seen = {}
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+    monkeypatch.setattr(runner, "run", lambda argv, **kw: seen.update(argv=argv, kw=kw))
+    generic._run(["git", "clone", "url", "dest"])
+    assert seen["argv"] == ["git", "clone", "url", "dest"]
+    assert seen["kw"]["privileged"] is False
+
+
+def test_apt_install_runs_owned_sudo_n_with_no_preflight(monkeypatch, tmp_path):
+    """The apt action issues only its owned `sudo -n` commands — no `sudo -v`
+    or detached preflight anywhere in the path."""
+    from dev_setup import runner
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.setattr(generic, "_apt_refreshed_at", None)
+    monkeypatch.setattr(generic.GenericTool, "get_version", lambda _s: "demo 1.0")
+    ran: list[list[str]] = []
+    monkeypatch.setattr(runner, "run", lambda argv, **kw: ran.append(list(argv)))
+    probes: list[list[str]] = []
     monkeypatch.setattr(
-        generic.sys, "stdin", SimpleNamespace(isatty=lambda: True)
+        subprocess,
+        "run",
+        lambda cmd, *a, **k: (
+            probes.append([str(c) for c in cmd])
+            or subprocess.CompletedProcess(cmd, 0)
+        ),
     )
-
-    def fake_run(cmd, **kw):
-        calls.append(cmd)
-        # `sudo -n -v` reports uncached; the interactive `sudo -v` succeeds.
-        rc = 1 if cmd[:2] == ["sudo", "-n"] else 0
-        return subprocess.CompletedProcess(cmd, rc)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    tool = make_tool(install_type="apt", apt_packages="x")
-    with generic._sudo_session(tool, "install"):
-        pass
-    assert calls[0] == ["sudo", "-n", "-v"]
-    assert calls[1] == ["sudo", "-v"]
+    make_tool(install_type="apt", apt_packages="x").install()
+    assert ran == [
+        ["sudo", "-n", "DEBIAN_FRONTEND=noninteractive",
+         "apt-get", "update", "-q"],
+        ["sudo", "-n", "DEBIAN_FRONTEND=noninteractive",
+         "apt-get", "install", "-y", "x"],
+    ]
+    assert not any(p and p[0] == "sudo" for p in probes)
 
 
-def test_sudo_session_never_prompts_off_tty(monkeypatch):
-    calls: list[list[str]] = []
-    monkeypatch.setattr(generic.shutil, "which", lambda _c: "/usr/bin/sudo")
+def test_install_fails_when_catalog_check_fails(monkeypatch, tmp_path):
+    """Docker-shaped: the installer "succeeds" but the declared postcondition
+    (CLI + Compose plugin) is unmet — failure before get_version()."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.setattr(generic, "_run_bash_script", lambda _s: None)
     monkeypatch.setattr(
-        generic.sys, "stdin", SimpleNamespace(isatty=lambda: False)
+        generic.GenericTool,
+        "get_version",
+        lambda _s: pytest.fail("get_version ran before the check gate"),
     )
-
-    def fake_run(cmd, **kw):
-        calls.append(cmd)
-        return subprocess.CompletedProcess(cmd, 1)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    tool = make_tool(install_type="apt", apt_packages="x")
-    with generic._sudo_session(tool, "install"):
-        pass
-    assert calls == [["sudo", "-n", "-v"]]
-
-
-def test_sudo_session_ignores_tools_that_do_not_sudo(monkeypatch):
-    monkeypatch.setattr(
-        subprocess, "run", lambda *a, **k: pytest.fail("subprocess invoked")
-    )
-    with generic._sudo_session(make_tool(install_type="uvx", pip_name="x"), "install"):
-        pass
-
-
-def test_apt_update_runs_once_per_fresh_window(monkeypatch):
-    """A batch install refreshes apt's lists once, not once per apt tool."""
-    calls: list[list[str]] = []
     monkeypatch.setattr(
         generic,
         "_probe",
-        lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0),
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1),
+    )
+    tool = make_tool(
+        install_type="bash",
+        install_script="true",
+        check_cmd="docker compose version",
+    )
+    with pytest.raises(RuntimeError, match="install check did not pass"):
+        tool.install()
+
+
+def test_install_reports_unverifiable_check_as_could_not_verify(
+    monkeypatch, tmp_path
+):
+    """A probe that cannot run (timeout, spawn error) is not a known negative —
+    strict mode says 'could not verify', distinct from 'did not pass'."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.setattr(generic, "_run_bash_script", lambda _s: None)
+
+    def boom(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, 15)
+
+    monkeypatch.setattr(generic, "_probe", boom)
+    tool = make_tool(
+        install_type="bash",
+        install_script="true",
+        check_cmd="docker compose version",
+    )
+    with pytest.raises(RuntimeError, match="could not verify"):
+        tool.install()
+
+
+def test_apt_update_runs_once_per_fresh_window(monkeypatch):
+    """A batch install refreshes apt's lists once, not once per apt tool.
+
+    monotonic()=100 is inside the first 600s after boot — with the old 0.0
+    sentinel the *first* refresh would read as already fresh and never run."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        generic,
+        "_run",
+        lambda cmd, **kw: calls.append((cmd, kw)),
     )
     monkeypatch.setattr(ui, "current_view", lambda: None)
-    monkeypatch.setattr(generic, "_apt_refreshed_at", 0.0)
+    monkeypatch.setattr(generic, "_apt_refreshed_at", None)
+    monkeypatch.setattr(generic.time, "monotonic", lambda: 100.0)
     generic._run_apt_update()
     generic._run_apt_update()
-    assert calls == [["sudo", "apt-get", "update", "-q"]]
+    assert calls == [(["sudo", "apt-get", "update", "-q"], {"timeout": 180})]
+
+
+@pytest.mark.parametrize("kind", ["failed", "timeout"])
+def test_apt_update_tolerates_nonzero_exit_but_not_timeout(monkeypatch, kind):
+    """Through the real _run wrapper: a Failed (nonzero) refresh is tolerated
+    with no freshness cached; a TimedOut propagates — no second apt run may
+    follow an unresolved, possibly still-locked update."""
+    from dev_setup import runner
+
+    monkeypatch.setattr(generic, "_apt_refreshed_at", None)
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+    error = (
+        runner.Failed(100, "mirror unreachable")
+        if kind == "failed"
+        else runner.TimedOut("timed out after 180s")
+    )
+
+    def boom(argv, **kw):
+        raise error
+
+    monkeypatch.setattr(runner, "run", boom)
+    if kind == "timeout":
+        with pytest.raises(runner.TimedOut):
+            generic._run_apt_update()
+    else:
+        generic._run_apt_update()
+    assert generic._apt_refreshed_at is None
 
 
 def test_forget_probes_resets_apt_freshness(monkeypatch):
@@ -461,12 +559,13 @@ def test_forget_probes_resets_apt_freshness(monkeypatch):
     calls: list[list[str]] = []
     monkeypatch.setattr(
         generic,
-        "_probe",
-        lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0),
+        "_run",
+        lambda cmd, **kw: calls.append((cmd, kw)),
     )
     monkeypatch.setattr(ui, "current_view", lambda: None)
-    monkeypatch.setattr(generic, "_apt_refreshed_at", 0.0)
+    monkeypatch.setattr(generic, "_apt_refreshed_at", None)
+    monkeypatch.setattr(generic.time, "monotonic", lambda: 100.0)
     generic._run_apt_update()
     generic.forget_probes()
     generic._run_apt_update()
-    assert calls == [["sudo", "apt-get", "update", "-q"]] * 2
+    assert calls == [(["sudo", "apt-get", "update", "-q"], {"timeout": 180})] * 2

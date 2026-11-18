@@ -10,6 +10,7 @@ from rich.markup import escape
 from dev_setup import generic, registry, ui
 from dev_setup.base import Tool
 from dev_setup.commands._plan import plan_for, plan_summary
+from dev_setup.commands.configure_cmd import require_prompt
 
 
 @click.command("remove")
@@ -18,6 +19,7 @@ from dev_setup.commands._plan import plan_for, plan_summary
 def remove_cmd(packages: tuple[str, ...], yes: bool) -> None:
     """Uninstall installed packages. Interactive picker when called with no arguments."""
     if not packages:
+        require_prompt("The package picker needs a terminal. Pass package names and --yes for automation.")
         _remove_interactive(yes=yes)
         return
 
@@ -94,6 +96,7 @@ def _remove_one(
 
 
 def _confirm_plan(tool: Tool) -> bool:
+    require_prompt("Removal needs confirmation. Use a terminal or add --yes.")
     ui.plan_panel(f"Remove {tool.name}", plan_for(tool, "remove"))
     return ui.confirm(f"Remove {tool.name}?", default=False)
 
@@ -101,6 +104,7 @@ def _confirm_plan(tool: Tool) -> bool:
 def _confirm_plans(tools: list[Tool]) -> bool:
     if len(tools) == 1:
         return _confirm_plan(tools[0])
+    require_prompt("Removal needs confirmation. Use a terminal or add --yes.")
     rows = [(t.key, plan_summary(t, "remove")) for t in tools]
     ui.batch_plan_panel(rows, "Remove")
     return ui.confirm(f"Remove {len(tools)} packages?", default=False)

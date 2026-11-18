@@ -135,6 +135,7 @@ def test_mode_three_cannot_be_generated():
 
 def test_post_install_offer_runs_wizard(monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.setattr(wizard.ui, "confirm", lambda *a, **kw: True)
     run = Mock()
     monkeypatch.setattr(wizard, "run", run)

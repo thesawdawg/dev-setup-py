@@ -1,51 +1,103 @@
 from __future__ import annotations
 
+import os
+import sys
 import time
 from collections import deque
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from copy import copy
 from dataclasses import dataclass
+from threading import Lock
 
 import questionary
+from prompt_toolkit.styles import StyleTransformation
+from pygments.token import Token
 from questionary import Style as QStyle
 from rich import box
 from rich.color import Color
-from rich.columns import Columns
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.panel import Panel
-from rich.progress_bar import ProgressBar
 from rich.rule import Rule
-from rich.syntax import Syntax
+from rich.style import Style
+from rich.syntax import ANSISyntaxTheme, Syntax
 from rich.table import Table
 from rich.text import Text
 
-console = Console(highlight=False)
+from dev_setup.theme import ACCENT, CAUTION, DESTRUCTIVE, PRIMARY, SECONDARY, SUCCESS
 
-# ── palette ───────────────────────────────────────────────────────────────────
-# A violet→cyan accent ramp over neutral grays. Everything visible keys off these
-# constants so the theme lives in exactly one place.
-VIOLET = "#7C3AED"
-PURPLE = "#A78BFA"
-CYAN = "#22D3EE"
-GREEN = "#34D399"
-AMBER = "#FBBF24"
-RED = "#F87171"
-GRAY = "#6B7280"
-BORDER = "#4B4568"  # muted violet — boxes, rules, table frames
+
+def _plain_requested() -> bool:
+    return os.environ.get("DEVSTUFF_PLAIN") == "1" or os.environ.get("TERM", "").lower() == "dumb"
+
+
+def _isatty(file) -> bool:
+    try:
+        return file.isatty()
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def _plain() -> bool:
+    # FORCE_COLOR must not turn a pipe into an animated terminal.
+    return _plain_requested() or not _isatty(console.file) or not console.is_terminal
+
+
+console = Console(
+    highlight=False,
+    color_system=None if _plain_requested() or not _isatty(sys.stdout) else "auto",
+)
+
+# Compatibility aliases for the styles referenced by command handlers and wizards.
+VIOLET = PURPLE = CYAN = ACCENT
+GREEN = SUCCESS
+AMBER = CAUTION
+RED = DESTRUCTIVE
+GRAY = BORDER = SECONDARY
 
 _STYLE = QStyle([
-    ("qmark",       f"fg:{CYAN} bold"),
-    ("question",    "bold"),
-    ("answer",      f"fg:{PURPLE} bold"),
-    ("pointer",     f"fg:{CYAN} bold underline"),
-    ("highlighted", f"fg:{CYAN} bold underline"),
-    ("selected",    f"fg:{CYAN} bold"),
-    ("separator",   f"fg:{PURPLE}"),
-    ("instruction", f"fg:{GRAY} italic"),
-    ("check",       f"fg:{GREEN} bold"),
-    ("disabled",    f"fg:{GRAY} italic"),
+    ("qmark",       f"fg:{ACCENT} bold"),
+    ("question",    f"fg:{PRIMARY} bold"),
+    ("text",        f"fg:{PRIMARY}"),
+    ("answer",      f"fg:{ACCENT} bold"),
+    ("pointer",     f"fg:{ACCENT} bold"),
+    ("highlighted", f"fg:{ACCENT} bold underline"),
+    ("selected",    f"fg:{ACCENT} bold"),
+    ("separator",   f"fg:{SECONDARY}"),
+    ("instruction", f"fg:{SECONDARY}"),
+    ("check",       f"fg:{SUCCESS} bold"),
+    ("disabled",    f"fg:{SECONDARY}"),
+    ("search",      f"fg:{ACCENT} underline"),
+    ("description", f"fg:{SECONDARY}"),
+    ("validation-toolbar", f"fg:{DESTRUCTIVE} bold"),
 ])
+
+
+class _PromptStyle(StyleTransformation):
+    """Strip backgrounds (including reverse-video defaults in toolkit widgets)."""
+
+    def __init__(self, no_color: bool):
+        self.no_color = no_color
+
+    def transform_attrs(self, attrs):
+        return attrs._replace(
+            color="" if self.no_color else attrs.color, bgcolor="", reverse=False
+        )
+
+
+_SYNTAX_THEME = ANSISyntaxTheme({
+    tuple(Token.Text): Style(color=PRIMARY),
+    tuple(Token.Comment): Style(color=SECONDARY),
+    tuple(Token.Keyword): Style(color=ACCENT, bold=True),
+    tuple(Token.Name): Style(color=PRIMARY),
+    tuple(Token.Literal): Style(color=SUCCESS),
+    tuple(Token.Operator): Style(color=CAUTION),
+})
+
+
+def _syntax(code: str, language: str) -> Syntax:
+    return Syntax(code, language, theme=_SYNTAX_THEME, word_wrap=True)
 
 # Left-edge-only border — the chat-block look (a coloured gutter bar, no frame).
 LEFT_BAR = box.Box(
@@ -73,7 +125,7 @@ ROUNDED_OPEN = box.Box(
 )
 
 
-def gradient(text: str, start: str = VIOLET, end: str = CYAN) -> Text:
+def gradient(text: str, start: str = ACCENT, end: str = PRIMARY) -> Text:
     """Render `text` in bold with a per-character colour ramp from `start` to `end`."""
     c1 = Color.parse(start).triplet
     c2 = Color.parse(end).triplet
@@ -88,19 +140,19 @@ def gradient(text: str, start: str = VIOLET, end: str = CYAN) -> Text:
 
 
 def info(msg: str) -> None:
-    console.print(f"  [{CYAN} bold]❯[/]  {msg}")
+    console.print(f"  [{ACCENT} bold]{'>' if _plain() else '❯'}[/]  {msg}")
 
 
 def success(msg: str) -> None:
-    console.print(f"  [{GREEN} bold]✔[/]  {msg}")
+    console.print(f"  [{SUCCESS} bold]{'OK' if _plain() else '✔'}[/]  {msg}")
 
 
 def warn(msg: str) -> None:
-    console.print(f"  [{AMBER} bold]⚠[/]  {msg}")
+    console.print(f"  [{CAUTION} bold]{'Warning:' if _plain() else '⚠'}[/]  {msg}")
 
 
 def error(msg: str) -> None:
-    console.print(f"  [{RED} bold]✖[/]  {msg}")
+    console.print(f"  [{DESTRUCTIVE} bold]{'Error:' if _plain() else '✖'}[/]  {msg}")
 
 
 def dim(msg: str) -> None:
@@ -115,7 +167,8 @@ def section(title: str, note: str = "") -> None:
     if note:
         text.append(f"  {note}", style=GRAY)
     console.print()
-    console.print(Panel(text, border_style=VIOLET, expand=False, padding=(0, 1)))
+    console.print(Panel(text, box=box.ASCII if _plain() else box.ROUNDED,
+                        border_style=BORDER, expand=False, padding=(0, 1)))
     console.print()
 
 
@@ -124,11 +177,11 @@ def heading(title: str, note: str = "") -> None:
     text = f"[bold {PURPLE}]{title}[/]"
     if note:
         text += f"  [{GRAY}]{note}[/]"
-    console.print(Rule(text, style=BORDER, align="left"))
+    console.print(Rule(text, characters="-" if _plain() else "─", style=BORDER, align="left"))
 
 
 def divider() -> None:
-    console.print(Rule(style=BORDER))
+    console.print(Rule(characters="-" if _plain() else "─", style=BORDER))
 
 
 def print_banner() -> None:
@@ -136,19 +189,20 @@ def print_banner() -> None:
     t = gradient("devstuff")
     t.append(f"  v{__version__}", style=GRAY)
     console.print()
-    console.print(Panel(t, border_style=VIOLET, padding=(0, 2), expand=False))
+    console.print(Panel(t, box=box.ASCII if _plain() else box.ROUNDED,
+                        border_style=BORDER, padding=(0, 2), expand=False))
     console.print()
 
 
 def table(title: str = "", *, bordered: bool = True, **kwargs) -> Table:
-    """The shared table look: rounded muted-violet frame, purple headers.
+    """The shared table look: open frame and accent headers.
 
     `title` may contain markup and renders left-justified above the frame.
     `bordered=False` drops the frame for contexts (like --help) where a box
     would be chrome for its own sake. Extra kwargs pass through to `Table`.
     """
     return Table(
-        box=ROUNDED_OPEN if bordered else None,
+        box=(box.ASCII if _plain_requested() else ROUNDED_OPEN) if bordered else None,
         border_style=BORDER,
         title=title or None,
         title_justify="left",
@@ -161,33 +215,83 @@ def table(title: str = "", *, bordered: bool = True, **kwargs) -> Table:
 
 def gutter(renderable: RenderableType, style: str = VIOLET) -> Panel:
     """Wrap `renderable` in a panel with only a coloured left bar."""
-    return Panel(renderable, box=LEFT_BAR, border_style=style, padding=(0, 1))
+    return Panel(renderable, box=box.ASCII if _plain() else LEFT_BAR,
+                 border_style=style, padding=(0, 1))
 
 
 @contextmanager
 def spinner(label: str) -> Generator[None, None, None]:
-    with console.status(f"  [{GRAY}]{label}[/]", spinner="arc", spinner_style=PURPLE):
+    text = Text(f"  {label}", style=SECONDARY)
+    if _plain():
+        console.print(text)
+        yield
+        return
+    with console.status(text, spinner="arc", spinner_style=ACCENT):
         yield
 
 
-def _ask(question) -> object:
+def _ask(question, *, back: Callable[[], object] | None = None) -> object:
     """Run a questionary prompt via unsafe_ask() so Ctrl+C/Ctrl+D raise
     KeyboardInterrupt/EOFError instead of being swallowed into a None return
     (questionary's default .ask() catches KeyboardInterrupt and retries
     silently, which makes required prompts impossible to cancel). Click's
     top-level command dispatch already catches both and exits cleanly with
     "Aborted!", so letting them propagate is enough."""
-    return question.unsafe_ask()
+    app = getattr(question, "application", None)
+    if app is not None:
+        no_color = "NO_COLOR" in os.environ or _plain() or console.no_color
+        app.style_transformation = _PromptStyle(no_color)
+        if back is not None:
+            @app.key_bindings.add("c-b", eager=True)
+            def back_key(event) -> None:
+                try:
+                    answer = back()
+                except KeyboardInterrupt:
+                    event.app.exit(exception=KeyboardInterrupt)
+                else:
+                    event.app.exit(result=answer)
+
+    view = current_view()
+    if view is None or view._live is None:
+        return question.unsafe_ask()
+    # Give the prompt exclusive ownership. On abort let task_view unwind;
+    # there is no reason to restart a display just to stop it again.
+    view._live.stop()
+    answer = question.unsafe_ask()
+    view._live.start(refresh=True)
+    return answer
+
+
+def _static_prompt() -> bool:
+    if _plain_requested():
+        return True
+    return sys.stdin.readable() and (_plain() or not _isatty(sys.stdin))
+
+
+def _plain_input(prompt: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    return console.input(f"{prompt}{suffix} ", markup=False, emoji=False) or default
 
 
 def confirm(prompt: str, default: bool = False) -> bool:
+    if _static_prompt():
+        while True:
+            choices = "Y/n" if default else "y/N"
+            answer = _plain_input(f"{prompt} [{choices}]").strip().lower()
+            if not answer:
+                return default
+            if answer in {"y", "yes", "n", "no"}:
+                return answer in {"y", "yes"}
     result = _ask(questionary.confirm(prompt, default=default, style=_STYLE))
     return bool(result)
 
 
 def text_input(prompt: str, default: str = "", required: bool = False) -> str:
     while True:
-        result = _ask(questionary.text(prompt, default=default, style=_STYLE))
+        result = (
+            _plain_input(prompt, default) if _static_prompt()
+            else _ask(questionary.text(prompt, default=default, style=_STYLE))
+        )
         val = (result or "").strip()
         if val or not required:
             return val
@@ -195,20 +299,90 @@ def text_input(prompt: str, default: str = "", required: bool = False) -> str:
 
 
 def _pad_choices(choices: list) -> list:
-    """Stretch string titles to the row width so the `highlighted` background
-    reads as a full-width bar under the cursor rather than a patch behind the
-    text. Bare strings become Choices so the returned value stays unpadded."""
+    """Keep the existing row alignment without mutating reusable choices."""
     width = console.width - 6
     out: list = []
     for c in choices:
         if isinstance(c, str):
             out.append(questionary.Choice(title=c.ljust(width), value=c))
+        elif isinstance(c, questionary.Separator):
+            out.append(c)
         elif isinstance(c, questionary.Choice) and isinstance(c.title, str):
+            c = copy(c)
             c.title = c.title.ljust(width)
             out.append(c)
         else:
             out.append(c)
     return out
+
+
+def _picker_help(*, multiple: bool = False, searchable: bool = False, back: bool = False) -> str:
+    keys = ["Up/Down move"]
+    if multiple:
+        keys.append("Space toggle")
+    keys += ["Enter confirm", "Ctrl+B back" if back else "Ctrl+B cancel"]
+    if searchable:
+        keys.append("type to filter")
+    return " | ".join(keys)
+
+
+def _plain_pick(prompt: str, choices: list, default=None, *, multiple: bool = False,
+                validate=None):
+    """Numbered, line-oriented counterpart to the terminal picker."""
+    entries = []
+    defaults = []
+    default = getattr(default, "value", default)
+    for item in choices:
+        if isinstance(item, questionary.Separator):
+            console.print(Text(str(item.title)))
+            continue
+        choice = (
+            item if isinstance(item, questionary.Choice)
+            else questionary.Choice(**item) if isinstance(item, dict)
+            else questionary.Choice(item)
+        )
+        title = choice.title
+        if not isinstance(title, str):
+            title = "".join(fragment[1] for fragment in title)
+        title = title.strip()
+        if choice.disabled:
+            console.print(Text(f"  - {title} (unavailable: {choice.disabled})"))
+            continue
+        entries.append(choice.value)
+        index = str(len(entries))
+        checked = choice.value == default or (multiple and choice.checked)
+        if checked:
+            defaults.append(index)
+        marker = ("[x] " if checked else "[ ] ") if multiple else ""
+        console.print(Text(f"  {index}. {marker}{title}"))
+    if not multiple and not defaults and entries:
+        defaults = ["1"]
+    help_text = "numbers separated by spaces" if multiple else "number"
+    while entries:
+        cancel_label = "back" if BACK in entries else "cancel"
+        answer = _plain_input(f"{prompt} ({help_text}, 0 to {cancel_label})", " ".join(defaults))
+        if answer.strip() == "0":
+            if multiple:
+                return []
+            if BACK in entries:
+                return BACK
+            raise KeyboardInterrupt
+        try:
+            indices = {int(number) for number in answer.split()}
+        except ValueError:
+            indices = {0}
+        if not indices <= set(range(1, len(entries) + 1)) or (not multiple and len(indices) != 1):
+            console.print("Enter a number from the list, or 0 to cancel.")
+            continue
+        selected = [value for i, value in enumerate(entries, 1) if i in indices]
+        if multiple:
+            verdict = True if validate is None else validate(selected)
+            if verdict is not True:
+                console.print(Text(verdict if isinstance(verdict, str) else "Invalid selection."))
+                continue
+            return selected
+        return selected[0]
+    return [] if multiple else ""
 
 
 def select(
@@ -218,22 +392,46 @@ def select(
     objects; `default` is the choice (or value) the cursor starts on. `searchable`
     lets the user type to filter the list — which turns off the j/k movement keys,
     since those would otherwise be swallowed as search text."""
+    if _static_prompt():
+        return _plain_pick(prompt, choices, default)
+    has_back = any(getattr(c, "value", None) is BACK for c in choices)
     result = _ask(
         questionary.select(
             prompt,
             choices=_pad_choices(choices),
             default=default,
             style=_STYLE,
+            pointer=">",
+            instruction=_picker_help(searchable=searchable, back=has_back),
             use_search_filter=searchable,
             use_jk_keys=not searchable,
-        )
+        ),
+        back=(lambda: BACK) if has_back else _cancel_prompt,
     )
     return result or ""
 
 
+def _cancel_prompt() -> None:
+    raise KeyboardInterrupt
+
+
 def checkbox(prompt: str, choices: list, **kwargs) -> list:
+    if _static_prompt():
+        return _plain_pick(prompt, choices, kwargs.get("default"), multiple=True,
+                           validate=kwargs.get("validate"))
+    searchable = bool(kwargs.get("use_search_filter"))
+    if searchable:
+        kwargs.setdefault("use_jk_keys", False)
+    help_text = _picker_help(multiple=True, searchable=searchable)
+    if kwargs.get("instruction"):
+        # Preserve caller-specific context (e.g. why rows are pre-checked).
+        console.print(Text(help_text, style=SECONDARY))
+    else:
+        kwargs["instruction"] = help_text
+    kwargs.setdefault("pointer", ">")
     result = _ask(
-        questionary.checkbox(prompt, choices=_pad_choices(choices), style=_STYLE, **kwargs)
+        questionary.checkbox(prompt, choices=_pad_choices(choices), style=_STYLE, **kwargs),
+        back=lambda: None,
     )
     return result or []
 
@@ -243,11 +441,15 @@ def autocomplete(prompt: str, choices: list, **kwargs) -> str:
     choices; Enter returns whatever is in the input buffer (a selected choice or
     the typed text). ``choices`` are plain strings; ``meta_information`` is a
     dict mapping choice → description shown for the highlighted row."""
+    if _static_prompt():
+        return _plain_input(prompt, kwargs.get("default", ""))
     result = _ask(questionary.autocomplete(prompt, choices=choices, style=_STYLE, **kwargs))
     return result or ""
 
 
 def password(prompt: str) -> str:
+    if _static_prompt():
+        return console.input(f"{prompt} ", markup=False, emoji=False, password=True)
     result = _ask(questionary.password(prompt, style=_STYLE))
     return result or ""
 
@@ -256,19 +458,15 @@ def code_block(code: str, language: str = "bash") -> None:
     """Print a syntax-highlighted code panel."""
     console.print(
         Panel(
-            Syntax(code, language, theme="monokai", line_numbers=False),
+            _syntax(code, language),
+            box=box.ASCII if _plain() else box.ROUNDED,
             border_style=BORDER,
             padding=(0, 1),
         )
     )
 
 
-# ── task view: phase checklist + progress bar + live output tail ───────────────
-#
-# One live region drives an install/remove/update: a phase-fraction progress bar
-# over a checklist where finished steps persist as ✔, plus a tail box showing the
-# last few lines of real subprocess output. The view collapses to its checklist
-# on success and keeps the tail on failure (that's the error context).
+# ── task view: phase checklist + live output tail ─────────────────────────────
 #
 # Subprocess output reaches the tail through `_run` in generic.py, which reads
 # `current_view()` — a process-wide hook like the verbose level, so installers
@@ -285,38 +483,57 @@ _PHASE_SPINNER = "◐◓◑◒"
 _ERROR_TAIL_LINES = 30
 
 
-class TaskView:
-    """The live region. Not constructed directly — use `task_view`."""
+def _duration(seconds: int) -> str:
+    return f"{seconds // 60}m{seconds % 60:02d}s"
 
-    def __init__(self, title: str, total: int, tail_lines: int = 5):
+
+def _is_cancelled(exc: BaseException | None) -> bool:
+    return isinstance(exc, (KeyboardInterrupt, EOFError))
+
+
+class TaskView:
+    """Phase and output state. Use `task_view` to attach a presentation."""
+
+    def __init__(self, title: str, total: int, tail_lines: int = 5, *, log_path: str = ""):
         self.title = title
         self.total = max(total, 1)
-        self._phases: list[list] = []  # [label, state] state: done|current|failed
+        self._log_path = log_path
+        self._phases: list[list[str]] = []
         self._tail: deque[str] = deque(maxlen=tail_lines)
         self._errors: deque[str] = deque(maxlen=_ERROR_TAIL_LINES)
-        self._partial = False  # last tail entry is an unfinished line
+        self._partial = False
         self._live: Live | None = None
-        self._phase_started = time.monotonic()
-        self._last_feed = time.monotonic()
+        self._state_lock = Lock()
+        self._started = self._phase_started = self._last_feed = time.monotonic()
+        self._activity = ""
 
     # -- driving the view -----------------------------------------------------
 
     @contextmanager
     def phase(self, label: str) -> Generator[None, None, None]:
-        for p in self._phases:
-            if p[1] == "current":
-                p[1] = "done"
-        self._phases.append([label, "current"])
-        self._phase_started = time.monotonic()
-        self._repaint()
+        phase = [label, "current"]
+        with self._state_lock:
+            for previous in self._phases:
+                if previous[1] == "current":
+                    previous[1] = "done"
+            self._phases.append(phase)
+            self._phase_started = self._last_feed = time.monotonic()
+            self._activity = ""
+            self._partial = False
         try:
             yield
-        except BaseException:
-            self._phases[-1][1] = "failed"
-            self._repaint()
+        except BaseException as exc:
+            with self._state_lock:
+                phase[1] = "cancelled" if _is_cancelled(exc) else "failed"
             raise
-        self._phases[-1][1] = "done"
-        self._repaint()
+        else:
+            with self._state_lock:
+                phase[1] = "done"
+
+    def set_activity(self, label: str) -> None:
+        """Show an externally reported activity (e.g. draining); empty clears it."""
+        with self._state_lock:
+            self._activity = label
 
     def feed(self, line: str, *, partial: bool = False) -> None:
         """One line of subprocess output → the tail (and the failure buffer).
@@ -327,142 +544,196 @@ class TaskView:
         progress bar doesn't flood the tail; its final form arrives as a
         normal feed once the newline shows up.
         """
-        if self._partial and self._tail:
-            self._tail[-1] = line
-        else:
-            self._tail.append(line)
-        self._partial = partial
-        if not partial and line.strip():
-            self._errors.append(line)
-        self._last_feed = time.monotonic()
-        self._repaint()
+        with self._state_lock:
+            if self._partial and self._tail:
+                self._tail[-1] = line
+            else:
+                self._tail.append(line)
+            self._partial = partial
+            if not partial and line.strip():
+                self._errors.append(line)
+            self._last_feed = time.monotonic()
 
     def error_output(self) -> str:
-        return "\n".join(self._errors).strip()
+        with self._state_lock:
+            return "\n".join(self._errors).strip()
 
     # -- rendering ------------------------------------------------------------
 
-    def _repaint(self) -> None:
-        if self._live is not None:
-            self._live.update(self._render())
+    def _render(self, *, final: bool = False, failed: bool = False,
+                cancelled: bool = False, plain: bool = False) -> Group:
+        # Rich calls this while holding its own lock. Snapshot state briefly;
+        # no code holding our lock can call back into Live or the Console.
+        with self._state_lock:
+            now = time.monotonic()
+            phases = [tuple(phase) for phase in self._phases]
+            tail = tuple(self._tail)
+            elapsed = int(now - self._started)
+            phase_elapsed = int(now - self._phase_started)
+            idle = int(now - self._last_feed)
+            activity = self._activity
 
-    def _render(self, *, final: bool = False, failed: bool = False) -> Group:
-        done = sum(1 for _, s in self._phases if s == "done")
-        bar_style = RED if failed else (GREEN if final else VIOLET)
-        bar = ProgressBar(
-            total=self.total,
-            completed=min(done, self.total),
-            width=24,
-            complete_style=bar_style,
-            finished_style=bar_style,
+        done = sum(1 for _, state in phases if state == "done")
+        status, color = (
+            ("Cancelled", CAUTION) if cancelled else ("Failed", DESTRUCTIVE) if failed
+            else ("Done", SUCCESS) if final else ("In progress", ACCENT)
         )
-        now = time.monotonic()
-        frame = _PHASE_SPINNER[int(now * 6) % len(_PHASE_SPINNER)]
-
-        lines: list[RenderableType] = [
-            Columns(
-                [
-                    Text(f"  {self.title}  ", style="bold"),
-                    bar,
-                    Text(f" {done}/{self.total}", style=GRAY),
-                ],
-                padding=0,
-                expand=False,
-            )
+        total = len(phases) if final and not (failed or cancelled) else max(self.total, len(phases))
+        count = f" | {done}/{total} phases" if total else ""
+        lines = [
+            Text(self.title, style=f"{PRIMARY} bold", overflow="fold"),
+            Text(f"{status} | {_duration(elapsed)} elapsed{count}", style=f"{color} bold"),
         ]
-        for label, state in self._phases:
+        frame = ">" if plain else _PHASE_SPINNER[int(now * 6) % len(_PHASE_SPINNER)]
+        shown_phases = phases if final else phases[-5:]
+        if len(shown_phases) < len(phases):
+            lines.append(Text("  Earlier phases are listed in the result.", style=SECONDARY))
+        for label, state in shown_phases:
             if state == "done":
-                lines.append(Text(f"  ✔  {label}", style=GREEN))
-            elif state == "failed":
-                lines.append(Text(f"  ✖  {label}", style=f"{RED} bold"))
+                lines.append(Text(f"  {'OK' if plain else '✔'} {label}", style=SUCCESS,
+                                  overflow="fold"))
+            elif state in ("failed", "cancelled"):
+                phase_color = DESTRUCTIVE if state == "failed" else CAUTION
+                lines.append(Text(f"  {state.capitalize()}: {label}", style=phase_color,
+                                  overflow="fold"))
             else:
-                # Elapsed time on the live phase is the heartbeat: a long quiet
-                # phase (an apt download) visibly ticks instead of reading as
-                # hung, and the idle counter says when output last arrived.
-                elapsed = int(now - self._phase_started)
-                note = f"  ({elapsed // 60}m{elapsed % 60:02d}s"
-                idle = int(now - self._last_feed)
-                if idle >= 10:
-                    note += f", output idle {idle}s"
-                note += ")"
-                lines.append(
-                    Text.assemble((f"  {frame}  ", PURPLE), (f"{label}{note}", ""))
-                )
-        remaining = self.total - len(self._phases)
-        for _ in range(max(remaining, 0)):
-            lines.append(Text("  ○", style=GRAY))
-        if self._tail and not (final and not failed):
-            lines.append(Text(""))
-            for line in self._tail:
-                # from_ansi parses the subprocess's own escape codes — raw
-                # ANSI in a Text would reach the terminal mid-repaint and
-                # corrupt the live region.
-                tail = Text.from_ansi(f"  ┃ {line}")
-                tail.stylize(GRAY)
-                lines.append(tail)
+                lines.append(Text(f"  {frame} {label} ({_duration(phase_elapsed)})",
+                                  style=PRIMARY, overflow="fold"))
+        if not final:
+            if activity:
+                lines.append(Text(f"Activity: {activity}", style=PRIMARY, overflow="fold"))
+            if idle >= 30:
+                lines.append(Text(f"No new output for {idle}s; this does not indicate failure.",
+                                  style=CAUTION))
+        if tail:
+            # Parse child ANSI but don't adopt its styles (which can paint a
+            # background). Keep the full recent tail for a failed/cancelled result.
+            shown = tail if final and (failed or cancelled) else tail[-1:]
+            lines.append(Text("Last output:", style=f"{SECONDARY} bold"))
+            lines.extend(Text(f"  {Text.from_ansi(line).plain}", style=SECONDARY,
+                              no_wrap=not final, overflow="fold" if final else "ellipsis")
+                         for line in shown)
+        elif not final:
+            lines.append(Text("Last output: (none yet)", style=SECONDARY))
+        if self._log_path:
+            lines.append(Text(f"Log: {self._log_path}", style=SECONDARY, overflow="fold"))
+        if not final:
+            lines.append(Text("Ctrl+C cancels. Partial changes are not rolled back.", style=PRIMARY))
+        elif failed or cancelled:
+            next_step = (
+                "Review the log before retrying" if self._log_path
+                else "Check what completed before retrying"
+            )
+            lines.append(Text(f"{next_step}; partial changes may remain.", style=PRIMARY))
         return Group(*lines)
-
-    def _finish(self, failed: bool) -> None:
-        if self._live is None:
-            return
-        # Success collapses to the checklist; failure keeps the tail as context.
-        self._live.update(self._render(final=True, failed=failed), refresh=True)
-        self._live.stop()
-        self._live = None
 
 
 class _NullView:
-    """Verbose/non-TTY stand-in: phases degrade to the old spinner/log behaviour."""
+    """Track static results without switching subprocesses into live capture."""
+
+    def __init__(self, model: TaskView | None = None):
+        self._model = model
 
     @contextmanager
     def phase(self, label: str) -> Generator[None, None, None]:
         from dev_setup import verbose
-        with verbose.step(label):
-            yield
+        if self._model is None:
+            with verbose.step(label):
+                yield
+        else:
+            with self._model.phase(label), verbose.step(label):
+                yield
+
+    def set_activity(self, label: str) -> None:
+        if self._model is not None:
+            self._model.set_activity(label)
 
     def feed(self, line: str, *, partial: bool = False) -> None:
-        pass
+        if self._model is not None:
+            self._model.feed(line, partial=partial)
 
     def error_output(self) -> str:
-        return ""
+        return self._model.error_output() if self._model is not None else ""
+
+
+_STATIC_VIEW: _NullView | None = None
 
 
 @contextmanager
 def task_view(
-    title: str, *, total: int = 1, tail_lines: int = 5
+    title: str, *, total: int = 1, tail_lines: int = 5, log_path: str | None = None,
+    force_plain: bool = False,
 ) -> Generator[TaskView | _NullView, None, None]:
-    """Live install progress. Degrades to verbose.step in verbose mode/non-TTY."""
-    global _ACTIVE_VIEW
-    from dev_setup import verbose
+    """Render live progress when possible and leave a durable result afterward.
 
-    if verbose.enabled() or not console.is_terminal:
-        yield _NullView()
-        return
+    `force_plain` disables the live view even on a real terminal — used when a
+    child owns the tty (terminal passthrough), where a Live would fight it."""
+    global _ACTIVE_VIEW, _STATIC_VIEW
+    from dev_setup import generic, verbose
 
-    view = TaskView(title, total, tail_lines)
-    view._live = Live(
-        view._render(), console=console, refresh_per_second=10, transient=True
-    )
-    _ACTIVE_VIEW = view
-    failed = False
-    try:
-        with view._live:
-            try:
-                yield view
-            except BaseException:
-                failed = True
-                raise
-    finally:
+    is_verbose = verbose.enabled()
+    plain = force_plain or _plain()
+    view = TaskView(title, total, tail_lines,
+                    log_path=str(generic.run_log_path()) if log_path is None else log_path)
+    previous_live, previous_static = _ACTIVE_VIEW, _STATIC_VIEW
+    if plain or is_verbose:
+        presented = _STATIC_VIEW = _NullView(view)
         _ACTIVE_VIEW = None
-        view._finish(failed)
+    else:
+        # A callback, not a baked Group: Rich invokes it even without feed().
+        view._live = Live(console=console, get_renderable=view._render,
+                          refresh_per_second=4, transient=True)
+        presented = _ACTIVE_VIEW = view
+        _STATIC_VIEW = None
+
+    failure = None
+    try:
+        if view._live is not None:
+            view._live.start(refresh=True)
+        elif not is_verbose:
+            console.print(view._render(plain=True))
+        yield presented
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        _ACTIVE_VIEW, _STATIC_VIEW = previous_live, previous_static
+        try:
+            if view._live is not None:
+                view._live.stop()
+                view._live = None
+            cancelled = _is_cancelled(failure)
+            failed = failure is not None and not cancelled
+            if is_verbose:
+                result = "Cancelled" if cancelled else "Failed" if failed else "Done"
+                log = f" | Log: {view._log_path}" if view._log_path and failure else ""
+                verbose.log(f"{title}: {result}{log}")
+            else:
+                console.print(view._render(final=True, failed=failed, cancelled=cancelled,
+                                           plain=plain))
+        except Exception as render_error:
+            if failure is None:
+                raise
+            failure.add_note(f"Could not finish the progress display: {render_error}")
 
 
 @contextmanager
 def phase(label: str) -> Generator[None, None, None]:
-    """Advance the active task view (or fall back to verbose.step without one)."""
-    view = _ACTIVE_VIEW
-    if view is None:
-        view = _NullView()
+    """Advance the active task view (or fall back to verbose.step without one).
+
+    The phase boundary is always recorded in the action log — a stable marker,
+    not the label: labels interpolate argv fragments (URLs, package names) and
+    those must not persist. Ordering against child-exit metadata is enough to
+    correlate. In machine mode the phase is fully silent — no spinner, no
+    line, regardless of what stderr or TERM happen to be — so nothing can
+    leak onto a JSON/eval stream."""
+    from dev_setup import runner
+
+    runner.note("phase started")
+    if runner.is_machine_mode():
+        yield
+        return
+    view = _ACTIVE_VIEW or _STATIC_VIEW or _NullView()
     with view.phase(label):
         yield
 
@@ -476,30 +747,40 @@ PlanItem = tuple[str, str, str]
 
 def plan_panel(title: str, items: list[PlanItem], note: str = "") -> None:
     """Render the 'here is what will run' preview before a state-changing op."""
-    parts: list[RenderableType] = []
+    plain = _plain()
+    parts: list[RenderableType] = [Text(f"{title} plan", style=f"{PRIMARY} bold")]
     for kind, label, detail in items:
         if kind == "script":
-            parts.append(Text(f"  {label}:", style=f"bold {PURPLE}"))
-            parts.append(Syntax(detail, "bash", theme="monokai", line_numbers=False))
+            parts.append(Text(f"  {label}:", style=f"bold {ACCENT}"))
+            parts.append(_syntax(detail, "bash"))
         elif kind == "note":
-            parts.append(Text(f"  ↳ {detail}", style=GRAY))
+            parts.append(Text(f"  {'-' if plain else '↳'} {detail}", style=SECONDARY))
         else:
             parts.append(
-                Text.assemble(("  $ ", f"{CYAN} bold"), (detail, ""))
+                Text.assemble(("  $ ", f"{ACCENT} bold"), (detail, PRIMARY), overflow="fold")
             )
     if note:
         parts.append(Text(""))
         parts.append(Text(f"  {note}", style=f"{AMBER}"))
     console.print(
-        Panel(Group(*parts), border_style=BORDER, padding=(0, 1), expand=True)
+        Panel(Group(*parts), box=box.ASCII if plain else box.ROUNDED,
+              border_style=BORDER, padding=(0, 1), expand=True)
     )
 
 
 def batch_plan_panel(rows: list[tuple[str, str]], action: str) -> None:
-    """Compact one-line-per-tool plan for multi-package runs."""
-    tbl = table(title=f"[bold]{action} plan[/]")
-    tbl.add_column("Package", style="bold", no_wrap=True)
-    tbl.add_column("Will run", ratio=1, overflow="fold")
+    """Show exact commands, stacked at widths where two columns crowd them."""
+    title = Text(f"{action} plan", style=f"{PRIMARY} bold")
+    if console.width < 72:
+        console.print(title)
+        for name, detail in rows:
+            console.print(Text(name, style=f"{ACCENT} bold", overflow="fold"))
+            console.print(Text(f"  {detail}", overflow="fold"))
+        console.print()
+        return
+    tbl = table(title=title)
+    tbl.add_column("Package", style="bold", ratio=1, overflow="fold")
+    tbl.add_column("Will run", ratio=3, overflow="fold")
     for name, detail in rows:
         # Text, not a markup string: a plan is the exact command, and `[lock]` in
         # `ansible-lint[lock]` is text to show, not a style tag for Rich to delete.
@@ -510,27 +791,44 @@ def batch_plan_panel(rows: list[tuple[str, str]], action: str) -> None:
 
 # ── run summary ────────────────────────────────────────────────────────────────
 
-_SUMMARY_ICON = {"ok": (GREEN, "●"), "skip": (GRAY, "○"), "fail": (RED, "✖")}
+_SUMMARY_STATUS = {
+    "ok": (SUCCESS, "Done"),
+    "skip": (SECONDARY, "Skipped"),
+    "fail": (DESTRUCTIVE, "Failed"),
+    "cancelled": (CAUTION, "Cancelled"),
+}
 
 
 def summary(results: list[tuple[str, str, str]], title: str = "Summary") -> None:
     """End-of-run report. `results` rows are (label, status, detail) where
-    status is "ok" | "skip" | "fail" and detail is a version or error line."""
-    n_ok = sum(1 for _, s, _ in results if s == "ok")
-    n_fail = sum(1 for _, s, _ in results if s == "fail")
-    tbl = table(
-        title=f"[bold]{title}[/]  [{GRAY}]{n_ok} ok · {n_fail} failed[/]"
+    status is "ok" | "skip" | "fail" | "cancelled" and detail describes the outcome."""
+    counts = " | ".join(
+        f"{sum(s == status for _, s, _ in results)} {label.lower()}"
+        for status, (_, label) in _SUMMARY_STATUS.items()
+        if status != "cancelled" or any(s == status for _, s, _ in results)
     )
-    tbl.add_column("", width=2, justify="center")
-    tbl.add_column("Package", style="bold", no_wrap=True)
-    tbl.add_column("Result", ratio=1, overflow="fold")
+    heading_text = Text.assemble((title, f"{PRIMARY} bold"), (f" | {counts}", SECONDARY))
+    console.print()
+    compact = console.width < 72
+    if compact:
+        console.print(heading_text)
+    else:
+        tbl = table(title=heading_text)
+        tbl.add_column("Status", style="bold", min_width=9)
+        tbl.add_column("Package", style="bold", ratio=1, overflow="fold")
+        tbl.add_column("Detail", ratio=2, overflow="fold")
     for label, status, detail in results:
-        color, icon = _SUMMARY_ICON.get(status, _SUMMARY_ICON["skip"])
+        color, word = _SUMMARY_STATUS.get(status, _SUMMARY_STATUS["skip"])
         # `detail` is an installer's error line: arbitrary text, so never parsed as markup
         # (`[/usr/bin/x]` is a closing tag to Rich and raises MarkupError).
-        tbl.add_row(f"[{color}]{icon}[/]", Text(label), Text(detail))
-    console.print()
-    console.print(tbl)
+        if compact:
+            console.print(Text.assemble((f"{word}: ", f"{color} bold"), label, overflow="fold"))
+            if detail:
+                console.print(Text(f"  {detail}", overflow="fold"))
+        else:
+            tbl.add_row(Text(word, style=color), Text(label), Text(detail))
+    if not compact:
+        console.print(tbl)
     console.print()
 
 
@@ -568,23 +866,28 @@ def select_back(prompt: str, choices: list, default: object | None = None) -> ob
     Appended, not prepended — as the first choice it would be what a bare Enter
     lands on, making the first step of every wizard an accidental abort.
     """
-    entries = list(choices) + [questionary.Choice(title="← Back", value=BACK)]
+    entries = list(choices) + [questionary.Choice(title="[Back]", value=BACK)]
     result = select(prompt, entries, default=default)
     return result
 
 
 def text_input_back(prompt: str, default: str = "", required: bool = False) -> object:
-    """text_input() where Escape returns BACK."""
+    """text_input() with Ctrl+B (or :back in plain mode) to return BACK."""
     while True:
-        result = _ask(
-            questionary.text(
-                prompt,
-                default=default,
-                style=_STYLE,
-                key_bindings=_back_key_bindings(),
-                instruction="(Ctrl+B: back)",
+        if _static_prompt():
+            result = _plain_input(f"{prompt} (type :back to go back)", default)
+            if result == ":back":
+                return BACK
+        else:
+            result = _ask(
+                questionary.text(
+                    prompt,
+                    default=default,
+                    style=_STYLE,
+                    key_bindings=_back_key_bindings(),
+                    instruction="(Ctrl+B: back)",
+                )
             )
-        )
         if result is BACK:
             return BACK
         val = (result or "").strip()
@@ -653,16 +956,16 @@ class Wizard:
             console.print()
             pick = select(
                 "Edit a field, or confirm:",
-                [questionary.Choice("✔ Confirm", value="__done__")]
+                [questionary.Choice("[Confirm]", value="__done__")]
                 + [
                     questionary.Choice(f"edit {s.label}", value=s.key)
                     for s in applicable
                 ]
-                + [questionary.Choice("✖ Abort", value="__abort__")],
+                + [questionary.Choice("[Cancel]", value="__abort__")],
             )
-            if pick == "__abort__":
+            if pick in ("__abort__", ""):
                 return None
-            if pick in ("__done__", ""):
+            if pick == "__done__":
                 # An edit may have made steps applicable that were never asked —
                 # collect their answers before letting the wizard finish.
                 missing = [s for s in applicable if s.key not in answers]
