@@ -451,7 +451,7 @@ def test_a_note_with_square_brackets_is_printed_literally_not_parsed_as_markup(c
 
     row = profile.DiffRow("k", profile.DiffState.UNVERIFIABLE, "npm", "1", None, "see [docs] and [/x]")
 
-    profile_cmd._render([row], show_all=True)
+    profile_cmd.show_diff([row], show_all=True)
 
     assert "see [docs] and [/x]" in flat(capsys.readouterr().out)
 

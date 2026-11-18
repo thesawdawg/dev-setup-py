@@ -1,18 +1,25 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import click
 from rich.markdown import Markdown
+from rich.text import Text
 
 from dev_setup import ui
 from dev_setup.agent import loop, registry
 from dev_setup.agent.approval import ApprovalPolicy
 from dev_setup.agent.config import AgentConfig
-from dev_setup.agent.ollama import Message, OllamaClient, OllamaError
+from dev_setup.agent.ollama import ChatClient, Message, OllamaError
 from dev_setup.agent.registry import AgentTool
 from dev_setup.agent.sandbox import Workspace
 from dev_setup.agent.transcript import Transcript
+
+if TYPE_CHECKING:
+    from dev_setup.agent.scoped import ScopedActions
 
 STATE_DIR = Path.home() / ".local" / "share" / "devstuff" / "agent"
 HISTORY_PATH = STATE_DIR / "history"
@@ -47,7 +54,7 @@ _SLASH_HELP = [
 class AgentSession:
     def __init__(
         self,
-        client: OllamaClient,
+        client: ChatClient,
         config: AgentConfig,
         workspace: Workspace,
         *,
@@ -55,12 +62,21 @@ class AgentSession:
         tools: dict[str, AgentTool] | None = None,
         policy: ApprovalPolicy | None = None,
         transcript: Transcript | None = None,
+        scoped_actions: ScopedActions | None = None,
     ) -> None:
         self.client = client
         self.config = config
         self.workspace = workspace
         self.model = model or config.model
-        self.tools = tools if tools is not None else registry.build()
+        self.scoped_actions = scoped_actions
+        if scoped_actions is not None:
+            # A scoped session's tools are exactly its fixed mapping — an
+            # explicit `tools` argument must not widen the scoped surface.
+            self.tools = scoped_actions.tools
+        elif tools is not None:
+            self.tools = tools
+        else:
+            self.tools = registry.build()
         self.schemas = registry.to_schemas(self.tools)
         self.policy = policy or ApprovalPolicy(auto_approve=config.auto_approve)
         self.transcript = transcript
@@ -68,12 +84,20 @@ class AgentSession:
         self.reset()
 
     def system_prompt(self) -> str:
+        if self.scoped_actions is not None:
+            # Lazy import: scoped pulls in the loop and catalogs, which must
+            # not become a load-time cycle with this module.
+            from dev_setup.agent.scoped import SYSTEM_PROMPT as SCOPED_PROMPT
+
+            return SCOPED_PROMPT
         return SYSTEM_PROMPT.format(
             root=self.workspace.root, cwd=self.workspace.display(self.workspace.cwd)
         )
 
     def reset(self) -> None:
         self.messages = [{"role": "system", "content": self.system_prompt()}]
+        if self.scoped_actions is not None:
+            self.scoped_actions.reset()
 
     def send(self, prompt: str) -> Message | None:
         try:
@@ -95,27 +119,37 @@ def render(reply: Message | None) -> None:
     ui.console.print()
 
 
-def _print_banner(session: AgentSession) -> None:
+def _print_banner(session: AgentSession, *, browse_catalog=None) -> None:
     ui.section("devstuff agent")
-    for key, value in (
+    rows = [
         ("model", session.model),
         ("host", session.client.host),
-        ("workspace", str(session.workspace.root)),
-        ("tools", f"{len(session.tools)} available"),
-    ):
+    ]
+    if getattr(session, "scoped_actions", None) is not None:
+        rows.append(("mode", "Find tools, review runs, or register an extension"))
+    else:
+        rows.append(("workspace", str(session.workspace.root)))
+    rows.append(("tools", f"{len(session.tools)} available"))
+    for key, value in rows:
         ui.console.print(f"  [{ui.PURPLE}]{key:<10}[/] [{ui.GRAY}]{value}[/]")
     if session.policy.yolo:
         ui.console.print()
         ui.warn("--yolo: mutating tools run without confirmation (the denylist still applies).")
     ui.console.print()
     ui.dim("/ for commands and tools · Alt+Enter for a newline · Ctrl-D to quit")
+    if browse_catalog is not None:
+        ui.dim("/browse opens the read-only catalog browser")
     ui.console.print()
 
 
-def _print_slash_help() -> None:
-    for cmd, desc in _SLASH_HELP:
+def _print_slash_help(
+    commands: list[tuple[str, str]] | None = None, *, tool_example: str = "write_file"
+) -> None:
+    for cmd, desc in commands or _SLASH_HELP:
         ui.console.print(f"  [bold cyan]{cmd:<9}[/]  {desc}")
-    ui.console.print(f"  [bold cyan]{'/<tool>':<9}[/]  Describe one tool, e.g. /write_file")
+    ui.console.print(
+        f"  [bold cyan]{'/<tool>':<9}[/]  Describe one tool, e.g. /{tool_example}"
+    )
     ui.console.print()
     ui.dim("  Type / for a completion menu of commands and tools.")
     ui.dim("  Enter sends · Alt+Enter (or Ctrl-J) inserts a newline")
@@ -177,16 +211,44 @@ def _print_history(session: AgentSession) -> None:
         ui.console.print()
 
 
-def _handle_slash(session: AgentSession, line: str) -> bool:
+def _slash_commands(
+    session: AgentSession, browse_catalog: Callable[[], None] | None
+) -> list[tuple[str, str]]:
+    """The `/` menu for this session: `/cwd` means nothing to a scoped session
+    (there is no workspace to show), `/browse` only exists when wired."""
+    commands = [
+        entry for entry in _SLASH_HELP
+        if entry[0] != "/cwd" or getattr(session, "scoped_actions", None) is None
+    ]
+    if browse_catalog is not None:
+        commands.append(("/browse", "Browse the tool catalog"))
+    return commands
+
+
+def _handle_slash(
+    session: AgentSession,
+    line: str,
+    *,
+    commands: list[tuple[str, str]] | None = None,
+    browse_catalog: Callable[[], None] | None = None,
+) -> bool:
     """Returns True if the session should end."""
+    scoped = getattr(session, "scoped_actions", None) is not None
+    tool_example = "find_tools" if scoped else "write_file"
     cmd = line.split()[0].lower()
     if cmd in ("/exit", "/quit"):
         return True
     if cmd == "/help":
-        _print_slash_help()
+        _print_slash_help(commands, tool_example=tool_example)
+    elif cmd == "/browse" and browse_catalog is not None:
+        try:
+            browse_catalog()
+        except click.ClickException as exc:
+            # A broken catalog ends the browse, not the chat.
+            ui.console.print(Text(str(exc)))
     elif cmd == "/tools":
         _print_tools(session)
-    elif cmd == "/cwd":
+    elif cmd == "/cwd" and not scoped:
         ui.dim(f"workspace  {session.workspace.root}")
         ui.dim(f"current    {session.workspace.display(session.workspace.cwd)}")
         ui.console.print()
@@ -206,32 +268,29 @@ def _handle_slash(session: AgentSession, line: str) -> bool:
         _print_tool_detail(session.tools[cmd.lstrip("/")])
     else:
         ui.error(f"Unknown command: {cmd}")
-        _print_slash_help()
+        _print_slash_help(commands, tool_example=tool_example)
     return False
 
 
 def _turn(session: AgentSession, line: str) -> None:
+    start = len(session.messages)
     try:
         reply = session.send(line)
     except KeyboardInterrupt:
-        # Roll back to the last completed turn: a half-finished tool exchange left
-        # in the history would confuse the next request.
-        _rollback(session)
+        # Roll the whole turn back: a half-finished tool exchange left in
+        # history — an assistant call without its tool results — would be
+        # rejected by the next request.
+        del session.messages[start:]
         ui.console.print()
         ui.dim("(cancelled)")
         ui.console.print()
         return
     except OllamaError as exc:
-        _rollback(session)
-        ui.error(str(exc))
+        del session.messages[start:]
+        ui.console.print(Text(str(exc)))
         ui.console.print()
         return
     render(reply)
-
-
-def _rollback(session: AgentSession) -> None:
-    while session.messages and session.messages[-1]["role"] != "assistant":
-        session.messages.pop()
 
 
 def _key_bindings():
@@ -301,38 +360,76 @@ def _prompt_style():
     })
 
 
-def build_prompt_session(session: AgentSession, **overrides):
+def _scoped_prompt_style():
+    """Scoped prompt theme: foreground only — the scoped surface never paints
+    backgrounds, so the completion menu marks the current row with
+    weight/underline instead of a highlight block."""
+    from prompt_toolkit.styles import Style as PTStyle
+
+    return PTStyle.from_dict({
+        "prompt": f"{ui.CYAN} bold",
+        "completion-menu": ui.GRAY,
+        "completion-menu.completion.current": f"{ui.CYAN} bold underline",
+    })
+
+
+def build_prompt_session(session: AgentSession, commands=None, **overrides):
     """Split out from run_repl so the input behaviour can be driven by tests with a
     pipe input rather than only exercised by hand."""
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.history import FileHistory, InMemoryHistory
+    from prompt_toolkit.output import ColorDepth
 
     from dev_setup.agent.completion import SlashCompleter
 
+    scoped = getattr(session, "scoped_actions", None) is not None
+    no_color = "NO_COLOR" in os.environ or ui.console.no_color
     kwargs = {
-        "history": FileHistory(str(HISTORY_PATH)),
-        "completer": SlashCompleter(_SLASH_HELP, session.tools),
+        # Scoped sessions keep nothing on disk: the prompt history would be a
+        # second transcript of a session that was told it leaves none.
+        "history": (
+            InMemoryHistory() if scoped else FileHistory(str(HISTORY_PATH))
+        ),
+        "completer": SlashCompleter(commands or _SLASH_HELP, session.tools),
         "complete_while_typing": True,
         "multiline": True,
         "key_bindings": _key_bindings(),
         "prompt_continuation": _continuation,
-        "style": _prompt_style(),
+        "style": _scoped_prompt_style() if scoped else _prompt_style(),
     }
+    if scoped:
+        # Strip any inherited reverse/background rendering; 1-bit when the
+        # user asked for no colour.
+        kwargs["style_transformation"] = ui._PromptStyle(no_color)
+        if no_color:
+            kwargs["color_depth"] = ColorDepth.DEPTH_1_BIT
     kwargs.update(overrides)
     return PromptSession(**kwargs)
 
 
-def run_repl(session: AgentSession) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    prompt_session = build_prompt_session(session)
+def run_repl(
+    session: AgentSession, *, browse_catalog: Callable[[], None] | None = None
+) -> None:
+    commands = _slash_commands(session, browse_catalog)
 
-    _print_banner(session)
+    prompt_session = None
+    if not ui._static_prompt():
+        if getattr(session, "scoped_actions", None) is None:
+            STATE_DIR.mkdir(parents=True, exist_ok=True)
+        prompt_session = build_prompt_session(session, commands=commands)
+
+    _print_banner(session, browse_catalog=browse_catalog)
 
     from prompt_toolkit.formatted_text import HTML
 
     while True:
         try:
-            line = prompt_session.prompt(HTML("<prompt>you ❯</prompt> ")).strip()
+            if prompt_session is not None:
+                line = prompt_session.prompt(HTML("<prompt>you ❯</prompt> ")).strip()
+            else:
+                # TERM=dumb / DEVSTUFF_PLAIN: a static line read, no editing
+                # chrome — the same fallback plain prompts use elsewhere.
+                line = ui.console.input("you ❯ ").strip()
         except KeyboardInterrupt:
             continue  # Ctrl-C clears the current line, like a shell
         except EOFError:
@@ -342,7 +439,9 @@ def run_repl(session: AgentSession) -> None:
             continue
         # A multi-line message that happens to open with "/" is prose, not a command.
         if line.startswith("/") and "\n" not in line:
-            if _handle_slash(session, line):
+            if _handle_slash(
+                session, line, commands=commands, browse_catalog=browse_catalog
+            ):
                 break
             continue
 

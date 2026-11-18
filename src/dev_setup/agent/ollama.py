@@ -6,7 +6,8 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 Transport = Callable[[str, str, dict[str, Any] | None, int], dict[str, Any]]
 """(method, path, payload, timeout) -> decoded JSON. Injected in tests."""
@@ -32,6 +33,9 @@ class ModelNotFound(OllamaError):
 class ToolCall:
     name: str
     arguments: dict[str, Any] = field(default_factory=dict)
+    # OpenAI-style calls carry a mandatory id that must be echoed back on the
+    # matching tool result; Ollama's wire format has none.
+    id: str | None = None
 
 
 @dataclass
@@ -42,18 +46,71 @@ class Message:
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
-def _http_transport(base_url: str) -> Transport:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect. A loopback Ollama never 302s — one means a
+    proxy or captive portal is answering, and following it could send the
+    session somewhere off-machine."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def loopback_host(raw: str) -> str:
+    """Validate a loopback-only Ollama URL: http(s) on localhost/127.0.0.1/::1,
+    no userinfo, no path beyond '/', no query or fragment. `localhost`
+    normalizes to 127.0.0.1. Anything else raises UsageError, so it surfaces
+    before any HTTP client exists."""
+    import click  # local import: ollama.py is on the agent import path
+
+    guidance = (
+        "Local chat only talks to Ollama on this machine, e.g. "
+        "http://127.0.0.1:11434. For a remote model use `devstuff agent`."
+    )
+    if any(ord(c) < 0x20 or ord(c) == 0x7F for c in raw):
+        raise click.UsageError(f"{raw!r} contains control characters. {guidance}")
+    try:
+        parts = urlsplit(raw)
+        port = parts.port
+    except ValueError as exc:
+        raise click.UsageError(f"{raw!r} is not a valid URL. {guidance}") from exc
+    ok = (
+        parts.scheme in {"http", "https"}
+        and parts.hostname in {"localhost", "127.0.0.1", "::1"}
+        and parts.username is None
+        and parts.password is None
+        and parts.path in {"", "/"}
+        and not parts.query
+        and not parts.fragment
+    )
+    if not ok:
+        raise click.UsageError(f"{raw!r} is not a loopback URL. {guidance}")
+    hostname = "127.0.0.1" if parts.hostname == "localhost" else parts.hostname
+    netloc = f"[{hostname}]" if ":" in (hostname or "") else hostname
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    return f"{parts.scheme}://{netloc}"
+
+
+def _http_transport(
+    base_url: str,
+    *,
+    allow_redirects: bool = True,
+    headers: dict[str, str] | None = None,
+) -> Transport:
     # An explicit empty ProxyHandler: urllib otherwise honours HTTP_PROXY/ALL_PROXY
     # from the environment, which would route a localhost Ollama call through a
     # corporate proxy and fail in a way that looks like "the daemon is down".
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    handlers: list[urllib.request.BaseHandler] = [urllib.request.ProxyHandler({})]
+    if not allow_redirects:
+        handlers.append(_NoRedirect())
+    opener = urllib.request.build_opener(*handlers)
 
     def transport(method: str, path: str, payload: dict[str, Any] | None, timeout: int) -> dict[str, Any]:
         data = json.dumps(payload).encode() if payload is not None else None
         req = urllib.request.Request(
             f"{base_url}{path}",
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **(headers or {})},
             method=method,
         )
         with opener.open(req, timeout=timeout) as resp:
@@ -179,11 +236,41 @@ def parse_message(raw: dict[str, Any]) -> Message:
     )
 
 
+class ChatClient(Protocol):
+    """The structural interface `AgentSession` needs from a model endpoint:
+    OllamaClient and OpenAIClient both satisfy it."""
+
+    host: str
+    timeout: int
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        model: str,
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.2,
+        num_ctx: int = 16384,
+        think: bool = False,
+    ) -> Message: ...
+
+
 class OllamaClient:
-    def __init__(self, host: str, timeout: int = 120, transport: Transport | None = None) -> None:
+    def __init__(
+        self,
+        host: str,
+        timeout: int = 120,
+        transport: Transport | None = None,
+        *,
+        local_chat: bool = False,
+    ) -> None:
         self.host = host.rstrip("/")
         self.timeout = timeout
-        self._transport = transport or _http_transport(self.host)
+        # local_chat refuses redirects on top of the proxy bypass — a
+        # loopback-only session must not be able to wander off-machine.
+        self._transport = transport or _http_transport(
+            self.host, allow_redirects=not local_chat
+        )
 
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         try:

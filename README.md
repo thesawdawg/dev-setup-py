@@ -272,17 +272,46 @@ prove that the daemon is running or that your shell can reach it. If your Docker
 membership just changed, a fresh login may be needed; use `docker info` to check access from
 the session you intend to use. The optional configuration wizard is separate from installation.
 
-#### Optional local TUI preview
+#### Optional local TUI
 
-`devstuff tui` is an experimental, read-only catalog browser — never the default UI and
-never an execution path. It lists the effective catalog (bundled + your user tools) and each
-tool's *nominal* install plan. It does not check installed state or `requires`, does not run
-anything, and drops out to a plain inventory on terminals below 80x16, `TERM=dumb`, or
-`DEVSTUFF_PLAIN=1`. It needs a real terminal; `devstuff list` is the non-interactive
-equivalent. Up/Down moves, Space marks tools for review, Enter toggles between a tool's
-nominal plan and the marked review, `/` filters (Enter or Esc returns to the list), and `q`
-or Ctrl+C quits. It is an evaluation artifact: promotion to any installer-facing role is a
-separate, still-pending gate.
+Plain `devstuff tui` opens a model-free workspace: menus for finding tools in
+the catalog, reading their definitions, drafting new catalog entries, and
+reviewing installs or function runs — the same scoped actions the assistant
+uses, picked by hand instead of proposed by a model, with the same previews
+and approvals. Installs, function runs, and saves require confirmation; no
+model is started. The workspace also runs a full profile loop — the same
+planner, executor and re-measurement verdict as `devstuff profile apply`,
+driven by menus. Pick
+"Choose a starter profile" (the shipped `@bundles`) or "Open a profile file",
+review the diff and plan, and apply only after a default-No confirmation:
+
+```bash
+devstuff tui                      # menu → Choose a starter profile → @devops
+devstuff tui --profile @devops    # or open it directly on launch
+devstuff tui --profile ~/dev.yaml # a file works the same way
+```
+
+The opened profile stays "current" in memory for the session — nothing is
+written to config; `--profile` (or the menu's "Current profile") reopens it,
+re-reading the file so edits and drift show up. Profile comparison uses the
+same catalog-defined local checks as `profile diff` — what they report is
+as trustworthy as the catalog entries they run, so a profile or catalog
+from elsewhere deserves a look first. Installers can need the network.
+There is no rollback: a step that ran stays done. `devstuff tui --chat`
+opts into the optional assistant (local Ollama or a configured provider —
+see [Agent](#agent)); `devstuff tui --browse` opens the standalone read-only
+catalog browser, also reachable as `/browse` inside chat.
+
+The browser lists the effective catalog (bundled + your user tools) and each
+tool's *nominal* install plan. It does not check installed state or `requires`,
+does not run anything, and drops out to a plain inventory on terminals below
+80x16, `TERM=dumb`, or `DEVSTUFF_PLAIN=1`. It needs a real terminal;
+`devstuff list` is the non-interactive equivalent. Up/Down moves, Space marks
+tools for review, Enter toggles between a tool's nominal plan and the marked
+review, `/` filters (Enter or Esc returns to the list), and `q` or Ctrl+C
+quits. The workspace itself falls back to numbered menus on plain terminals.
+The standalone browser remains an evaluation artifact: promotion to any
+installer-facing role is a separate, still-pending gate.
 
 The same renderer can be exercised without a catalog, from the repository root with the
 project's `.venv` already set up:
@@ -1318,17 +1347,40 @@ instead, with the *same* local port (the `Host` header must carry the bound port
 
 ## Agent
 
-`devstuff agent` opens an interactive session with a **local** model (via [Ollama](https://ollama.com))
-that can call devstuff's own tools plus a workspace-scoped filesystem/shell kit. Nothing leaves
-the machine, there are no API keys, and it works offline.
+`devstuff agent` opens an interactive session with a model you configure (via
+[Ollama](https://ollama.com)). The default is the **scoped assistant**: it can
+search and read the catalog, draft new catalog entries, and — each with an
+explicit approval — install a named package or run a named script function.
+It has no shell and no filesystem access. `devstuff tui --chat` runs the same
+scoped assistant, pinned to a loopback host; `/browse` opens the read-only
+catalog browser. Plain `devstuff tui` is a model-free workspace menu over the
+same actions — no model starts unless you ask for one.
+
+**Everything the assistant reads — catalog definitions including install
+scripts — and every tool output goes to the configured model host.** With the
+default `localhost` host nothing leaves the machine; if you point it
+elsewhere, that text travels with it.
 
 ```bash
-devstuff agent                                  # interactive REPL
+devstuff agent                                  # scoped assistant REPL
 devstuff agent --setup                          # (re)run the configuration wizard
-devstuff agent --dir ~/projects                 # skip the workspace prompt
+devstuff agent --workspace                      # legacy workspace agent (shell/files tools)
+devstuff agent --dir ~/projects                 # legacy mode, skipping the workspace prompt
 devstuff agent --model granite4.1:8b            # override the configured model
-devstuff agent --print "which node tools do I have?"   # one-shot, non-interactive
+devstuff agent --print "what helps with YAML?"  # one-shot, read-only scoped
+devstuff tui                                    # model-free workspace (no model)
+devstuff tui --chat                             # the scoped assistant, loopback-only
+devstuff tui --browse                           # straight to the catalog browser
 ```
+
+In scoped mode every action that changes something shows the *exact*
+definition — full install script and resolved arguments — and asks yes/no;
+there is no Always, no `--yolo`, and `--print` simply can't approve anything.
+Drafted catalog extensions are create-only: they can never overwrite an
+existing key, and saving one does not run it.
+
+The **workspace agent** below is the earlier mode; it is unchanged but only
+reachable through `--workspace`/`--dir`, where `--yolo` also applies.
 
 ```
 you ❯ create a python project called xyz-project with a hello world main.py
@@ -1363,10 +1415,62 @@ configured one doesn't.
 The wizard is skipped when you pass `--model`/`--host` (you're already steering) or run
 non-interactively (`--print`), which fall back to built-in defaults.
 
+#### Chat (`devstuff tui --chat`)
+
+`tui --chat` asks for a provider: **Ollama (local)** or an **OpenAI-compatible
+endpoint** — or skip the menu with `--provider ollama|openai`. Passing
+`--model`/`--host` without `--provider` keeps their Ollama meaning.
+
+**Ollama** is the loopback-only route: it only accepts a loopback host
+(`localhost` (normalized to `127.0.0.1`), `127.0.0.1`, or `::1`), refuses HTTP
+redirects, rejects `:cloud`/`-cloud` model names, and skips the first-run
+wizard. It lists the daemon's installed models plus a few hardware-heuristic
+suggestions — rough size guesses keyed to Linux total RAM and NVIDIA VRAM
+only (other GPUs read as unknown), not measurements for your machine; a
+missing model downloads only after a confirmation that names the model,
+host and approximate size, and `ollama pull` runs with `OLLAMA_NO_CLOUD=1`.
+
+```bash
+devstuff install ollama                       # or your own install
+OLLAMA_NO_CLOUD=1 ollama serve                # the client can't verify the
+                                              # daemon's cloud setting
+devstuff tui --chat                           # pick Ollama, pick a model
+devstuff tui --chat --model qwen3:8b          # skip the picker; if missing,
+                                              # a pull is offered, never assumed
+```
+
+**OpenAI-compatible** points at any `/v1`-style endpoint — for example a
+llama.cpp server managed by `llamactl`. Base URLs get `/v1` appended when no
+path is given; plain http is loopback-only, and an off-loopback endpoint
+shows exactly where prompts, catalog code and tool output will go and asks
+first. `GET /models` feeds the picker (IDs like `qwen3-8b@agent` work
+verbatim); when it can't list, you can still type an ID. The provider must
+support tool calls — there is no capability preflight on this path.
+
+```bash
+devstuff tui --chat --provider openai \
+    --host http://127.0.0.1:8080/v1 --model qwen3-8b@agent
+```
+
+If the endpoint needs a bearer token, add `--api-key-env LLAMACTL_API_KEY` —
+it names an *environment variable* holding the key, so the secret itself is
+never prompted for, stored, or written anywhere; endpoint, model and key are
+per-session flags, no config file is touched.
+
+Catalog text and tool output go only to the endpoint you chose. Package
+*installs* the assistant proposes may themselves need the network
+(apt/npm/etc). Packages that declare dependencies aren't installable through
+the assistant at all — use the regular `devstuff install` command for those
+(this includes `uv` tools, since they implicitly require `uv` itself). The
+normal CLI stays fully available without any of this.
+
 ### Safety model
 
-The workspace root, chosen at launch (prompted, defaulting to the current directory), is the
-boundary:
+The scoped assistant's boundary is the fixed toolbox itself: it can only name
+catalog actions, and each mutating one previews and asks. The rest of this
+section describes the **workspace agent** (`--workspace`/`--dir`), whose
+boundary is the workspace root, chosen at launch (prompted, defaulting to the
+current directory):
 
 - **Path containment** — every path a tool touches is resolved (collapsing `..` and following
   symlinks) and must land inside the workspace root. A symlink planted inside the workspace is
@@ -1384,7 +1488,8 @@ boundary:
 
 `--yolo` skips confirmations for a session; the denylist and path containment still apply.
 In `--print` mode without `--yolo`, mutating calls are refused rather than auto-approved, so a
-scripted invocation cannot become an unattended agent with write access.
+scripted invocation cannot become an unattended agent with write access. `--yolo` exists only
+in workspace mode — scoped actions always ask.
 
 ### Configuration
 

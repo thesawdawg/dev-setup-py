@@ -284,8 +284,11 @@ core implemented; lead integration, real sudo/Docker/systemd VM, transparent-ter
   success; this does not change general boolean installed discovery. Docker's CLI + Compose check is not proof
   of daemon health or current-session access. The 180s apt refresh timeout is fatal to the action because the
   privileged transaction may still be active. Only successful refreshes are cached, with post-mutation invalidation.
-- **The TUI is a fixture spike, not a CLI feature.** [`dev/tui_preview.py`](dev/tui_preview.py) exercises
-  `prompt_toolkit` independently under a PTY; no Textual comparison, promotion, dependency or CLI change.
+- **`devstuff tui` is an experimental workspace, still gated.** The browser renderer
+  (`tui.browse`, exercised standalone via [`dev/tui_preview.py`](dev/tui_preview.py) under a
+  PTY) backs `tui --browse` and `/browse`; plain `tui` is the model-free menu workspace and
+  `tui --chat` the loopback-only scoped chat (see the agent section). No Textual comparison,
+  promotion to an installer-facing role, or dependency change has happened.
 
 **Two ways a tool gets defined**: built-in (an entry added directly to `src/dev_setup/tools.yaml`,
 `builtin=True`) or custom (created via the `devstuff add` wizard, `devstuff catalog import`,
@@ -785,7 +788,31 @@ get a spec directory before implementation starts.
 
 ## The agent (`devstuff agent`) — a third catalog subsystem
 
-`src/dev_setup/agent/` + `agent_tools.yaml` is an interactive session where a local Ollama model
+`devstuff agent` and `devstuff tui --chat` share one assistant with two modes. The default is the
+**scoped assistant** (`agent/scoped.py`): a fixed six-tool catalog toolbox (find/read, install
+a named package, run a named script function, draft/register create-only extensions) where
+every mutating call previews the exact definition and asks `ui.confirm` — no shell, no
+filesystem, no `agent_tools.yaml` loading, nothing persisted. `--workspace`/`--dir` selects
+the legacy mode below; `--yolo` exists only there.
+
+Plain `devstuff tui` is not the chat: it's the model-free workspace (`tui_workspace.py`), a
+menu driving the same `ScopedActions` (`find`/`definition` for reads, `execute` for the
+rest — identical validation and approvals) with no Ollama client anywhere. It also runs the
+full profile loop (`tui_profile.py`, `--profile` to open one on launch): `profile_cmd`'s
+`review_profile`/`execute_review` and the shared `show_diff`/`show_plan`/`show_result`
+renderers — the review is pinned across the approval pause, `generic.forget_probes()` runs
+before every build, apply is one confirmed `execute_review`, and there is no implicit retry
+or rollback. Chat is opt-in
+via `--chat` or 'Enable chat', which runs the provider flow in `agent/chat_setup.py`:
+Ollama (loopback-only, no-redirect transport, cloud-alias tags rejected, confirm-gated
+`ollama pull`, authored-hardware suggestion rows, `num_ctx` ≤4096) or an
+OpenAI-compatible endpoint (`agent/openai_compat.py` — URL validation, off-loopback
+consent before contact, `--api-key-env` name-only, `GET /models` picker). Both launch
+through `run_scoped_chat` in `commands/agent_cmd.py` over the `ChatClient` Protocol;
+`ToolCall.id` round-trips OpenAI-style `tool_call_id`s (Ollama calls have none).
+`devstuff agent` keeps the explicit remote-host path unchanged.
+
+The legacy mode: `agent_tools.yaml` is an interactive session where a local Ollama model
 calls devstuff's tools plus a workspace-scoped filesystem/shell kit. It follows the same
 catalog-driven shape as tools and functions: `agent/catalog.py` validates `agent_tools.yaml`
 (bundled → user override), `agent/registry.py` turns it into `AgentTool` objects, and

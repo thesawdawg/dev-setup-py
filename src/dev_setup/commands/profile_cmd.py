@@ -4,12 +4,14 @@ import json
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext, redirect_stdout
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
 from rich.markup import escape
 
 from dev_setup import apply_exec, apply_plan, bundles, profile, registry, runner, snapshot, ui, verbose
+from dev_setup.base import Tool
 from dev_setup.commands.configure_cmd import can_prompt as _can_prompt
 from dev_setup.profile import DiffRow, DiffState
 
@@ -158,7 +160,7 @@ def diff_cmd(
     if as_json:
         click.echo(json.dumps([r.to_json() for r in rows], indent=2))
     else:
-        _render(rows, show_all=show_all)
+        show_diff(rows, show_all=show_all)
 
     if exit_code and profile.differs(rows, ignore_extras=ignore_extras):
         sys.exit(1)
@@ -185,7 +187,9 @@ def _print_rows(rows: list[DiffRow]) -> None:
     ui.console.print(tbl)
 
 
-def _render(rows: list[DiffRow], *, show_all: bool) -> None:
+def show_diff(rows: list[DiffRow], *, show_all: bool) -> None:
+    """The diff table (or the one-line verdict) — shared by the CLI and the
+    TUI profile view, so both say exactly the same thing about a machine."""
     extras = [r for r in rows if r.state is DiffState.EXTRA]
     shown = rows if show_all else [r for r in rows if r.state not in (DiffState.OK, DiffState.EXTRA)]
 
@@ -242,12 +246,15 @@ def _json_safe() -> Iterator[None]:
         verbose.set_level(previous)
 
 
-def _show_plan(
+def show_plan(
     plan: apply_plan.Plan, by_key: dict[str, object], profile_file: str
 ) -> None:
+    """The plan table plus the not-acted-on rows — shared by `apply` and the
+    TUI's 'Review changes' step, so both preview the same plan identically."""
+    name = escape(Path(profile_file).name)
     if plan.steps:
         pinned_any = any(s.version for s in plan.steps)
-        tbl = ui.table(f"Plan for {Path(profile_file).name}")
+        tbl = ui.table(f"Plan for {name}")
         tbl.add_column("Package", style="bold", no_wrap=True)
         tbl.add_column("Type", style=ui.CYAN, no_wrap=True)
         tbl.add_column("Action", no_wrap=True)
@@ -300,12 +307,14 @@ def _progress_hooks(total: int):
     return on_start, on_done
 
 
-def _summarize(
+def show_result(
     wanted: profile.Profile,
     run: apply_exec.RunResult | None,
     final: list[DiffRow],
     profile_file: str,
 ) -> None:
+    """The post-run verdict, rendered from the re-measured machine — shared
+    by `apply` and the TUI so both report the same truth the same way."""
     S = apply_exec.Status
     by_state = {r.key: r.state for r in final}
     ui.console.print()
@@ -337,10 +346,65 @@ def _summarize(
         _print_rows(remaining)
     total = len(wanted.tools)
     matching = sum(1 for r in final if r.state is DiffState.OK)  # only profile keys can be ok
+    name = escape(Path(profile_file).name)
     if matching == total and not remaining:
-        ui.success(f"This machine now matches {Path(profile_file).name} ({matching} of {total} entries).")
+        ui.success(f"This machine now matches {name} ({matching} of {total} entries).")
     else:
-        ui.warn(f"{matching} of {total} entries match {Path(profile_file).name}.")
+        ui.warn(f"{matching} of {total} entries match {name}.")
+
+
+@dataclass(frozen=True)
+class ProfileReview:
+    """One pinned view of 'this machine vs this profile': the diff rows and
+    the plan built from them, alongside the Tool objects the plan will act
+    on. The review stays frozen across an approval pause — edits to the
+    profile on disk cannot change the plan being approved; only an explicit
+    refresh (or reopening the profile) builds a new one.
+    """
+
+    wanted: profile.Profile
+    tools: tuple[Tool, ...]
+    by_key: dict[str, Tool]
+    rows: list[DiffRow]
+    plan: apply_plan.Plan
+
+
+def review_profile(
+    wanted: profile.Profile, *, missing_only: bool = False
+) -> ProfileReview:
+    """Compare this machine to `wanted` and plan what would bring them into
+    line — the same pre-confirmation work `apply` does, shared so the CLI
+    and the TUI workspace can never disagree about a plan."""
+    tools = tuple(registry.all_tools())
+    by_key = {t.key: t for t in tools}
+    facts = snapshot.machine_facts(wanted, tools)
+    rows = profile.sort_diff_rows(profile.compare(wanted, facts))
+    plan = apply_plan.build_plan(
+        rows, facts, lambda key: registry.missing_requires(by_key[key]),
+        missing_only=missing_only,
+    )
+    return ProfileReview(wanted, tools, by_key, rows, plan)
+
+
+def execute_review(
+    review: ProfileReview, *, as_json: bool = False
+) -> tuple[apply_exec.RunResult, list[DiffRow]]:
+    """Run `review.plan` exactly as `apply` would, then re-measure the
+    machine — the verdict comes from a fresh comparison (SD-3), never from
+    whether the installers returned."""
+    hooks = (None, None) if as_json else _progress_hooks(len(review.plan.steps))
+    with _json_safe() if as_json else nullcontext():
+        run = apply_exec.execute(
+            review.plan, review.by_key.get, on_start=hooks[0], on_done=hooks[1]
+        )
+    # No cache can be stale here: `perform` forgets every memoised probe
+    # after each step.
+    final = profile.sort_diff_rows(
+        profile.compare(
+            review.wanted, snapshot.machine_facts(review.wanted, review.tools)
+        )
+    )
+    return run, final
 
 
 @profile_cmd.command("apply")
@@ -386,8 +450,6 @@ def apply_cmd(
         click.echo("error: --json can't ask for confirmation; add --yes to run, or --dry-run", err=True)
         sys.exit(2)
 
-    tools = registry.all_tools()
-    by_key = {t.key: t for t in tools}
     interactive = sys.stdout.isatty() and not as_json
     if interactive:
         ui.print_banner()
@@ -396,22 +458,19 @@ def apply_cmd(
         if interactive else nullcontext()
     )
     with progress:
-        facts = snapshot.machine_facts(wanted, tools)
-        rows = profile.sort_diff_rows(profile.compare(wanted, facts))
-    plan = apply_plan.build_plan(
-        rows, facts, lambda key: registry.missing_requires(by_key[key]), missing_only=missing_only
-    )
+        review = review_profile(wanted, missing_only=missing_only)
+    plan = review.plan
 
     if not as_json:
-        _show_plan(plan, by_key, profile_file)
+        show_plan(plan, review.by_key, profile_file)
 
     if dry_run:
         if as_json:
-            click.echo(json.dumps(_document(plan, None, rows), indent=2))
+            click.echo(json.dumps(_document(plan, None, review.rows), indent=2))
         return
 
     run: apply_exec.RunResult | None = None
-    final = rows  # with nothing to run, the machine is as the first comparison found it
+    final = review.rows  # with nothing to run, the machine is as the comparison found it
     if not plan.nothing_to_do:
         if not yes:
             if not _can_prompt():
@@ -423,19 +482,12 @@ def apply_cmd(
             if not ui.confirm(f"Apply {n} step{'' if n == 1 else 's'}?"):
                 ui.warn("Aborted — nothing was changed.")
                 sys.exit(1)
-        hooks = (None, None) if as_json else _progress_hooks(len(plan.steps))
-        with _json_safe() if as_json else nullcontext():
-            run = apply_exec.execute(plan, by_key.get, on_start=hooks[0], on_done=hooks[1])
-        # The verdict is a fresh reading of the machine (SD-3), not the steps' own say-so. No
-        # cache can be stale here: `perform` forgets every memoised probe after each step.
-        final = profile.sort_diff_rows(
-            profile.compare(wanted, snapshot.machine_facts(wanted, tools))
-        )
+        run, final = execute_review(review, as_json=as_json)
 
     if as_json:
         click.echo(json.dumps(_document(plan, run, final), indent=2))
     else:
-        _summarize(wanted, run, final, profile_file)
+        show_result(wanted, run, final, profile_file)
 
     if profile.differs(final, ignore_extras=True):
         sys.exit(1)
