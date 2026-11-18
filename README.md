@@ -274,17 +274,26 @@ the session you intend to use. The optional configuration wizard is separate fro
 
 #### Optional local TUI preview
 
-From the repository root, with the project's `.venv` already set up, run:
+`devstuff tui` is an experimental, read-only catalog browser — never the default UI and
+never an execution path. It lists the effective catalog (bundled + your user tools) and each
+tool's *nominal* install plan. It does not check installed state or `requires`, does not run
+anything, and drops out to a plain inventory on terminals below 80x16, `TERM=dumb`, or
+`DEVSTUFF_PLAIN=1`. It needs a real terminal; `devstuff list` is the non-interactive
+equivalent. Up/Down moves, Space marks tools for review, Enter toggles between a tool's
+nominal plan and the marked review, `/` filters (Enter or Esc returns to the list), and `q`
+or Ctrl+C quits. It is an evaluation artifact: promotion to any installer-facing role is a
+separate, still-pending gate.
+
+The same renderer can be exercised without a catalog, from the repository root with the
+project's `.venv` already set up:
 
 ```bash
 .venv/bin/python -B dev/tui_preview.py
 ```
 
-This is a read-only preview with static fixtures: it doesn't detect, install, or update tools.
-Try Up/Down to move, Space to mark, Enter to switch between the plan and fixture detail, and
-`/` to filter (Enter or Esc returns to the list). Check that filtering doesn't drop marked
-tools from the plan and that `q` from the list exits cleanly. Below 80 columns or 16 rows,
-expect a plain preview instead. This checks the fixture UI only, not the installer.
+This fixture uses seven static entries: it doesn't detect, install, or update tools. Check
+that filtering doesn't drop marked tools from the review and that `q` exits cleanly. This
+checks the shared view only, not the installer.
 
 ---
 

@@ -226,11 +226,17 @@ plus the one user report. Where a runtime claim is unconfirmed, the row says so.
   reliability gates pass. It must sit on the same plan/runner interfaces as the CLI
   (no duplicate execution logic), handle terminal handoff/restore cleanly, and pass
   the accessibility checks in the development plan. Any future distribution
-  would be optional and add nothing to the CLI hot path. The current
-  [`dev/tui_preview.py`](../../../dev/tui_preview.py) spike uses static
-  `prompt_toolkit` fixtures only and has been exercised independently under a
-  PTY. Textual and user comparison are pending; there is no promotion,
-  dependency change or new CLI command.
+  would be optional and add nothing to the CLI hot path.
+
+  **Status:** the user-authorized experimental slice now exists —
+  `devstuff tui` renders the effective catalog and *nominal* install plans
+  through the shared `dev_setup.tui.browse` renderer (also driven by the
+  [`dev/tui_preview.py`](../../../dev/tui_preview.py) fixture). It performs no
+  installed-state or requirements probes and no subprocess execution, and it
+  falls back to a plain inventory below 80x16, on `TERM=dumb`, or under
+  `DEVSTUFF_PLAIN=1`. Promotion to any execution role, a real-terminal
+  hands-on comparison, and the Textual evaluation all remain pending gates;
+  no dependency change was made for it.
 
   Optional layout sketch (evaluation only):
 

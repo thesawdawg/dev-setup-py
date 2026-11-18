@@ -21,7 +21,7 @@ A ──► B ──► D (generic.py verification wiring) ──► E
 | C | `ui.py`, theme tokens, static mockups | B for output/activity wiring |
 | D | `tools.yaml`, repro fixture + VM docs | B for `generic.py` verification wiring |
 | E | command layer, `configure` offer, docs | B + C + D |
-| F | `dev/tui_preview.py` (fixture spike only) | none for static fixtures; D-8 gates any promotion |
+| F | `dev/tui_preview.py`, `src/dev_setup/tui.py`, `commands/tui_cmd.py` (read-only slice) | none; D-8 gates any promotion |
 
 ## Packages
 
@@ -88,6 +88,14 @@ A ──► B ──► D (generic.py verification wiring) ──► E
 
 - [x] Dev-only [`prompt_toolkit` spike](../../../dev/tui_preview.py) with
       read-only fixtures; exercised independently in a PTY. No execution.
+- [x] User-authorized experimental `devstuff tui`: read-only catalog browser
+      on the shared `dev_setup.tui.browse` renderer (same view the fixture
+      drives). Nominal install plans only — no installed-state or
+      requirements probes, no subprocess execution, no dependency change.
+      PTY smoke of the *fixture* (navigate, filter, mark persistence, `q`
+      restores) and of the *real catalog* at 80x16 (window scrolled past
+      the first 8 of 47 entries on >10 downs, `q` exited cleanly) both
+      passed; not yet a hands-on real-terminal comparison.
 - [ ] Compare Textual with the existing stack; run the same pick/search/review
       task on the CLI and prototype(s), record steps and time, and ask which felt easier.
       Promote only on a clear improvement *and* with the rest of the D-8 gates
@@ -182,5 +190,6 @@ Recorded evidence:
   rerun is claimed here.
 
 Pending: real sudo, Docker, and a systemd VM walkthrough have not been run for
-this round. Actual transparent-terminal QA, the Textual comparison and the
-hands-on TUI comparison remain pending.
+this round. Actual transparent-terminal QA, the Textual comparison, and the
+hands-on same-task CLI-vs-`devstuff tui` comparison on a real terminal remain
+pending (a PTY smoke of the renderer was run; that is not visual QA).

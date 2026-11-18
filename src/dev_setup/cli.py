@@ -39,6 +39,7 @@ def _register_commands() -> None:
     from dev_setup.commands.remove_cmd import remove_cmd
     from dev_setup.commands.run_cmd import run_cmd
     from dev_setup.commands.skills_cmd import skills_cmd
+    from dev_setup.commands.tui_cmd import tui_cmd
     from dev_setup.commands.update_cmd import update_cmd
 
     cli.add_command(list_cmd, "list")
@@ -63,6 +64,7 @@ def _register_commands() -> None:
     cli.add_command(skills_cmd, "skills")
     cli.add_command(agent_cmd, "agent")
     cli.add_command(mcp_cmd, "mcp")
+    cli.add_command(tui_cmd, "tui")
 
     _add_verbose_option(cli)
 
