@@ -574,6 +574,63 @@ def test_a_pinned_install_is_confirmed_through_a_real_memoised_probe(world, tmp_
     generic.forget_probes()
 
 
+# -- the TUI profile loop ----------------------------------------------------------------------------
+
+
+def _tty(monkeypatch):
+    monkeypatch.setattr(
+        "dev_setup.commands.configure_cmd.can_prompt", lambda: True
+    )
+
+
+def test_tui_profile_review_then_decline_changes_nothing(world, tmp_path, monkeypatch):
+    """`tui --profile FILE` opens the review on launch; 'Review changes'
+    shows the plan and asks default-No — declining runs nothing."""
+    world(Fake("a"))
+    path = write(tmp_path, a=None)
+    _tty(monkeypatch)
+    picks = iter(["review", "back", "quit"])
+    monkeypatch.setattr(ui, "select", lambda *a, **k: next(picks))
+    confirms = []
+    monkeypatch.setattr(
+        ui, "confirm",
+        lambda prompt, default=False: confirms.append((prompt, default)) or False,
+    )
+
+    result = CliRunner().invoke(cli, ["tui", "--profile", str(path)])
+
+    assert result.exit_code == 0, result.output
+    assert EVENTS == []
+    assert confirms == [("Apply 1 step to this machine?", False)]
+    text = flat(result.output)
+    assert "missing" in text and "install" in text  # diff row + plan preview
+
+
+def test_tui_profile_apply_measures_not_trusts_and_never_retries(
+    world, tmp_path, monkeypatch,
+):
+    """Approving runs the plan once: the verdict comes from re-measuring —
+    the liar's 'success' counts for nothing — and reopening the profile
+    re-reads the machine without running anything again."""
+    world(Fake("good"), Fake("liar", lies=True))
+    path = write(tmp_path, good=None, liar=None)
+    _tty(monkeypatch)
+    # launch → review → confirm → workspace → Current profile → back → quit
+    picks = iter(["review", "profile", "back", "quit"])
+    monkeypatch.setattr(ui, "select", lambda *a, **k: next(picks))
+    monkeypatch.setattr(ui, "confirm", lambda *a, **k: True)
+
+    result = CliRunner().invoke(cli, ["tui", "--profile", str(path)])
+
+    assert result.exit_code == 0, result.output
+    assert verbs() == [("install", "good"), ("install", "liar")]  # exactly once each
+    text = flat(result.output)
+    assert "1 of 2 entries match" in text and "now matches" not in text
+    assert "the installer reported success" in text  # the lying step is named
+    # The reopen's fresh comparison shows liar still missing — and EVENTS
+    # already proved nothing ran again.
+
+
 # -- bundles (FR-20, FR-21; development-plan A5) -----------------------------------------------------
 
 

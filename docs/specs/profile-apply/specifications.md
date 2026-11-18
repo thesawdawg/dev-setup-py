@@ -157,6 +157,26 @@ not an assumption that the installers worked.
 - **FR-23** The command lives in `commands/profile_cmd.py` as `profile apply`, registered under the
   existing group, and is added to the help table.
 
+### The workspace loop (`tui`, added later)
+
+- **FR-24** `devstuff tui` offers the whole loop from its menu: pick a shipped `@bundle` or a file,
+  see the diff, review the plan, apply on confirmation. `devstuff tui --profile PROFILE` opens one
+  immediately on launch; the option doesn't combine with `--browse` or `--chat`.
+- **FR-25** The workspace shares the command's machinery rather than re-implementing it:
+  `profile_cmd.review_profile` (compare + plan) and `profile_cmd.execute_review` (execute +
+  re-measure) are the same code paths `profile apply` walks, and the renderers it shows
+  (`show_diff`, `show_plan`, `show_result`) are the same functions the CLI prints.
+- **FR-26** A review is **pinned** once built: the Profile object, the Tool mapping and the plan
+  survive an approval pause — edits to the profile file during that pause cannot change the plan
+  being approved. Rebuilding happens only on 'Refresh comparison' or by reopening the profile
+  (which also re-reads the file, so drift on disk shows up there).
+- **FR-27** The apply is guarded exactly like the CLI's: the full plan plus the not-acted-on rows
+  are shown first, then one `default=False` confirmation ("Apply N steps to this machine?").
+  Declining changes nothing and returns to the profile menu; approving runs the plan once, shows
+  the re-measured verdict and the runs directory, and returns to the workspace. There is no
+  implicit retry — rechecking is a refresh or a reopen. The 'current' profile is held in memory
+  only; nothing is written to config or state.
+
 ---
 
 ## 3. Non-Functional Requirements

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from rich.markup import escape
+
 from dev_setup import ui
 from dev_setup.agent import bridges, primitives
 from dev_setup.agent.ollama import Message, ToolCall
@@ -51,6 +53,12 @@ def execute(session, call: ToolCall) -> ToolOutcome:
     """Run one tool call. Every failure mode returns a ToolOutcome rather than
     raising: the model needs to see what went wrong to correct itself, and a
     malformed call must never end the session."""
+    # A scoped session has its own fixed tools and approval flow — nothing
+    # here (workspace tools, legacy mutation policy) applies to it.
+    scoped = getattr(session, "scoped_actions", None)
+    if scoped is not None:
+        return scoped.execute(call, session.config.max_tool_output_bytes)
+
     tool = session.tools.get(call.name)
     if tool is None:
         known = ", ".join(sorted(session.tools)) or "none"
@@ -84,14 +92,23 @@ def execute(session, call: ToolCall) -> ToolOutcome:
 def _assistant_message(reply: Message) -> dict[str, Any]:
     msg: dict[str, Any] = {"role": "assistant", "content": reply.content}
     if reply.tool_calls:
-        msg["tool_calls"] = [
-            {"function": {"name": c.name, "arguments": c.arguments}} for c in reply.tool_calls
-        ]
+        calls = []
+        for c in reply.tool_calls:
+            entry: dict[str, Any] = {
+                "function": {"name": c.name, "arguments": c.arguments}
+            }
+            if c.id is not None:
+                # OpenAI-style ids round-trip into history; Ollama calls have
+                # none and the message keeps the legacy shape.
+                entry["id"] = c.id
+            calls.append(entry)
+        msg["tool_calls"] = calls
     return msg
 
 
 def run_turn(session, user_text: str) -> Message | None:
     """Drive one user turn to completion: model, tool calls, results, repeat."""
+    start = len(session.messages)
     session.messages.append({"role": "user", "content": user_text})
 
     for _ in range(session.config.max_iterations):
@@ -115,18 +132,23 @@ def run_turn(session, user_text: str) -> Message | None:
 
         for call in reply.tool_calls:
             outcome = execute(session, call)
-            session.messages.append(
-                {
-                    "role": "tool",
-                    "tool_name": outcome.name,
-                    "content": outcome.content,
-                }
-            )
+            result: dict[str, Any] = {
+                "role": "tool",
+                "tool_name": outcome.name,
+                "content": outcome.content,
+            }
+            if call.id is not None:
+                result["tool_call_id"] = call.id
+            session.messages.append(result)
             if not outcome.ok:
                 ui.console.print(
-                    f"  [{ui.AMBER}]▸[/] [{ui.GRAY}]{outcome.content.splitlines()[0][:120]}[/]"
+                    f"  [{ui.AMBER}]▸[/] "
+                    f"[{ui.GRAY}]{escape(outcome.content.splitlines()[0][:120])}[/]"
                 )
 
+    # An exhausted turn is a half-finished exchange — an assistant call
+    # possibly awaiting results — so it doesn't stay in history.
+    del session.messages[start:]
     ui.warn(f"Stopped after {session.config.max_iterations} tool calls without a final answer.")
     ui.dim("Ask again with a narrower request, or /reset to start over.")
     return None

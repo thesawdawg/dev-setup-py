@@ -37,8 +37,8 @@ def print_help() -> None:
         ("functions", "<list|enable|disable|path>",           "Manage functions/scripts"),
         ("links",   "[list|search|open|path]",                "Browse, search, and open tool links"),
         ("skills",  "add",                                    "Append GitHub skills to claude/codex/pi"),
-        ("agent",   "[--setup] [--dir] [--model]",             "Chat with a local tool-using model"),
-        ("tui",     "",                                        "Browse catalog, preview plans (read-only)"),
+        ("agent",   "[--setup] [--workspace] [--model]",       "Chat with the devstuff assistant"),
+        ("tui",     "[--chat] [--browse]",                     "Tool workspace, local chat, or browser"),
         ("version", "",                                        "Show version"),
     ]
     tbl = ui.table(bordered=False, show_header=False)

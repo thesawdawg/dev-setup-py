@@ -39,6 +39,7 @@ They are most useful when they capture:
 | Feature | Status |
 |---------|--------|
 | [`agent/`](agent/) — `devstuff agent`, the local-model agent | Complete (v1) |
+| [`devstuff-agent/`](devstuff-agent/) — scoped assistant shared by `agent` (default) and `tui`; legacy workspace mode behind `--workspace`/`--dir` | Implemented (experimental; live Ollama session and dep-aware installs pending) |
 | [`starship-config/`](starship-config/) — `devstuff configure starship`, the prompt wizard | Complete (v1) |
 | [`commitizen-config/`](commitizen-config/) — `devstuff configure commitizen`, the commit-convention and bump-rule wizard | Complete (v1) |
 | [`precommit-config/`](precommit-config/) — `devstuff configure pre-commit`, the git-hook wizard | Complete (v1) |

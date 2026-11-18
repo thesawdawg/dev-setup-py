@@ -79,6 +79,33 @@ A survivor means a test is missing, not that the mutation was unfair.
    exercises `bash`-type installers and `requires` ordering for real. It needs sudo and network and
    is not run by default.
 
+### The workspace loop (FR-24–27, added later)
+
+`devstuff tui` shares `apply`'s machinery instead of carrying a second planner: `profile_cmd`
+gained `ProfileReview`/`review_profile`/`execute_review` (the compare+plan / execute+re-measure
+halves `apply` already walked) and the renderers are now the exported `show_diff`/`show_plan`/
+`show_result`. `tui_profile.py` drives them: a `Profile` is loaded once per explicit pick, the
+review is pinned across the approval pause (FR-26), `generic.forget_probes()` precedes every
+review build, decline keeps the same plan, apply runs `execute_review` once and ends the session
+with the re-measured verdict plus the runs directory — no implicit retry. `tui --profile` opens
+one on launch (incompatible with `--browse`/`--chat`); the current profile lives in memory only.
+
+**Verification run:** `pytest -q tests/test_profile_apply_cmd.py tests/test_profile_diff_cmd.py
+tests/test_tui_cmd.py tests/test_apply_plan.py tests/test_apply_exec.py` → 168 passed — the two
+new tests drive `tui --profile FILE` through `CliRunner` with the `world` fakes: review → decline
+asserts zero events and `default=False` on the confirm; approve against a real + a *lying*
+installer asserts exactly one install each, the "installer reported success but isn't detected"
+verdict from re-measurement, and no all-matched claim — plus a reopen that proves no auto-retry.
+`ruff check` on the touched files and `git diff --check` clean. A real PTY smoke
+(`DEVSTUFF_PLAIN=1`, throwaway `HOME`, `tui --profile @essentials`) showed the diff table
+(5 missing, 11 extra, 3 ok), numbered menus, Back→Quit, exit 0 — nothing applied.
+
+**Not run / manual gates:** no real install through the TUI path (the executor is the shared
+one; what is TUI-specific is the menu flow, covered by the fakes). The questionary (non-plain)
+pickers for the profile menu are exercised via patched `ui.select` only; `needs_sudo` advisory
+hint is the CLI's `_may_ask_for_sudo` heuristic reused verbatim in `show_plan`, with the general
+privilege note beside it rather than a per-step probe.
+
 ## Risks
 
 | Risk | Mitigation |

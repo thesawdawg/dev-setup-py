@@ -228,15 +228,18 @@ plus the one user report. Where a runtime claim is unconfirmed, the row says so.
   the accessibility checks in the development plan. Any future distribution
   would be optional and add nothing to the CLI hot path.
 
-  **Status:** the user-authorized experimental slice now exists —
-  `devstuff tui` renders the effective catalog and *nominal* install plans
-  through the shared `dev_setup.tui.browse` renderer (also driven by the
-  [`dev/tui_preview.py`](../../../dev/tui_preview.py) fixture). It performs no
-  installed-state or requirements probes and no subprocess execution, and it
+  **Status:** the renderer described here now lives behind
+  `devstuff tui --browse` (and `/browse` inside the TUI chat) — plain
+  `devstuff tui` is the scoped assistant, whose shared preview/approval model
+  is documented in [`devstuff-agent/`](../devstuff-agent/). The browser
+  itself still renders the effective catalog and *nominal* install plans
+  through `dev_setup.tui.browse` (also driven by the
+  [`dev/tui_preview.py`](../../../dev/tui_preview.py) fixture), performs no
+  installed-state or requirements probes and no subprocess execution, and
   falls back to a plain inventory below 80x16, on `TERM=dumb`, or under
-  `DEVSTUFF_PLAIN=1`. Promotion to any execution role, a real-terminal
-  hands-on comparison, and the Textual evaluation all remain pending gates;
-  no dependency change was made for it.
+  `DEVSTUFF_PLAIN=1`. The real-terminal hands-on comparison and the Textual
+  evaluation remain pending gates — separate from the scoped agent work;
+  no dependency change was made for either.
 
   Optional layout sketch (evaluation only):
 

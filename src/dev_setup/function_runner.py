@@ -128,6 +128,7 @@ def run_script_function(
     *,
     prompt: Callable[[FunctionParam], str] | None = None,
     capture: bool = False,
+    managed: bool = False,
 ) -> str | None:
     """Execute a `script`-type function as a subprocess. Raises on nonzero exit.
 
@@ -138,7 +139,16 @@ def run_script_function(
     it to the CalledProcessError on failure. The agent has no terminal to stream to,
     and without this a function's own diagnostics -- "yq is required, install it
     first" -- are lost, leaving the caller to guess at a bare exit code.
+
+    `managed=True` (the scoped assistant path) runs the script through
+    `runner.run` instead of a bare `subprocess.run`: no inherited stdin, no
+    controlling terminal (a hidden `sudo` prompt fails fast rather than hanging
+    on the user's TTY), machine mode so terminal passthrough can never engage,
+    captured bounded output, and a 120s deadline. The function is opaque shell —
+    `privileged=True` keeps termination at INT/TERM since it may hold root work.
     """
+    if managed and not capture:
+        raise RuntimeError("a managed function run must capture output")
     values = resolve_params(fn.params, args, prompt=prompt)
     prelude = _positional_prelude(fn.params)
     content = f"{prelude}\n{fn.script}" if prelude else fn.script
@@ -149,12 +159,45 @@ def run_script_function(
 
     # `bash -x` at -vv traces every expanded command inside the function to stderr.
     # A function is an opaque blob of someone else's shell until you can see that;
-    # `capture` mode gets it too, since the trace lands in the returned text.
-    cmd = ["bash", *(["-x"] if verbose.enabled(verbose.TRACE) else []), tmp, *values]
+    # `capture` mode gets it too, since the trace lands in the returned text. The
+    # managed path skips it: the trace would go to the model, not a debugging user.
+    cmd = [
+        "bash",
+        *(["-x"] if not managed and verbose.enabled(verbose.TRACE) else []),
+        tmp,
+        *values,
+    ]
     verbose.command(cmd)
     verbose.trace(f"params: {_describe_params(fn.params, values)}")
     verbose.block(content)
     try:
+        if managed:
+            from dev_setup import runner
+
+            env = {k: v for k, v in os.environ.items() if k != "SUDO_ASKPASS"}
+            captured = bytearray()
+            capped = False
+
+            def collect(text: str) -> None:
+                nonlocal capped
+                data = text.encode("utf-8", errors="replace")
+                available = max(0, 64 * 1024 - len(captured))
+                captured.extend(data[:available])
+                capped |= len(data) > available
+
+            with runner.machine_mode():
+                runner.run(
+                    cmd,
+                    cwd=None,
+                    env=env,
+                    on_output=collect,
+                    timeout=120,
+                    privileged=True,
+                )
+            output = captured.decode("utf-8", errors="ignore").strip()
+            # The caller's own context cap still applies downstream; this bound
+            # is what keeps a noisy script from growing memory without limit.
+            return f"{output}\n[function output truncated]" if capped else output
         if capture:
             proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
             return ((proc.stdout or "") + (proc.stderr or "")).strip()
