@@ -9,6 +9,7 @@ from rich.markup import escape
 from dev_setup import generic, registry, ui
 from dev_setup.base import Tool
 from dev_setup.commands._plan import plan_for, plan_summary
+from dev_setup.commands.configure_cmd import require_prompt
 from dev_setup.updates import collect_candidates
 
 
@@ -25,6 +26,7 @@ def update_cmd(packages: tuple[str, ...], target_version: str | None, yes: bool)
         if target_version:
             ui.error("--version requires a package key.")
             sys.exit(1)
+        require_prompt("The package picker needs a terminal. Pass package names and --yes for automation.")
         _update_interactive(yes=yes)
         return
 
@@ -120,6 +122,7 @@ def _update_one(
 
 
 def _confirm_plan(tool: Tool, version: str | None) -> bool:
+    require_prompt("Updates need confirmation. Use a terminal or add --yes.")
     note = ""
     if tool.install_type in ("bash", "script"):
         note = "Updating re-runs this tool's full installer (may use sudo)."
@@ -130,6 +133,7 @@ def _confirm_plan(tool: Tool, version: str | None) -> bool:
 def _confirm_plans(tools: list[Tool], version: str | None) -> bool:
     if len(tools) == 1:
         return _confirm_plan(tools[0], version)
+    require_prompt("Updates need confirmation. Use a terminal or add --yes.")
     rows = [(t.key, plan_summary(t, "update")) for t in tools]
     ui.batch_plan_panel(rows, "Update")
     return ui.confirm(f"Update {len(tools)} packages?", default=True)

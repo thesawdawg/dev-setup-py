@@ -63,6 +63,8 @@ src/dev_setup/
 ├── tools.yaml       # Bundled built-in catalog (core/tools/languages categories)
 ├── links.yaml       # Bundled link catalog (+ links_catalog.py / links_registry.py / links.schema.json)
 ├── ui.py            # Rich console + questionary wrappers (spinners, prompts, styled output)
+├── theme.py         # Shared terminal styles; no forced backgrounds
+├── runner.py        # Managed child supervision, terminal passthrough and action logs
 ├── verbose.py      # Process-wide -v/-vv level + the stderr logger built on it
 ├── managers.py      # Who manages a tool's installs (uv/nvm) — the notes `list` and the `install` picker show
 ├── updates.py      # Update probing + the five-state classifier, shared by `update` and `outdated`
@@ -131,9 +133,10 @@ through call signatures. Three things about it are load-bearing:
   tree, so `devstuff -v install x`, `devstuff install -v x` and `devstuff functions -v enable k`
   all work. Don't go back to decorating commands individually — the first draft did, and `list`
   was immediately missing it.
-- **`generic.py` has exactly two subprocess helpers**: `_run` (state-changing — streams when
-  verbose, raises `RuntimeError`) and `_probe` (captures, never raises, logs at `-vv` only
-  because probes fire once per tool on every `list`). Anything new that shells out belongs in
+- **Use the two subprocess adapters in `generic.py`**: `_run` (state-changing — delegates
+  supervision to `runner.py`, streams when verbose, raises `RuntimeError`) and `_probe`
+  (bounded capture; callers interpret errors, logs at `-vv` only because probes fire once
+  per tool on every `list`). Anything new that shells out belongs in
   one of them; a direct `subprocess.run` is a hole in the flag's coverage, which is exactly what
   the old boolean `-v` was — it never reached npm/uvx/git installs at all. `verbose.step` is the
   spinner-or-line swap, since a spinner repaints its line and can't share a terminal with
@@ -251,28 +254,38 @@ under a live checklist, and end a multi-package run in a summary. Things that ar
   `batch_plan_panel`) and failure messages go through `rich.markup.escape`. About ten older call sites still
   interpolate `{exc}` into `ui.error`/`ui.dim`; escape at the call site when you touch one. A markup test needs a
   message that really contains a closing-tag-shaped string, or it passes whatever the code does.
-- **`task_view` is inert unless it is a live terminal.** It degrades to `verbose.step` under `-v` or off a TTY, which
-  is why `--json` and `profile apply` are unaffected. `_run` therefore has three output modes (feed the view, stream
-  raw, capture-and-surface-on-failure) — keep a new subprocess call going through it. A partial line (a `read`
-  prompt, a curl bar) is fed to the tail while the process waits; line iteration would leave it in the pipe and the
-  terminal looking hung. Everything under the view also goes to `~/.local/state/devstuff/install.log`, whose path
-  is printed under any failure.
-- **sudo prompts never appear mid-view — `_sudo_session` pre-validates them.** sudo writes its prompt to `/dev/tty`,
-  which bypasses the pipe entirely: under the live region it is invisible and repainted over, so a mid-install sudo
-  reads exactly like a hang (the docker freeze). `install`/`remove`/`update` wrap the view in `_sudo_session`: when
-  `_may_need_sudo` guesses the action elevates (apt, a greppable `sudo` in the script bodies, `script` type assumed),
-  `sudo -v` runs on the plain terminal first, then a thread refreshes `sudo -n -v` every 60s so the timestamp can't
-  expire mid-run. Two related hang guards inside `_run`: children get `DEBIAN_FRONTEND=noninteractive` (debconf
-  dialogs can't open on the tty either), and the piped read is `select`-polled with a fixed post-exit drain window —
-  a detached grandchild holding stdout can't keep EOF, and the install, open forever.
 - **Every install type needs a `_PLANNERS` entry** (`test_every_install_type_has_a_planner`): without one the plan is
   a generic note and the bar shows no phases.
 - **Picker titles are plain strings.** A questionary token-list title is emitted verbatim and never gets
   `highlighted`, so the cursor vanishes. `_pad_choices` stretches the title to the row width and leaves the *value*
   alone, so `default=` (matched on value) still lands; `select(searchable=True)` turns `j`/`k` off.
-- **Removal defaults to No, install and update to Yes**, and `-y` skips the plan and every question on all three.
+- **Removal defaults to No, install and update to Yes.** `-y` skips devstuff's own plan confirmation; it never
+  enables installer input or opts into optional post-install setup.
 - **Driving these under a pty needs a terminal that answers `ESC[6n`** (cursor position) — `prompt_toolkit` waits for
   it, and a harness that doesn't looks like a hung product.
+
+**Install reliability and terminal UX** ([spec](docs/specs/install-reliability-terminal-ux/specifications.md),
+[decisions](docs/specs/install-reliability-terminal-ux/stack-decisions.md),
+[validation plan](docs/specs/install-reliability-terminal-ux/development-plan.md)):
+core implemented; lead integration, real sudo/Docker/systemd VM, transparent-terminal QA and TUI comparison pending.
+- **Rendering is not supervision.** Live, verbose, plain and non-TTY/JSON share the managed lifecycle, including
+  bounded post-exit drain even when a detached child holds the pipe. `_run` adapts output (including partial lines)
+  and a drain/activity callback; UI code owns phase boundaries and refreshes elapsed/idle without waiting for
+  output. No broad typed event enum. `DEVSTUFF_PLAIN=1` disables animation independently of `NO_COLOR`.
+  Best-effort private action logs go under `${XDG_STATE_HOME:-$HOME/.local/state}/devstuff/runs/`; their output may
+  still contain secrets. Machine stdout remains data-only; eval stdout remains shell code.
+- **Managed children cannot prompt on the terminal.** Stdin is disconnected and the isolated child has no
+  controlling tty (`/dev/null` alone does not block `/dev/tty`). Devstuff-owned managed sudo commands use `sudo -n`
+  on the actual invocation; script bodies are not rewritten. No detached prevalidation or keepalive: `sudo -v`
+  doesn't prove that a command is allowed and can reject an actual command permitted by scoped `NOPASSWD` sudoers.
+  Only explicit `DEVSTUFF_TERMINAL_INPUT=1` on a real terminal outside machine mode hands a trusted installer the
+  terminal for real interactive input, without `Live` and with reduced output capture.
+- **Verify explicit `check_cmd` postconditions, not version strings.** A failing or unavailable postcondition is not
+  success; this does not change general boolean installed discovery. Docker's CLI + Compose check is not proof
+  of daemon health or current-session access. The 180s apt refresh timeout is fatal to the action because the
+  privileged transaction may still be active. Only successful refreshes are cached, with post-mutation invalidation.
+- **The TUI is a fixture spike, not a CLI feature.** [`dev/tui_preview.py`](dev/tui_preview.py) exercises
+  `prompt_toolkit` independently under a PTY; no Textual comparison, promotion, dependency or CLI change.
 
 **Two ways a tool gets defined**: built-in (an entry added directly to `src/dev_setup/tools.yaml`,
 `builtin=True`) or custom (created via the `devstuff add` wizard, `devstuff catalog import`,

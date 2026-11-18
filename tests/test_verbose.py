@@ -131,11 +131,25 @@ def test_run_reports_a_bare_exit_code_when_verbose():
 
 
 def test_run_streams_instead_of_capturing_when_verbose():
+    """Verbose mode hands runner.run an on_output streamer — child output
+    reaches stderr as it arrives instead of a quiet capture."""
     verbose.set_level(verbose.VERBOSE)
-    with mock.patch("subprocess.run") as run:
+    with mock.patch("dev_setup.runner.run") as run:
         generic._run(["echo", "hi"])
     _, kwargs = run.call_args
-    assert not kwargs.get("capture_output")
+    assert callable(kwargs.get("on_output"))
+
+
+def test_run_does_not_stream_to_stderr_when_quiet(capsys):
+    """Quiet mode still passes a callback (the live view feeds from it), but it
+    must not put child output on stderr."""
+    with mock.patch("dev_setup.runner.run") as run:
+        generic._run(["echo", "hi"])
+    _, kwargs = run.call_args
+    cb = kwargs.get("on_output")
+    if cb:
+        cb("streamed?\n")
+    assert capsys.readouterr().err == ""
 
 
 def test_run_logs_the_command_at_v(capsys):

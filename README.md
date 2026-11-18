@@ -184,14 +184,20 @@ DEVSTUFF_VERBOSE=1 devstuff update    # same as -v, for scripts and CI
 
 | Level | What you get |
 |-------|--------------|
-| *(default)* | Normal output. Command output is captured and shown only if the command fails. |
-| `-v` | Every command devstuff runs, printed as a line you can paste back into a shell, with its output streaming live. Spinners are replaced by plain lines so they don't fight with that output. |
-| `-vv` | Plus read-only probes (version checks, install-state checks) with their exit codes and output, the body of any script before it runs, resolved function parameters, and `bash -x` tracing of every line inside function and installer scripts. |
+| *(default)* | Quiet live progress for managed installs on a compatible terminal: the current phase and a short tail of installer output, not a full stream. Without a compatible terminal, progress uses plain output. |
+| `-v` | Command lines and live child output stream to stderr instead of using the animated progress view. |
+| `-vv` | Adds details such as probe output, script bodies, resolved parameters, and `bash -x` traces. **This can expose secrets**, including expanded values that the script never prints itself. |
 
 `-vvv` and above are the same as `-vv`.
 
-All of it goes to **stderr**, so it never contaminates anything you pipe or capture — including
-`eval "$(devstuff run <shell-eval function>)"`, whose stdout has to be shell code and nothing else.
+Verbose diagnostics go to **stderr**, so they don't contaminate anything you pipe or capture —
+including `eval "$(devstuff run <shell-eval function>)"`, whose stdout has to be shell code and
+nothing else.
+
+Set `DEVSTUFF_PLAIN=1` to turn off animated live rendering without enabling verbose output.
+Set `NO_COLOR=1` to turn off color independently. A black or translucent background is a
+terminal emulator setting, not a devstuff setting. Neither rendering option changes whether
+an installer can read from the terminal.
 
 ---
 
@@ -227,14 +233,58 @@ devstuff install                 # interactive picker (Space to toggle, Enter to
 
 Before anything runs, devstuff shows a **plan** — the resolved commands for `npm`/`apt`/`uvx`/`git`
 packages, the script body or source URL for `bash`/`script` packages — and asks you to confirm.
-`-y`/`--yes` skips the preview for scripting. During the install each phase ticks off a
-checklist under a progress bar, with the last few lines of real installer output streaming
-underneath; the tail collapses on success and stays on failure.
+`-y`/`--yes` skips the preview and confirmation and suppresses the optional post-install
+configuration offer. It does not enable terminal input or answer an installer's prompts.
+During a default live run, devstuff shows progress by phase with a short output tail.
 
 If a package's `requires` aren't installed, devstuff offers to install them first rather than
 just erroring. A multi-package run ends with a summary table (installed / skipped / failed).
 
 The interactive picker shows all available packages with their current install status and lets you select multiple at once before confirming.
+
+#### Installer input and logs
+
+Managed installer children have no controlling terminal and cannot read from your stdin.
+Installer prompts are disabled in automated runs. If your system's policy requires terminal
+authentication or the installer genuinely needs terminal input, opt in explicitly for a
+trusted installer, from a real terminal:
+
+```bash
+DEVSTUFF_TERMINAL_INPUT=1 devstuff install docker
+```
+
+This hands the terminal to the installer, without the animated view and with reduced log
+capture: the log is not a transcript of the terminal session. Use the opt-in only for a
+command you trust. `--yes`, `-v`, and `DEVSTUFF_PLAIN=1` are not substitutes for it.
+JSON mode cannot enable terminal input.
+
+Managed actions write private, best-effort per-action logs, normally under
+`${XDG_STATE_HOME:-$HOME/.local/state}/devstuff/runs/`. An unavailable log does not fail the
+action. Raw shell traces aren't saved by default, but installer output can still contain
+secrets. Review and sanitize any excerpt before sharing it.
+
+#### Docker progress and verification
+
+Docker's progress distinguishes download, package installation, Compose plugin setup, and
+service setup. The result distinguishes **Docker CLI and Compose plugin verification** from
+**daemon status and access in your current session**. Having both commands installed does not
+prove that the daemon is running or that your shell can reach it. If your Docker group
+membership just changed, a fresh login may be needed; use `docker info` to check access from
+the session you intend to use. The optional configuration wizard is separate from installation.
+
+#### Optional local TUI preview
+
+From the repository root, with the project's `.venv` already set up, run:
+
+```bash
+.venv/bin/python -B dev/tui_preview.py
+```
+
+This is a read-only preview with static fixtures: it doesn't detect, install, or update tools.
+Try Up/Down to move, Space to mark, Enter to switch between the plan and fixture detail, and
+`/` to filter (Enter or Esc returns to the list). Check that filtering doesn't drop marked
+tools from the plan and that `q` from the list exits cleanly. Below 80 columns or 16 rows,
+expect a plain preview instead. This checks the fixture UI only, not the installer.
 
 ---
 
@@ -477,7 +527,7 @@ tool the profile doesn't pin.
 ```bash
 devstuff profile apply work.yaml --dry-run   # show the plan; change nothing, ask nothing
 devstuff profile apply work.yaml             # show the plan, ask, then run it
-devstuff profile apply work.yaml --yes       # no question (needed with no terminal)
+devstuff profile apply work.yaml --yes       # skip devstuff confirmation (needed with no terminal)
 devstuff profile apply work.yaml --missing-only   # install what's missing; leave version drift alone
 devstuff profile apply work.yaml --yes --json     # one JSON document on stdout, nothing else
 ```
@@ -505,7 +555,14 @@ installed at latest and then moved. A pin the tool's install type can't honour (
 | `2` | The profile is unreadable or invalid, or the run needs confirming and there is no terminal (add `--yes`). |
 
 With `--json` the document is `{"plan", "run", "rows"}` (`run` is `null` for `--dry-run` or when
-there was nothing to do), `--yes` or `--dry-run` is required, and `-v` has no effect.
+there was nothing to do), `--yes` or `--dry-run` is required, and `-v` has no effect. JSON
+mode cannot enable terminal input, even if launched from a terminal.
+
+Apply steps use the same [managed installer and per-action logs](#installer-input-and-logs)
+as `install`. `--yes` does not grant privileges or opt into installer prompts. If a step
+needs terminal authentication or input, run the trusted tool separately using the
+[explicit terminal opt-in](#installer-input-and-logs) from a real terminal, then rerun
+`profile apply` to recheck the machine.
 
 #### Bundled profiles
 
@@ -525,7 +582,8 @@ devstuff profile diff @essentials
 | `@ai-agents` | claude-code, codex, devin, hey-dave, pi |
 | `@ai-local` | ollama, lmstudio, llm-checker, llamactl |
 
-Bundles pin nothing, so each installs the latest. `docker`, `java`, `php` and `ruby` ask for sudo.
+Bundles pin nothing, so each installs the latest. `docker`, `java`, `php` and `ruby` may need
+sudo privileges; an automated apply will not ask for a password.
 Only a leading `@` marks a bundle; a file whose name starts with `@` is `./@name`. An unknown name
 is exit 2 and lists these. The files are plain profiles in `src/dev_setup/bundles/` — copy one out
 and edit it to make your own.
@@ -1190,8 +1248,9 @@ claude mcp add devstuff -- devstuff mcp --allow-install        # also install_to
 A tool whose flag is off is not hidden but **absent and refused**: a call naming it is answered as an unknown tool.
 Workspace tools (`read_file`, `run_command`, …) never exist here — the client already has files and a shell.
 
-The server has **no terminal**: an installer that needs a `sudo` password fails at once with a message telling the
-client to run `devstuff install <key>` in a terminal, rather than waiting for a password nobody can type.
+The server has **no terminal** and cannot supply a `sudo` password. If a trusted installer
+requires terminal authentication, run it separately from a real terminal with the
+[explicit terminal opt-in](#installer-input-and-logs).
 Logs (`-v`, `-vv`) go to stderr. Design and measurements: [`docs/specs/mcp/`](docs/specs/mcp/).
 
 ### Over HTTP, and as an OpenAPI tool server

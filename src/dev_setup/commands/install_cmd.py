@@ -10,14 +10,16 @@ from rich.markup import escape
 from dev_setup import generic, managers, registry, ui
 from dev_setup.base import Tool
 from dev_setup.commands._plan import plan_for, plan_summary
+from dev_setup.commands.configure_cmd import require_prompt
 
 
 @click.command("install")
-@click.option("-y", "--yes", is_flag=True, help="Skip plan previews and confirmations.")
+@click.option("-y", "--yes", is_flag=True, help="Skip plan previews, confirmations, and setup offers.")
 @click.argument("packages", nargs=-1)
 def install_cmd(packages: tuple[str, ...], yes: bool) -> None:
     """Install packages. Interactive picker when called with no arguments."""
     if not packages:
+        require_prompt("The package picker needs a terminal. Pass package names and --yes for automation.")
         _install_interactive(yes=yes)
         return
 
@@ -103,6 +105,8 @@ def _install_one(
                 f"{', '.join(unresolvable)}"
             )
             return "fail", "unknown requires"
+        if not yes:
+            require_prompt("Installing required tools needs confirmation. Use a terminal or add --yes.")
         if yes or ui.confirm(
             f"{tool.name} requires {', '.join(missing)} — install them first?",
             default=True,
@@ -143,13 +147,15 @@ def _install_one(
         generic.forget_probes()
 
     # A freshly installed tool with a setup wizard is the moment to mention it.
-    from dev_setup.commands.configure_cmd import offer_after_install
-    offer_after_install(tool.key)
+    if not yes:
+        from dev_setup.commands.configure_cmd import offer_after_install
+        offer_after_install(tool.key)
     return "ok", version or "installed"
 
 
 def _confirm_plan(tool: Tool) -> bool:
     """Single-tool plan preview + confirm. Returns True to proceed."""
+    require_prompt("Installation needs confirmation. Use a terminal or add --yes.")
     ui.plan_panel(f"Install {tool.name}", plan_for(tool, "install"))
     return ui.confirm(f"Install {tool.name}?", default=True)
 
@@ -158,6 +164,7 @@ def _confirm_plans(tools: list[Tool]) -> bool:
     """Batch plan preview — one row per tool, one confirm for the run."""
     if len(tools) == 1:
         return _confirm_plan(tools[0])
+    require_prompt("Installation needs confirmation. Use a terminal or add --yes.")
     rows = [(t.key, plan_summary(t, "install")) for t in tools]
     ui.batch_plan_panel(rows, "Install")
     return ui.confirm(f"Install {len(tools)} packages?", default=True)

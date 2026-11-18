@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 import time
 
 import pytest
@@ -140,9 +139,13 @@ def test_task_view_degrades_off_tty():
 class _FakeView:
     def __init__(self):
         self.lines: list[str] = []
+        self.activity = ""
 
     def feed(self, line: str, *, partial: bool = False) -> None:
         self.lines.append(line)
+
+    def set_activity(self, label: str) -> None:
+        self.activity = label
 
     def error_output(self) -> str:
         return "\n".join(self.lines)
@@ -174,36 +177,44 @@ def test_run_returns_when_detached_grandchild_holds_pipe(monkeypatch):
     `read1` loop waited out the sleep; the drained deadline must not."""
     view = _FakeView()
     monkeypatch.setattr(ui, "current_view", lambda: view)
-    monkeypatch.setattr(generic, "_open_run_log", lambda *a, **k: None)
     start = time.monotonic()
-    generic._run(["bash", "-c", "echo hi; sleep 60 &"])
+    generic._run(["bash", "-c", "echo hi; sleep 5 &"])
     assert time.monotonic() - start < 30
     assert "hi" in view.lines
 
 
 def test_run_capture_gives_children_no_stdin(monkeypatch):
-    """Quiet mode has no way to surface a prompt — a child that reads stdin
+    """Managed mode has no way to surface a prompt — a child that reads stdin
     gets EOF and fails fast instead of hanging on input nobody can see."""
     monkeypatch.setattr(ui, "current_view", lambda: None)
-    monkeypatch.setattr(generic, "_open_run_log", lambda *a, **k: None)
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+    with pytest.raises(RuntimeError):
+        generic._run(["bash", "-c", "read x"])
+
+
+def test_run_env_marks_managed_child_noninteractive(monkeypatch):
+    monkeypatch.setattr(ui, "current_view", lambda: None)
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+    monkeypatch.setenv("SUDO_ASKPASS", "/usr/bin/askpass-helper")
     seen = {}
-
-    def fake_run(cmd, **kw):
-        seen.update(kw)
-        return subprocess.CompletedProcess(cmd, 0)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "dev_setup.runner.run", lambda argv, **kw: seen.update(kw)
+    )
     generic._run(["echo", "hi"])
-    assert seen["stdin"] is subprocess.DEVNULL
     assert seen["env"]["DEBIAN_FRONTEND"] == "noninteractive"
+    assert "SUDO_ASKPASS" not in seen["env"]
 
 
 def test_run_appends_output_to_log(monkeypatch, tmp_path):
+    """_run emits child output into the bound action log."""
+    from dev_setup import runner
+
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     monkeypatch.setattr(ui, "current_view", lambda: None)
-    log_file = tmp_path / "install.log"
-    monkeypatch.setattr(generic, "run_log_path", lambda: log_file)
-    generic._run(["bash", "-c", "echo hi; echo oops >&2"])
-    text = log_file.read_text()
+    monkeypatch.delenv("DEVSTUFF_TERMINAL_INPUT", raising=False)
+    with runner.action_log("demo", "install") as log:
+        generic._run(["bash", "-c", "echo hi; echo oops >&2"])
+        text = log.path.read_text()
     assert "hi" in text
     assert "oops" in text
 

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import codecs
+import contextvars
 import functools
 import hashlib
 import os
 import re
-import select
 import shlex
 import shutil
 import subprocess
@@ -13,7 +12,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import NamedTuple, TypeVar
@@ -54,187 +53,166 @@ class UpdateStatus:
 
 
 def run_log_path() -> Path:
-    """The append-only log of state-changing subprocess output."""
-    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "devstuff" / "install.log"
+    """Where failure output lives: the current/last action log file, or the runs
+    directory itself when no action has logged yet. Display-only — callers print
+    it under a failure, nobody opens it here."""
+    from dev_setup import runner
 
-
-def _open_run_log(cmd: list, cwd: Path | None):
-    """Open the run log and write a header for this command. Never raises —
-    logging must not be able to break an install."""
-    try:
-        path = run_log_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        f = path.open("a", encoding="utf-8", errors="replace")
-        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        where = f"  (in {cwd})" if cwd else ""
-        f.write(f"\n=== {stamp} $ {shlex.join(str(c) for c in cmd)}{where} ===\n")
-        f.flush()
-        return f
-    except OSError:
-        return None
+    return runner.last_log_path() or runner.runs_dir()
 
 
 def _run_env() -> dict[str, str]:
-    """Child env for state-changing commands. `DEBIAN_FRONTEND=noninteractive`
-    keeps debconf frontends — a dpkg conffile question, needrestart — from
-    opening a prompt on the tty mid-install, which nothing could see under the
-    live view and which reads as a hang."""
-    return {**os.environ, "DEBIAN_FRONTEND": "noninteractive"}
+    """Child env for a *managed* (session-isolated, no-tty) state-changing run.
+
+    `DEBIAN_FRONTEND=noninteractive` keeps debconf frontends — a dpkg conffile
+    question, needrestart — from opening a prompt on the tty mid-install. For
+    commands run *through* sudo the variable is passed as a sudo env assignment
+    instead (see _managed_argv) — sudo's env_reset filters the process env.
+    `SUDO_ASKPASS` is dropped: a leftover askpass helper could spawn a GUI/agent
+    prompt for a sudo nested where `sudo -n` can't reach — better it fails fast
+    than waits on input nobody can give. Passthrough children get the ambient
+    environment unchanged instead.
+    """
+    env = {**os.environ, "DEBIAN_FRONTEND": "noninteractive"}
+    env.pop("SUDO_ASKPASS", None)
+    return env
 
 
-# Poll cadence for the piped read, and the drain window after the main process
-# exits. A detached grandchild that inherits stdout (a `foo &` or a daemonized
-# installer) would otherwise hold EOF — and the read — open forever after the
-# script itself has exited. The window is fixed, not idle-reset: a daemon that
-# keeps writing must not keep the install running either.
-_PIPE_POLL_S = 0.2
-_ORPHAN_PIPE_GRACE_S = 2.0
+# A single output line the view holds between feed() calls is capped — a
+# line-buffering bug is not allowed to grow memory unboundedly.
+_LINE_BUF_CHARS = 8192
+
+# Set by _run_bash_script / _action_privilege: whether the current child may be
+# doing privileged work (decides the no-SIGKILL termination policy).
+_run_privileged: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "devstuff_run_privileged", default=False
+)
+
+# Advisory only: the action's best-effort "this will use sudo" guess. It decides
+# whether a managed-command failure gets the DEVSTUFF_TERMINAL_INPUT hint — the
+# coarse _run_privileged flag is true for every installer type and would print
+# it on unrelated failures.
+_action_sudo_hint: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "devstuff_action_sudo_hint", default=False
+)
 
 
-def _run(cmd: list, *, cwd: Path | None = None) -> None:
+def _managed_argv(argv: list[str]) -> list[str]:
+    """Argv for a *managed* (session-isolated, no-tty) child.
+
+    A devstuff-owned top-level `sudo` becomes `sudo -n`: the child has no
+    controlling terminal, so an interactive prompt would die on "no tty"
+    anyway — -n makes that failure fast and explicit instead of a wait that
+    reads as a hang. For apt the noninteractive frontend goes as a sudo env
+    assignment, which sudo honors where it filters the process env. Scripts
+    containing sudo are opaque and untouched — for them the managed context
+    (no tty, no stdin, no SUDO_ASKPASS) is what makes a hidden prompt fail
+    fast instead of hang."""
+    if not argv or os.path.basename(argv[0]) != "sudo":
+        return argv
+    rest = argv[1:]
+    if rest and rest[0] == "apt-get":
+        rest = ["DEBIAN_FRONTEND=noninteractive", *rest]
+    return ["sudo", "-n", *rest]
+
+
+def _privileged_argv(argv: list[str]) -> bool:
+    """May this child run a root transaction? Decides whether termination may
+    ever escalate to SIGKILL — it may not for privileged work. `sudo` anywhere
+    in the argv counts; script bodies are flagged by _run_bash_script instead."""
+    if _run_privileged.get():
+        return True
+    if argv and os.path.basename(argv[0]) == "sudo":
+        return True
+    return any("sudo" in a for a in argv[1:])
+
+
+def _emits_xtrace(argv: list[str]) -> bool:
+    return bool(argv) and os.path.basename(argv[0]) == "bash" and "-x" in argv[1:]
+
+
+def _run(cmd: list, *, cwd: Path | None = None, timeout: float | None = None) -> None:
     """Run a state-changing command (install/remove/update). Raises RuntimeError on failure.
 
-    Three output modes: streams raw when verbose; feeds the live tail of the
-    active task view when there is one; otherwise captures — discarded on success
-    and surfaced as the exception message on failure, which is the only reason
-    quiet mode can say anything useful about what went wrong. All modes write
-    the captured output to `run_log_path()`.
+    Every render mode runs through runner.run's one supervised lifecycle; only
+    presentation differs here: the active task view gets fed line-split output,
+    -v/-vv streams the raw text to stderr, and quiet mode relies on the runner's
+    bounded tail for the failure message. Machine mode never gets a view, a
+    stream, or a passthrough. `timeout` exists for bounded operations (the apt
+    refresh passes 180); ordinary installs run unbounded.
     """
-    from dev_setup import ui
+    from dev_setup import runner, ui
 
     verbose.command(cmd, cwd=cwd)
-    view = ui.current_view()
-    if view is not None:
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                env=_run_env(),
-                # stdin stays inherited: a `read`-style prompt inside an
-                # installer shows in the tail (a partial line) and can be
-                # answered on the terminal. sudo never reaches here prompting —
-                # _sudo_session validates credentials before the view opens.
-            )
-        except OSError as e:
-            raise RuntimeError(str(e)) from e
-        assert proc.stdout is not None
-        # Chunked read, not line iteration: a `sudo` password prompt or a curl
-        # progress bar emits no newline, so `for line in proc.stdout` would
-        # leave it buffered in the pipe while the process waits on input —
-        # the terminal looks hung. \r counts as a display boundary too, and
-        # the trailing partial line is pushed to the tail so the prompt is
-        # visible while the process is still waiting.
-        #
-        # The read is select()-polled so EOF is not required for exit: once the
-        # main process is dead the pipe gets a short drain window, then remaining
-        # writers are detached grandchildren we must not wait on — whether the
-        # pipe is quiet or a daemon is still streaming into it.
-        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        buf = ""
-        log = _open_run_log(cmd, cwd)
-        try:
-            drain_until: float | None = None
-            while True:
-                ready = select.select([proc.stdout], [], [], _PIPE_POLL_S)[0]
-                if proc.poll() is not None:
-                    # Main process dead — the drain deadline is checked every
-                    # pass, not only on a quiet pipe, so a detached writer that
-                    # keeps select() ready still can't hold the loop open.
-                    if drain_until is None:
-                        drain_until = time.monotonic() + _ORPHAN_PIPE_GRACE_S
-                    elif time.monotonic() > drain_until:
-                        break
-                if not ready:
-                    continue
-                chunk = proc.stdout.read1(65536)
-                if not chunk:
-                    break  # EOF — every writer closed the pipe
-                text = decoder.decode(chunk)
-                if log is not None:
-                    try:
-                        log.write(text)
-                        log.flush()
-                    except OSError:
-                        # logging must never break the install
-                        try:
-                            log.close()
-                        except OSError:
-                            pass
-                        log = None
-                buf += text
-                *done, buf = re.split(r"\r\n|\r|\n", buf)
-                for line in done:
-                    view.feed(line)
-                if buf:
-                    view.feed(buf, partial=True)
-            if buf:
-                view.feed(buf)
-            rc = proc.wait()
-        except BaseException:
-            # Ctrl+C or a render error must not leave the installer running
-            # detached with a pipe nobody reads.
-            proc.kill()
-            proc.wait()
-            raise
-        finally:
-            if log is not None:
-                try:
-                    log.close()
-                except OSError:
-                    pass
-        if rc != 0:
-            raise RuntimeError(view.error_output() or f"exit code {rc}")
-    elif verbose.enabled():
-        try:
-            subprocess.run(cmd, check=True, cwd=cwd, env=_run_env())
-        except subprocess.CalledProcessError as e:
-            # The output already streamed past; repeating the whole argv in the error
-            # adds nothing the user can't see directly above it.
-            raise RuntimeError(f"exit code {e.returncode}") from e
-    else:
-        log = _open_run_log(cmd, cwd)
-        try:
-            done = subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-                cwd=cwd,
-                # No view means no way to surface a prompt — a child that
-                # reads stdin gets EOF and fails fast instead of hanging.
-                stdin=subprocess.DEVNULL,
-                env=_run_env(),
-            )
-            if log is not None:
-                try:
-                    log.write(done.stdout or "")
-                    log.write(done.stderr or "")
-                except OSError:
-                    pass
-        except subprocess.CalledProcessError as e:
-            if log is not None:
-                try:
-                    log.write(e.stdout or "")
-                    log.write(e.stderr or "")
-                except OSError:
-                    pass
-            msg = e.stderr.strip() if e.stderr else f"exit code {e.returncode}"
-            raise RuntimeError(msg) from e
-        finally:
-            if log is not None:
-                try:
-                    log.close()
-                except OSError:
-                    pass
+    passthrough = runner.passthrough_allowed()
+    argv = _managed_argv([str(c) for c in cmd]) if not passthrough else [str(c) for c in cmd]
+    machine = runner.is_machine_mode()
+    view = None if machine else ui.current_view()
+    stream = verbose.enabled() and not machine
+    privileged = _privileged_argv(argv)
+    buf = ""
 
+    def on_output(text: str) -> None:
+        nonlocal buf
+        if stream:
+            try:
+                sys.stderr.write(text)
+                sys.stderr.flush()
+            except OSError:
+                pass
+        if view is None:
+            return
+        buf += text
+        while len(buf) > _LINE_BUF_CHARS:
+            view.feed(buf[:_LINE_BUF_CHARS], partial=True)
+            buf = buf[_LINE_BUF_CHARS:]
+        *done, buf = re.split(r"\r\n|\r|\n", buf)
+        for line in done:
+            view.feed(line)
+        if buf:
+            view.feed(buf, partial=True)
 
-# How long a single sudo timestamp is kept alive between refreshes. Well under
-# sudo's default 15-minute timestamp_timeout so a long `sudo sh installer.sh`
-# can't expire it before the script's next sudo call.
-_SUDO_KEEPALIVE_S = 60.0
+    try:
+        # At -vv a `bash -x` script's xtrace output is still streamed to stderr,
+        # but the expanded trace is not persisted — secrets would leak into it.
+        with runner.suppress_log_output() if _emits_xtrace(argv) else nullcontext():
+            runner.run(
+                argv,
+                cwd=cwd,
+                # Passthrough owns the terminal: ambient env, no askpass removal
+                # — a sudo inside it is supposed to be able to prompt.
+                env=None if passthrough else _run_env(),
+                on_output=on_output,
+                on_draining=(
+                    (lambda: view.set_activity("Finishing output"))
+                    if view is not None
+                    else None
+                ),
+                timeout=timeout,
+                privileged=privileged,
+                passthrough=passthrough,
+            )
+    except runner.Failed as e:
+        # The runner's tail belongs to *this* command — the view's error buffer
+        # may hold a previous command's lines or miss a final no-newline write.
+        # When streaming, the output already went by — don't repeat it.
+        msg = f"exit code {e.rc}" if stream else e.tail.strip() or f"exit code {e.rc}"
+        sudoish = _action_sudo_hint.get() or os.path.basename(argv[0]) == "sudo"
+        # Terminal passthrough is only a remedy where a terminal exists.
+        tty = False
+        try:
+            tty = sys.stdin.isatty()
+        except (OSError, ValueError):
+            pass
+        if sudoish and not passthrough and tty:
+            msg += (
+                "\nIf your sudo policy requires terminal authentication, rerun "
+                "trusted installers with DEVSTUFF_TERMINAL_INPUT=1."
+            )
+        # Keep the type: _run_apt_update tolerates Failed but not TimedOut.
+        raise runner.Failed(e.rc, e.tail, message=msg) from e
+    if view is not None and buf:
+        view.feed(buf)
 
 
 def _may_need_sudo(tool: GenericTool, action: str) -> bool:
@@ -275,60 +253,36 @@ def needs_sudo(tool: Tool, action: str = "install") -> bool:
     return _may_need_sudo(tool, action)
 
 
+# Install types whose children can do privileged work we cannot see by
+# scanning argv: opaque script bodies, git clone hooks, and package lifecycle
+# scripts (maintainer scripts, npm lifecycle hooks). They get the no-SIGKILL
+# termination precaution even when no literal `sudo` appears.
+_OPAQUE_PRIVILEGED_TYPES = {"apt", "script", "bash", "git", "npm", "pip", "uvx"}
+
+
 @contextmanager
-def _sudo_session(tool: GenericTool, action: str) -> Generator[None, None, None]:
-    """Cache sudo credentials before the live task view owns the terminal, then
-    keep the timestamp fresh for the run.
+def _action_privilege(tool: GenericTool, action: str) -> Generator[None, None, None]:
+    """Mark the action's managed children as potentially privileged.
 
-    sudo writes its password prompt to /dev/tty, not the subprocess pipe — under
-    the live view the prompt is invisible and overwritten by repaints, so a
-    mid-install sudo reads exactly like a hang. Validating first moves the one
-    prompt to the plain terminal where it can be answered; the keepalive thread
-    stops the timestamp expiring during a long install. Passwordless or
-    already-cached sudo needs no prompt at all.
+    There is no sudo *preflight*: a detached `sudo -n -v` can't prove the
+    per-command authorization sudo actually checks, and it falsely rejected
+    scoped NOPASSWD rules. Instead `_may_need_sudo`'s advisory guess plus the
+    opaque-type set decide whether termination may ever escalate to SIGKILL —
+    owned commands still get `sudo -n` rewriting, opaque bodies don't, and
+    real auth failures surface as the child's own exit + tail.
     """
-    if not _may_need_sudo(tool, action) or not shutil.which("sudo"):
-        yield
-        return
-    cached = (
-        subprocess.run(["sudo", "-n", "-v"], capture_output=True).returncode == 0
+    privileged = _may_need_sudo(tool, action) or tool.install_type in (
+        _OPAQUE_PRIVILEGED_TYPES
     )
-    if not cached:
-        if not sys.stdin.isatty():
-            # Nowhere to ask — a child sudo either is passwordless (already
-            # answered above) or fails fast with "a password is required".
-            yield
-            return
-        # stderr, not ui.dim on the stdout console: `profile apply --json` can
-        # reach this with stdout piped, and a chatter line there breaks the
-        # data contract. The sudo prompt itself is on /dev/tty either way.
-        from rich.console import Console
-        err = Console(stderr=True, highlight=False)
-        err.print(
-            f"  {tool.name} needs sudo — the password prompt comes before "
-            "the progress view:",
-            style="dim",
-        )
-        if subprocess.run(["sudo", "-v"]).returncode != 0:
-            err.print(
-                "  sudo credentials not cached — if the installer asks, the "
-                "prompt appears directly on the terminal.",
-                style="bold yellow",
-            )
-            yield
-            return
-    stop = threading.Event()
-
-    def _keepalive() -> None:
-        while not stop.wait(_SUDO_KEEPALIVE_S):
-            subprocess.run(["sudo", "-n", "-v"], capture_output=True)
-
-    ticker = threading.Thread(target=_keepalive, daemon=True, name="sudo-keepalive")
-    ticker.start()
+    tokens = (
+        _run_privileged.set(privileged),
+        _action_sudo_hint.set(_may_need_sudo(tool, action)),
+    )
     try:
         yield
     finally:
-        stop.set()
+        _run_privileged.reset(tokens[0])
+        _action_sudo_hint.reset(tokens[1])
 
 
 def _probe(cmd: list, *, log_at: int = verbose.TRACE, **kwargs) -> subprocess.CompletedProcess:
@@ -447,12 +401,31 @@ class GenericTool(Tool):
         installer = _INSTALLERS.get(self.install_type)
         if installer is None:
             raise RuntimeError(f"Unsupported install type: {self.install_type!r}")
-        from dev_setup import ui
-        with _sudo_session(self, "install"), ui.task_view(
-            f"Installing {self.name}", total=len(self.plan_items("install")) + 1
+        from dev_setup import runner, ui
+        with (
+            _action_privilege(self, "install"),
+            runner.action_log(self.key, "install"),
+            ui.task_view(
+                f"Installing {self.name}", total=len(self.plan_items("install")) + 1,
+                force_plain=runner.passthrough_allowed(),
+            )
+            if not runner.is_machine_mode()
+            else nullcontext(),
         ):
             installer(self)
             with ui.phase("Verify install"):
+                # The catalog's declared postcondition, not the display
+                # version: `docker`'s check_cmd covers the Compose plugin a
+                # bare `docker --version` would never notice missing. A tool
+                # with no declared check keeps the get_version fallback below —
+                # broader verification discovery is a follow-up.
+                if self.check_cmd and not _check_cmd_installed(
+                    self.check_cmd, install_type=self.install_type, strict=True
+                ):
+                    raise RuntimeError(
+                        f"{self.name}: command completed, but the catalog "
+                        "install check did not pass."
+                    )
                 version = self.get_version()
         return version or None
 
@@ -460,9 +433,16 @@ class GenericTool(Tool):
         remover = _REMOVERS.get(self.install_type)
         if remover is None:
             raise RuntimeError(f"Unsupported remove type: {self.install_type!r}")
-        from dev_setup import ui
-        with _sudo_session(self, "remove"), ui.task_view(
-            f"Removing {self.name}", total=len(self.plan_items("remove"))
+        from dev_setup import runner, ui
+        with (
+            _action_privilege(self, "remove"),
+            runner.action_log(self.key, "remove"),
+            ui.task_view(
+                f"Removing {self.name}", total=len(self.plan_items("remove")),
+                force_plain=runner.passthrough_allowed(),
+            )
+            if not runner.is_machine_mode()
+            else nullcontext(),
         ):
             remover(self)
 
@@ -471,12 +451,26 @@ class GenericTool(Tool):
         updater = _UPDATERS.get(self.install_type)
         if updater is None:
             raise RuntimeError(f"Unsupported update type: {self.install_type!r}")
-        from dev_setup import ui
-        with _sudo_session(self, "update"), ui.task_view(
-            f"Updating {self.name}", total=len(self.plan_items("update", version)) + 1
+        from dev_setup import runner, ui
+        with (
+            _action_privilege(self, "update"),
+            runner.action_log(self.key, "update"),
+            ui.task_view(
+                f"Updating {self.name}", total=len(self.plan_items("update", version)) + 1,
+                force_plain=runner.passthrough_allowed(),
+            )
+            if not runner.is_machine_mode()
+            else nullcontext(),
         ):
             updater(self, version)
             with ui.phase("Verify"):
+                if self.check_cmd and not _check_cmd_installed(
+                    self.check_cmd, install_type=self.install_type, strict=True
+                ):
+                    raise RuntimeError(
+                        f"{self.name}: command completed, but the catalog "
+                        "install check did not pass."
+                    )
                 new_version = self.get_version()
         return new_version or None
 
@@ -809,7 +803,7 @@ def forget_probes() -> None:
     may have added a repo, which the next apt install can only see after a real update.
     """
     global _apt_refreshed_at
-    _apt_refreshed_at = 0.0
+    _apt_refreshed_at = None
     for memo in _MEMOS:
         memo.cache_clear()  # type: ignore[attr-defined]
 
@@ -1295,8 +1289,10 @@ def _npm_global_installed(pkg: str) -> bool:
 # Last successful `apt-get update` this process. Batch installs used to refresh
 # the lists once per apt tool — N packages cost N updates at 5-30s each. Lists
 # younger than this are fresh enough for anything the same command run installs.
+# None means "never refreshed" — not 0.0, which is a real monotonic time on a
+# freshly booted machine and read the *first* refresh as already fresh.
 _APT_REFRESH_MIN_S = 600.0
-_apt_refreshed_at: float = 0.0
+_apt_refreshed_at: float | None = None
 
 
 def _run_apt_update() -> None:
@@ -1304,30 +1300,30 @@ def _run_apt_update() -> None:
     stop an install of a package that may already be cached. Skipped if the lists
     were refreshed within this process in the last few minutes."""
     global _apt_refreshed_at
-    from dev_setup import ui
-    if time.monotonic() - _apt_refreshed_at < _APT_REFRESH_MIN_S:
+    from dev_setup import runner, ui
+    if _apt_refreshed_at is not None and (
+        time.monotonic() - _apt_refreshed_at < _APT_REFRESH_MIN_S
+    ):
         verbose.log("apt-get update skipped — lists refreshed moments ago")
         view = ui.current_view()
         if view is not None:
             view.feed("package lists already fresh — skipping update")
         return
-    if ui.current_view() is not None:
-        try:
-            _run(["sudo", "apt-get", "update", "-q"])
-            _apt_refreshed_at = time.monotonic()
-        except RuntimeError:
-            pass
+    try:
+        _run(["sudo", "apt-get", "update", "-q"], timeout=180)
+    except runner.Failed:
+        # Nonzero exit is tolerated — a dead mirror shouldn't block an install
+        # whose package is already cached. A *timeout* is not tolerated: it
+        # propagates rather than launching an apt transaction behind an
+        # unresolved (possibly still-locked) update.
+        warning = "apt-get update failed — continuing with existing package lists"
+        runner.note(warning)
+        verbose.log(warning)
+        view = ui.current_view()
+        if view is not None:
+            view.feed(warning)
     else:
-        try:
-            r = _probe(
-                ["sudo", "apt-get", "update", "-q"],
-                log_at=verbose.VERBOSE,
-                timeout=180,
-            )
-            if r.returncode == 0:
-                _apt_refreshed_at = time.monotonic()
-        except Exception:
-            pass
+        _apt_refreshed_at = time.monotonic()
 
 
 def _npm_init() -> str:
@@ -1378,11 +1374,16 @@ def _run_bash_script(script: str) -> None:
         tmp = f.name
     verbose.trace(f"script → {tmp}")
     verbose.block(script)
+    # Opaque bodies get the no-SIGKILL precaution unconditionally: a literal
+    # `sudo` grep can't see `eval`, a helper function, or an installer that
+    # escalates through its own binary.
+    token = _run_privileged.set(True)
     try:
         # -x at -vv traces each expanded command to stderr as the script runs, which is
         # the only way to see where a downloaded installer actually failed.
         _run(["bash", *(["-x"] if verbose.enabled(verbose.TRACE) else []), tmp])
     finally:
+        _run_privileged.reset(token)
         os.unlink(tmp)
 
 
@@ -1418,33 +1419,45 @@ def _bash_version(key: str) -> str:
     return ""
 
 
-def _check_cmd_installed(cmd: str, *, install_type: str = "") -> bool:
-    # `bash -lc` sources ~/.profile — an interactive command there (ssh-add,
-    # keychain, read) would hang the CLI with no output and no task view yet.
-    # The timeout bounds that at 15s; a `command -v` never legitimately takes
-    # that long, and a timeout reads as "not installed", not a crash.
+def _check_cmd_installed(
+    cmd: str, *, install_type: str = "", strict: bool = False
+) -> bool:
+    """Run the catalog's declared install check. Shallow semantics: a simple
+    command is a `command -v` (with a PATH fast path), anything else runs as a
+    `bash -lc` line. `strict=True` is the post-install postcondition: a probe
+    that could not run raises `could not verify` rather than reading as a
+    negative. Non-strict callers (listings) keep indeterminate → False.
+
+    `bash -lc` sources ~/.profile — an interactive command there (ssh-add,
+    keychain, read) would hang the CLI; the 15s timeout bounds that, and the
+    probe gets no stdin and its own session so it can never borrow the tty.
+    """
+    # Same nvm sourcing in both branches: `bash -lc` reads ~/.profile, whose
+    # sourcing of ~/.bashrc (where nvm's init lives) returns early when the
+    # shell is non-interactive — so an nvm-installed binary is never on PATH
+    # without it.
+    prefix = f"{_npm_init()} && " if install_type == "npm" else ""
     if _is_simple_command(cmd):
         if shutil.which(cmd) is not None:
             return True
-        # Only source nvm for npm-type tools — avoids unnecessary shell overhead
-        prefix = f"{_npm_init()} && " if install_type == "npm" else ""
-        try:
-            return _probe(
-                ["bash", "-lc", f"{prefix}command -v {cmd} >/dev/null 2>&1"],
-                capture_output=True,
-                timeout=15,
-            ).returncode == 0
-        except Exception:
-            return False
-    # Same nvm sourcing as the simple-command branch above. `bash -lc` reads ~/.profile,
-    # whose sourcing of ~/.bashrc (where nvm's init lives) returns early when the shell
-    # is non-interactive — so an nvm-installed binary is never on PATH here. Without
-    # this, any npm-type tool with a multi-word check_cmd reports "not installed"
-    # immediately after installing successfully.
-    prefix = f"{_npm_init()} && " if install_type == "npm" else ""
+        shell_line = f"{prefix}command -v {cmd} >/dev/null 2>&1"
+    else:
+        shell_line = f"{prefix}{cmd}"
     try:
         return _probe(
-            ["bash", "-lc", f"{prefix}{cmd}"], capture_output=True, timeout=15
+            ["bash", "-lc", shell_line],
+            capture_output=True,
+            timeout=15,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
         ).returncode == 0
+    except (subprocess.TimeoutExpired, OSError) as e:
+        if strict:
+            raise RuntimeError(
+                f"could not verify the catalog install check ({e})"
+            ) from e
+        return False
     except Exception:
+        if strict:
+            raise
         return False

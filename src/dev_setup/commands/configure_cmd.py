@@ -5,8 +5,21 @@ from pathlib import Path
 
 import click
 import questionary
+from rich.markup import escape
 
 from dev_setup import configure, registry, ui
+
+
+def can_prompt() -> bool:
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+def require_prompt(message: str) -> None:
+    if not can_prompt():
+        raise click.UsageError(message)
 
 
 @click.command("configure")
@@ -30,13 +43,8 @@ def configure_cmd(
         _print_list()
         return
 
-    interactive = sys.stdin.isatty()
-
     if tool is None:
-        if not interactive:
-            ui.error("Specify a tool to configure.")
-            _print_list()
-            sys.exit(1)
+        require_prompt("The configurator picker needs a terminal. Use --list to see the available tools.")
         tool = _pick()
         if tool is None:
             return
@@ -47,15 +55,13 @@ def configure_cmd(
         _print_list()
         sys.exit(1)
 
-    module = spec.load()
+    if not show_path:
+        require_prompt(f"Run 'devstuff configure {spec.key}' in a terminal to use the wizard.")
 
+    module = spec.load()
     if show_path:
         click.echo(str(module.config_path()))
         return
-
-    if not interactive:
-        ui.error(f"devstuff configure {spec.key} needs a terminal.")
-        sys.exit(1)
 
     if not _is_installed(spec.key):
         ui.warn(f"{spec.label} is not installed — the wizard can still write a config.")
@@ -65,11 +71,8 @@ def configure_cmd(
 
     try:
         module.run(target=output)
-    except (KeyboardInterrupt, EOFError):
-        ui.console.print()
-        ui.dim("Cancelled — nothing was written.")
     except OSError as exc:
-        ui.error(f"Could not write the configuration: {exc}")
+        ui.error(f"Could not write the configuration: {escape(str(exc))}")
         sys.exit(1)
 
 
@@ -78,20 +81,19 @@ def offer_after_install(key: str) -> None:
 
     Called from `install_cmd`; silent for tools without a configurator.
     """
-    spec = configure.get(key)
-    if spec is None or not sys.stdin.isatty():
+    if not can_prompt() or (spec := configure.get(key)) is None:
         return
     ui.console.print()
-    if not ui.confirm(f"Set up {spec.label} now? ({spec.description.lower()})", default=True):
+    if not ui.confirm(
+        f"Optional — not part of the install: Set up {spec.label} now? ({spec.description.lower()})",
+        default=True,
+    ):
         ui.dim(f"You can run it later:  devstuff configure {spec.key}")
         return
     try:
         spec.load().run()
-    except (KeyboardInterrupt, EOFError):
-        ui.console.print()
-        ui.dim(f"Skipped — run it later with:  devstuff configure {spec.key}")
     except OSError as exc:
-        ui.error(f"Could not write the configuration: {exc}")
+        ui.error(f"Could not write the configuration: {escape(str(exc))}")
 
 
 def _is_installed(key: str) -> bool:

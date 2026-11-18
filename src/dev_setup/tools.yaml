@@ -282,23 +282,81 @@ tools:
     docs_url: https://docs.docker.com
     install_script: |
       set -euo pipefail
+      echo "Docker: Download upstream installer"
       tmp="$(mktemp --suffix=.sh)"
       trap 'rm -f "$tmp"' EXIT
       curl --connect-timeout 15 --max-time 300 -fsSL https://get.docker.com -o "$tmp"
+
+      echo "Docker: Run upstream installer"
       sudo sh "$tmp"
+
+      echo "Docker: Set up docker group membership"
       user="${USER:-}"
-      if [ -n "$user" ] && groups "$user" | grep -qv '\bdocker\b'; then
-        sudo usermod -aG docker "$user"
+      if [ -z "$user" ]; then
+        echo "Docker: Skipping group setup because USER is unset or empty." >&2
+      elif ! user_groups="$(id -nG "$user")"; then
+        echo "Docker: Could not look up group membership; skipping group setup." >&2
+      elif [[ " $user_groups " != *" docker "* ]]; then
+        if ! sudo usermod -aG docker "$user"; then
+          echo "Docker: Could not add the user to the docker group." >&2
+          exit 1
+        fi
         echo "Log out and back in for docker group membership to take effect."
       fi
-      sudo systemctl enable docker 2>/dev/null || true
-      sudo systemctl start docker 2>/dev/null || true
-      if ! docker compose version >/dev/null 2>&1; then
-        sudo apt-get install -y docker-compose-plugin 2>/dev/null \
-          || sudo yum install -y docker-compose-plugin 2>/dev/null \
-          || sudo dnf install -y docker-compose-plugin 2>/dev/null \
-          || true
+
+      echo "Docker: Enable and start docker.service with systemd"
+      if [ -d /run/systemd/system ] && command -v systemctl >/dev/null; then
+        if ! sudo systemctl enable docker; then
+          echo "Docker: Warning: could not enable docker.service at boot." >&2
+        fi
+        if ! sudo systemctl start docker; then
+          echo "Docker: Warning: could not start docker.service." >&2
+        fi
+      else
+        echo "Docker: Skipping service setup because systemd or systemctl is unavailable." >&2
       fi
+
+      echo "Docker: Check whether Compose needs the package-manager fallback"
+      if ! command -v timeout >/dev/null; then
+        echo "Docker: Verification error: timeout is unavailable; not attempting the Compose fallback." >&2
+        exit 1
+      fi
+      compose_status=0
+      timeout 15s docker compose version || compose_status=$?
+      case "$compose_status" in
+        124|137)
+          echo "Docker: Verification error: the Compose probe timed out or was killed; not attempting the fallback." >&2
+          exit "$compose_status"
+          ;;
+        125|126|127)
+          echo "Docker: Verification error: could not run the bounded Compose probe; not attempting the fallback." >&2
+          exit "$compose_status"
+          ;;
+      esac
+      if [ "$compose_status" -ge 128 ]; then
+        echo "Docker: Verification error: the Compose probe was interrupted; not attempting the fallback." >&2
+        exit "$compose_status"
+      fi
+      if [ "$compose_status" -ne 0 ]; then
+        echo "Docker: Install Compose plugin via package-manager fallback"
+        if command -v apt-get >/dev/null; then
+          package_manager=apt-get
+        elif command -v dnf >/dev/null; then
+          package_manager=dnf
+        elif command -v yum >/dev/null; then
+          package_manager=yum
+        else
+          package_manager=
+        fi
+        if [ -z "$package_manager" ]; then
+          echo "Docker: No supported package manager found for the Compose plugin." >&2
+        elif ! sudo "$package_manager" install -y docker-compose-plugin; then
+          echo "Docker: Compose plugin fallback failed; leaving verification to devstuff." >&2
+        fi
+      fi
+
+      echo "Docker: Hand off bounded Docker CLI and Compose verification to devstuff"
+      echo "Docker: Daemon health and current-session Docker access were not checked."
     remove_script: |
       set -euo pipefail
       sudo systemctl stop docker 2>/dev/null || true

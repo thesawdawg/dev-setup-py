@@ -8,12 +8,13 @@ machine*, not from whether an installer returned. One fake installs nothing and 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
+from click.testing import CliRunner, _NamedTextIOWrapper
 
-from dev_setup import bundles, profile, registry, ui, verbose
+from dev_setup import bundles, profile, registry, runner, ui, verbose
 from dev_setup.cli import cli
 from dev_setup.commands import profile_cmd
 from dev_setup.profile import Entry, Profile
@@ -462,15 +463,31 @@ def test_json_run_reports_the_steps_and_the_final_rows(world, tmp_path):
     assert {r["key"]: r["state"] for r in doc["rows"]} == {"a": "ok", "b": "missing"}
 
 
-def test_json_stdout_is_pure_even_when_installers_print_and_verbose_is_on(world, tmp_path):
-    world(Fake("a", chatty=True))
+def test_json_uses_machine_mode_even_on_a_terminal_and_keeps_stdout_pure(
+    world, tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(_NamedTextIOWrapper, "isatty", lambda self: True)
+    monkeypatch.setattr(ui, "print_banner", lambda: pytest.fail("banner under --json"))
+    monkeypatch.setattr(ui, "confirm", lambda *a, **kw: pytest.fail("prompt under --json"))
+    (tool,) = world(Fake("a", chatty=True))
+    original_install = tool.install
+
+    def install():
+        # Redirecting stdout to a terminal's stderr is not a non-TTY signal.
+        assert sys.stdin.isatty() and sys.stdout.isatty()
+        assert runner.is_machine_mode(), "installer must run in explicit machine mode"
+        return original_install()
+
+    monkeypatch.setattr(tool, "install", install)
 
     result = apply(str(write(tmp_path, a=None)), "--yes", "--json", extra=["-v"])
 
+    assert result.exit_code == 0, result.output
     json.loads(result.stdout)  # parses as exactly one document: nothing else on stdout
     assert "installer output for a" in result.stderr  # the noise went somewhere visible
     assert EVENTS_LEVEL == [verbose.QUIET]  # streaming installer output is off under --json
     assert verbose.level() == verbose.VERBOSE  # and -v is back afterwards, as the user set it
+    assert not runner.is_machine_mode()
 
 
 def test_json_restores_the_verbosity_it_found(world, tmp_path):
