@@ -1,3 +1,14 @@
+## v2.28.0 (2026-11-20)
+
+### Features
+
+- **tui**: add a profile-first workspace and optional chat
+- **tui**: add read-only catalog browser
+
+### Bug Fixes
+
+- **install**: supervise installers and refresh terminal progress
+
 ## v2.27.0 (2026-11-16)
 
 ### Features
